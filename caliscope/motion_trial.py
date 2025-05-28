@@ -6,6 +6,7 @@ import pandas as pd
 
 from caliscope.packets import XYZPacket
 from caliscope.trackers.tracker_enum import TrackerEnum
+from caliscope import logger
 
 
 @dataclass
@@ -60,4 +61,11 @@ class MotionTrial:
 
     def update_wireframe(self, sync_index: int):
         xyz_packet = self.get_xyz(sync_index)
-        self.wireframe.set_points(xyz_packet)
+
+        #check to ensure self.wireframe is not None
+        if self.wireframe is not None:
+            self.wireframe.set_points(xyz_packet)
+        else:
+            #log a debug message if you want to know when it's skipped
+            logger.get(__name__).debug(f"Skipping wireframe update for sync index {sync_index}: self.wireframe is None.")
+            pass # Do nothing if wireframe is not set up
