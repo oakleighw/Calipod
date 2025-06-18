@@ -56,6 +56,9 @@ class CaptureVolume:
         """
         cam_world_origins = self.camera_array.get_world_origins()
 
+        for i, origin in enumerate(cam_world_origins):
+            logger.info(f"Camera {i} Origin: X={origin[0]:.4f}, Y={origin[1]:.4f}, Z={origin[2]:.4f}")
+
         return cam_world_origins
 
     @property
@@ -69,14 +72,13 @@ class CaptureVolume:
 
         return rmse
     
-    @property
-    def cam_distances(self):
+    def cam_distances(self,type = None):
         """
         Returns a dictionary that shows the distance between each optical centre
         """
         #get camera origins
         interdist = {}
-        cam_origins = self.get_cam_origins().T
+        cam_origins = self.get_cam_origins()
         
         for i, port in enumerate(np.unique(self.point_estimates.camera_indices)):
             
@@ -85,9 +87,9 @@ class CaptureVolume:
 
             logger.info(f"port, i, len unique -1 {port} {i} {len(np.unique(self.point_estimates.camera_indices))}")
             if i == len(np.unique(self.point_estimates.camera_indices))-1: #if end of list (last port), get distance between last port (current) and first port
-                interdist[f"{str(port)}-{str(first_port)}"] = self.cam_dist(cam_origins[i],cam_origins[0])
+                interdist[f"{str(port)}-{str(first_port)}"] = self.cam_dist(cam_origins[i],cam_origins[0],type)
             else:#get distance between current and next port cam origin
-                interdist[f"{str(port)}-{str(port+1)}"] = self.cam_dist(cam_origins[i],cam_origins[i+1])
+                interdist[f"{str(port)}-{str(port+1)}"] = self.cam_dist(cam_origins[i],cam_origins[i+1],type)
                 
         return interdist
 
@@ -102,17 +104,34 @@ class CaptureVolume:
 
         return rmse_string
     
-    def cam_dist(self,origin1,origin2): #distance between two 3d points
-        p1 = np.array(origin1)
-        p2 = np.array(origin2)
+    def cam_dist(self,origin1,origin2, type = None): #distance between two 3d points
+        if type == 'vertical': #z
+            p1 = np.array(origin1[2])
+            p2 = np.array(origin2[2])
+        elif type == 'horizontal': #xy
+            p1 = np.array(origin1[0:2])
+            p2 = np.array(origin2[0:2])
+        else: #full 3D distance
+            p1 = origin1
+            p2 = origin2
         cam_dist = np.linalg.norm(p1-p2)
         return cam_dist
     
     def get_cam_distance_summary(self):
-        cam_dist_string = f"Distance between lens optical centres: \n"
+        cam_dist_string = f"Distance between lens optical centres (Total): \n"
         cam_dist_string += "    by camera:\n"
-        for key, value in self.cam_distances.items():
-            cam_dist_string += f"    {key: >9}: {round(float(value),2)}\n"
+        for key, value in self.cam_distances().items():
+            cam_dist_string += f"    {key: >9}: {round(float(value)*100,3)} cm\n"# x100 for cm
+
+        cam_dist_string += f"(xy): \n"
+        cam_dist_string += "    by camera:\n"
+        for key, value in self.cam_distances('horizontal').items():
+            cam_dist_string += f"    {key: >9}: {round(float(value)*100,3)} cm\n"# x100 for cm
+
+        cam_dist_string += f"(z): \n"
+        cam_dist_string += "    by camera:\n"
+        for key, value in self.cam_distances('vertical').items():
+            cam_dist_string += f"    {key: >9}: {round(float(value)*100,3)} cm\n"# x100 for cm
 
         return cam_dist_string
 
