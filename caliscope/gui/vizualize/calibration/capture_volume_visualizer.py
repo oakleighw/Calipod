@@ -41,12 +41,18 @@ class CaptureVolumeVisualizer:
 
         # build meshes for all cameras
         self.meshes = {}
+        self.origin_points = {}
         for port, cam in self.camera_array.cameras.items():
             print(port)
             print(cam)
-            mesh: CameraMesh = mesh_from_camera(cam)
+            # mesh: CameraMesh = mesh_from_camera(cam)
+            mesh, origin_point = mesh_from_camera(cam)
+            mesh: CameraMesh = mesh
+            origin_point: CameraMesh = origin_point
             self.meshes[port] = mesh
+            self.origin_points[port] = origin_point
             self.scene.addItem(mesh)
+            self.scene.addItem(origin_point)
 
         # self.scene.show()
 

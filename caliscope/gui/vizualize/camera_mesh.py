@@ -39,6 +39,16 @@ class CameraMesh:
         )
         self.mesh.setGLOptions("additive")
 
+
+         # The origin point is always at [0,0,0] in the camera's local coordinate system
+        self.origin_point = gl.GLScatterPlotItem(
+            pos=np.array([[0, 0, 0]]), # A single point at the origin
+            size=0.05, # Adjust size as needed, e.g., 5cm diameter
+            pxMode=False, # Size is in world units (meters)
+        )
+
+        self.origin_point.setGLOptions("additive") # Can use additive for visibility
+
         logger.debug(self.verts)
         logger.debug(self.faces)
         logger.debug(self.colors)
@@ -96,7 +106,9 @@ def mesh_from_camera(camera_data: CameraData):
     to be the case.
 
     """
-    mesh = CameraMesh(camera_data.size, camera_data.matrix).mesh
+    cmobj = CameraMesh(camera_data.size, camera_data.matrix)
+    mesh = cmobj.mesh
+    origin_point = cmobj.origin_point
 
     R = camera_data.rotation
     t = camera_data.translation
@@ -115,11 +127,16 @@ def mesh_from_camera(camera_data: CameraData):
     mesh.rotate(y, 0, 1, 0, local=True)
     mesh.rotate(x, 1, 0, 0, local=True)
 
+    origin_point.rotate(z, 0, 0, 1, local=True)
+    origin_point.rotate(y, 0, 1, 0, local=True)
+    origin_point.rotate(x, 1, 0, 0, local=True)
+
     camera_origin_world = -np.dot(R.T, t)
     x, y, z = [p for p in camera_origin_world]
     mesh.translate(x, y, z)
+    origin_point.translate(x,y,z)
 
-    return mesh
+    return mesh, origin_point
 
 
 def rotationMatrixToEulerAngles(R):
@@ -186,7 +203,9 @@ if __name__ == "__main__":
 
     origin_port = 0
     cams[origin_port].mesh.setGLOptions("additive")
+    cams[origin_port].origin_point.setGLOptions("additive")
     scene.addItem(cams[origin_port].mesh)
+    scene.addItem(cams[origin_port].origin_point)
 
     for key, params in config.items():
         if "stereo" in key:
@@ -208,10 +227,12 @@ if __name__ == "__main__":
 
                         x, y, z = [t / translation_scale for t in translation]
                         cams[other_port].mesh.translate(x, y, z)
+                        cams[other_port].origin_point.translate(x, y, z)
                         logger.info(f"Translation: x: {x}, y: {y}, z: {z}")
                         # cams[other_port].mesh.setGLOptions('additive')
 
                         scene.addItem(cams[other_port].mesh)
+                        scene.addItem(cams[other_port].origin_point)
                     if "rotation" in param_key:
                         rotation_count = rotation_to_float(value)  # feeding in 3x3 rotation matrix  from config file
                         rotation_count = rotationMatrixToEulerAngles(rotation_count)  # convert to angles
@@ -231,8 +252,14 @@ if __name__ == "__main__":
                         cams[other_port].mesh.rotate(x, 1, 0, 0, local=True)
                         cams[other_port].mesh.rotate(y, 0, 1, 0, local=True)
                         cams[other_port].mesh.rotate(z, 0, 0, 1, local=True)
+
+
+                        cams[other_port].origin_point.rotate(x, 1, 0, 0, local=True)
+                        cams[other_port].origin_point.rotate(y, 0, 1, 0, local=True)
+                        cams[other_port].origin_point.rotate(z, 0, 0, 1, local=True)
                         # cams[other_port].mesh.setGLOptions('additive')
 
                         scene.addItem(cams[other_port].mesh)
+                        scene.addItem(cams[other_port].origin_point)
 
     pg.exec()

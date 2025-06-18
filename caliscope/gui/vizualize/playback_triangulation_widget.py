@@ -266,11 +266,17 @@ class TriangulationVisualizer:
 
         if self.camera_array.all_extrinsics_calibrated():
             self.meshes = {}
+            self.origin_points = {}
             for port, cam in self.camera_array.cameras.items():
-                mesh: CameraMesh = mesh_from_camera(cam)
+                mesh, origin_point = mesh_from_camera(cam)
+                mesh: CameraMesh = mesh
+                origin_point: CameraMesh = origin_point
                 mesh.setColor(self.default_mesh_color) # Set initial mesh color
+                origin_point.setData(color=self.default_mesh_color)
                 self.meshes[port] = mesh
+                self.origin_points[port] = origin_point
                 self.scene.addItem(mesh)
+                self.scene.addItem(origin_point)
 
         self.scatter = gl.GLScatterPlotItem(
             pos=np.array([0, 0, 0]),
