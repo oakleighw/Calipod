@@ -40,14 +40,24 @@ class CameraMesh:
         self.mesh.setGLOptions("additive")
 
 
-         # The origin point is always at [0,0,0] in the camera's local coordinate system
-        self.origin_point = gl.GLScatterPlotItem(
-            pos=np.array([[0, 0, 0]]), # A single point at the origin
-            size=0.05, # Adjust size as needed, e.g., 5cm diameter
-            pxMode=False, # Size is in world units (meters)
+        #  # The origin point is always at [0,0,0] in the camera's local coordinate system
+        # self.origin_point = gl.GLScatterPlotItem(
+        #     pos=np.array([[0, 0, 0]]), # A single point at the origin
+        #     size=0.05, # Adjust size as needed, e.g., 5cm diameter
+        #     pxMode=False, # Size is in world units (meters)
+        # )
+        com_verts,com_faces = self.build_camera_origin_mesh()
+        scaled_com_verts = com_verts * 0.05
+        self.origin_point = gl.GLMeshItem(
+            vertexes=scaled_com_verts,
+            faces=com_faces,
+            #color='r', # Set the color for the entire mesh
+            smooth=False, # Keep sharp edges for a cube
+            drawEdges=True, # Draw edges for better cube visualization
+            edgeColor=(0, 0, 1, 1), #  edges for the cube
         )
 
-        self.origin_point.setGLOptions("additive") # Can use additive for visibility
+        self.origin_point.setGLOptions("opaque") # Opaque for solid cube, or "translucent" if you want transparency
 
         logger.debug(self.verts)
         logger.debug(self.faces)
@@ -86,6 +96,29 @@ class CameraMesh:
         ]
 
         self.colors = np.array(self.colors)
+
+    def build_camera_origin_mesh(self): #new camera mesh (square)
+        CUBE_VERTS = np.array([
+            [-0.5, -0.5, -0.5], # 0
+            [ 0.5, -0.5, -0.5], # 1
+            [ 0.5,  0.5, -0.5], # 2
+            [-0.5,  0.5, -0.5], # 3
+            [-0.5, -0.5,  0.5], # 4
+            [ 0.5, -0.5,  0.5], # 5
+            [ 0.5,  0.5,  0.5], # 6
+            [-0.5,  0.5,  0.5], # 7
+        ])
+
+        CUBE_FACES = np.array([
+            [0, 1, 2], [0, 2, 3],  # Bottom face
+            [4, 5, 6], [4, 6, 7],  # Top face
+            [0, 1, 5], [0, 5, 4],  # Front face
+            [2, 3, 7], [2, 7, 6],  # Back face
+            [1, 2, 6], [1, 6, 5],  # Right face
+            [0, 3, 7], [0, 7, 4],  # Left face
+        ])
+
+        return CUBE_VERTS,CUBE_FACES
 
 
 def rotation_to_float(rotation_matrix):
