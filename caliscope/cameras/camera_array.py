@@ -35,6 +35,24 @@ class CameraData:
     rotation: np.ndarray = None  # camera relative to world
 
     @property
+    def world_origin(self) -> np.ndarray:
+        """
+        Calculates the 3D world coordinates of the camera's optical center (origin).
+        """
+        if self.rotation is None or self.translation is None:
+            logger.warning(f"Camera {self.port} does not have full extrinsic data to calculate world origin.")
+            return None
+
+        # R is self.rotation (world to cam)
+        # t is self.translation (world to cam)
+        # Formula for camera origin in world coordinates is -R_transpose * t
+        R_cam_to_world = self.rotation.T
+        camera_world_origin = -np.dot(R_cam_to_world, self.translation)
+
+        # Ensure it's a 1D array for easier use, if it comes out as a column vector
+        return camera_world_origin.flatten()
+
+    @property
     def transformation(self):
         """ "
         Rotation and transformation combined to allow
@@ -186,6 +204,25 @@ class CameraArray:
                 camera_params = np.vstack([camera_params, port_param])
 
         return camera_params
+    
+    def get_world_origins(self):
+        """
+        contains optical centres for all cameras.
+        """
+
+        world_origins = None
+        # ensure that parameters are built up in order of the corresponding index
+        for index in sorted(self.index_port.keys()):
+            port = self.index_port[index]
+            cam = self.cameras[port]
+            port_origin = cam.world_origin
+
+            if world_origins is None:
+                world_origins = port_origin
+            else:
+                world_origins = np.vstack([world_origins, port_origin])
+
+        return world_origins
 
     def update_extrinsic_params(self, least_sq_result_x: np.array):
         n_cameras = len(self.port_index)

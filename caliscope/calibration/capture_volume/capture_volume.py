@@ -49,6 +49,14 @@ class CaptureVolume:
         combined = np.hstack((camera_params.ravel(), self.point_estimates.obj.ravel()))
 
         return combined
+    
+    def get_cam_origins(self):
+        """
+        Gets the camera origins (optical centres) in the world plane
+        """
+        cam_world_origins = self.camera_array.get_world_origins()
+
+        return cam_world_origins
 
     @property
     def rmse(self):
@@ -60,6 +68,28 @@ class CaptureVolume:
             rmse = rms_reproj_error(xy_reproj_error, self.point_estimates.camera_indices)
 
         return rmse
+    
+    @property
+    def cam_distances(self):
+        """
+        Returns a dictionary that shows the distance between each optical centre
+        """
+        #get camera origins
+        interdist = {}
+        cam_origins = self.get_cam_origins().T
+        
+        for i, port in enumerate(np.unique(self.point_estimates.camera_indices)):
+            
+            if i ==0: #log first port number
+                first_port = port
+
+            logger.info(f"port, i, len unique -1 {port} {i} {len(np.unique(self.point_estimates.camera_indices))}")
+            if i == len(np.unique(self.point_estimates.camera_indices))-1: #if end of list (last port), get distance between last port (current) and first port
+                interdist[f"{str(port)}-{str(first_port)}"] = self.cam_dist(cam_origins[i],cam_origins[0])
+            else:#get distance between current and next port cam origin
+                interdist[f"{str(port)}-{str(port+1)}"] = self.cam_dist(cam_origins[i],cam_origins[i+1])
+                
+        return interdist
 
     def get_rmse_summary(self):
         rmse_string = f"RMSE of Reprojection Overall: {round(self.rmse['overall'],2)}\n"
@@ -71,6 +101,20 @@ class CaptureVolume:
                 rmse_string += f"    {key: >9}: {round(float(value),2)}\n"
 
         return rmse_string
+    
+    def cam_dist(self,origin1,origin2): #distance between two 3d points
+        p1 = np.array(origin1)
+        p2 = np.array(origin2)
+        cam_dist = np.linalg.norm(p1-p2)
+        return cam_dist
+    
+    def get_cam_distance_summary(self):
+        cam_dist_string = f"Distance between lens optical centres: \n"
+        cam_dist_string += "    by camera:\n"
+        for key, value in self.cam_distances.items():
+            cam_dist_string += f"    {key: >9}: {round(float(value),2)}\n"
+
+        return cam_dist_string
 
     def get_xy_reprojection_error(self):
         vectorized_params = self.get_vectorized_params()
@@ -213,7 +257,7 @@ def xy_reprojection_error(current_param_estimates, capture_volume: CaptureVolume
 
 def rms_reproj_error(xy_reproj_error, camera_indices):
     """
-    Returns a dictionary that shows the
+    Returns a dictionary that shows the overal rmse & for each camera
     """
     rmse = {}
     xy_reproj_error = xy_reproj_error.reshape(-1, 2)
@@ -227,6 +271,9 @@ def rms_reproj_error(xy_reproj_error, camera_indices):
     # logger.info(f"Optimization run with {xy_reproj_error.shape[0]} image points")
     # logger.info(f"RMSE of reprojection is {rmse}")
     return rmse
+
+
+
 
 
 # def load_capture_volume(session_path:Path):

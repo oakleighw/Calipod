@@ -40,12 +40,6 @@ class CameraMesh:
         self.mesh.setGLOptions("additive")
 
 
-        #  # The origin point is always at [0,0,0] in the camera's local coordinate system
-        # self.origin_point = gl.GLScatterPlotItem(
-        #     pos=np.array([[0, 0, 0]]), # A single point at the origin
-        #     size=0.05, # Adjust size as needed, e.g., 5cm diameter
-        #     pxMode=False, # Size is in world units (meters)
-        # )
         com_verts,com_faces = self.build_camera_origin_mesh()
         scaled_com_verts = com_verts * 0.05
         self.origin_point = gl.GLMeshItem(

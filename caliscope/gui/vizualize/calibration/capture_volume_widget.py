@@ -45,6 +45,7 @@ class CaptureVolumeWidget(QWidget):
         self.rotate_z_minus_btn = QPushButton("Z-")
 
         self.rmse_summary = QLabel(self.controller.capture_volume.get_rmse_summary())
+        self.cam_distance_summary = QLabel(self.controller.capture_volume.get_cam_distance_summary())
 
         self.place_widgets()
         self.connect_widgets()
@@ -72,6 +73,7 @@ class CaptureVolumeWidget(QWidget):
         self.calibrate_group = QGroupBox()
         self.calibrate_group.setLayout(QVBoxLayout())
         self.calibrate_group.layout().addWidget(self.rmse_summary)
+        self.calibrate_group.layout().addWidget(self.cam_distance_summary)
         # self.calibrate_group.layout().addWidget(self.recalibrate_btn)
 
         self.hbox = QHBoxLayout()
