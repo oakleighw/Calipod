@@ -45,7 +45,6 @@ class CameraMesh:
         self.origin_point = gl.GLMeshItem(
             vertexes=scaled_com_verts,
             faces=com_faces,
-            #color='r', # Set the color for the entire mesh
             smooth=False, # Keep sharp edges for a cube
             drawEdges=True, # Draw edges for better cube visualization
             edgeColor=(0, 0, 1, 1), #  edges for the cube

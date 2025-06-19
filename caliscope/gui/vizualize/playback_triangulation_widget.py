@@ -272,7 +272,7 @@ class TriangulationVisualizer:
                 mesh: CameraMesh = mesh
                 origin_point: CameraMesh = origin_point
                 mesh.setColor(self.default_mesh_color) # Set initial mesh color
-                origin_point.setColor(self.default_mesh_color)
+                origin_point.setColor(cam.color)
                 self.meshes[port] = mesh
                 self.origin_points[port] = origin_point
                 self.scene.addItem(mesh)

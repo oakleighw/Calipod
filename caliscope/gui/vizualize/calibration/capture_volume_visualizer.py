@@ -49,6 +49,7 @@ class CaptureVolumeVisualizer:
             mesh, origin_point = mesh_from_camera(cam)
             mesh: CameraMesh = mesh
             origin_point: CameraMesh = origin_point
+            origin_point.setColor(cam.color)
             self.meshes[port] = mesh
             self.origin_points[port] = origin_point
             self.scene.addItem(mesh)

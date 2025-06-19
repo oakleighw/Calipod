@@ -4,6 +4,7 @@
 from dataclasses import dataclass
 from itertools import permutations
 from pathlib import Path
+import colorsys
 
 import numpy as np
 import rtoml
@@ -104,6 +105,8 @@ class CameraArrayInitializer:
         self._fill_stereopair_gaps()
         # self.best_camera_array = self.get_best_camera_array()
 
+
+    
     def _fill_stereopair_gaps(self):
         """
         Loop across missing pairs and create bridged stereopairs when possible.
@@ -231,6 +234,7 @@ class CameraArrayInitializer:
                 matrix = np.array(data["matrix"], dtype=np.float64)
                 distortions = np.array(data["distortions"], dtype=np.float64)
                 grid_count = data["grid_count"]
+                cam_color = self.colors[port]
 
                 # update with extrinsics, though place anchor camera at origin
                 if port == anchor_port:
@@ -255,6 +259,7 @@ class CameraArrayInitializer:
                     # verified_resolutions,
                     translation=translation,
                     rotation=rotation,
+                    color = cam_color
                 )
 
                 cameras[port] = cam_data

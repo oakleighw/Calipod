@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 from numba.typed import Dict
+import colorsys
 
 import caliscope.logger
 
@@ -26,13 +27,14 @@ class CameraData:
     rotation_count: int = 0
     error: float = None  # the RMSE of reprojection associated with the intrinsic calibration
     matrix: np.ndarray = None
-    distortions: np.ndarray = None  #
+    distortions: np.ndarray = None  
     exposure: int = None
     grid_count: int = None
     ignore: bool = False
     verified_resolutions: np.ndarray = None
     translation: np.ndarray = None  # camera relative to world
     rotation: np.ndarray = None  # camera relative to world
+    color: str = None #used for simulation colour
 
     @property
     def world_origin(self) -> np.ndarray:
@@ -164,6 +166,9 @@ class CameraArray:
 
     cameras: dict
 
+    def __post_init__(self):
+        self._assign_colors_to_cameras()#assign colors to cameras for 3D plot
+
     @property
     def port_index(self):
         """
@@ -204,6 +209,43 @@ class CameraArray:
                 camera_params = np.vstack([camera_params, port_param])
 
         return camera_params
+    
+    def _generate_colors(self): #generates camera colours for plotting purposes
+        saturation=0.9 
+        lightness=0.8
+        cam_colors = {}
+        num_colors = len(self.cameras)
+        
+        for i, port in enumerate(self.port_index):
+            p = port
+            # Distribute hues evenly around the color wheel
+            hue = i / num_colors
+
+            # Convert HSL to RGB
+            # colorsys.hls_to_rgb returns values between 0 and 1
+            r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
+
+            # Append with alpha = 1 (fully opaque)
+            cam_colors[port] = (r, g, b, 1.0)
+
+        return cam_colors
+    
+    def _assign_colors_to_cameras(self): # Uses the generated map to assign
+        """
+        Generates colors and then assigns them directly to the 'color'
+        attribute of each CameraData object in self.cameras.
+        """
+        generated_colors_map = self._generate_colors()
+
+        if not generated_colors_map:
+            logger.warning("No colors generated or cameras to assign to.")
+            return
+
+        for port, color_value in generated_colors_map.items():
+            if port in self.cameras:
+                self.cameras[port].color = color_value
+            else:
+                logger.warning(f"Port {port} not found in cameras dictionary during color assignment.")
     
     def get_world_origins(self):
         """
