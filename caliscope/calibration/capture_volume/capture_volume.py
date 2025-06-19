@@ -16,6 +16,8 @@ from caliscope.calibration.capture_volume.set_origin_functions import (
 from caliscope.calibration.charuco import Charuco
 from caliscope.cameras.camera_array import CameraArray
 
+from PyQt5.QtGui import QFont, QFontDatabase
+
 logger = caliscope.logger.get(__name__)
 
 CAMERA_PARAM_COUNT = 6
@@ -87,20 +89,20 @@ class CaptureVolume:
 
             logger.info(f"port, i, len unique -1 {port} {i} {len(np.unique(self.point_estimates.camera_indices))}")
             if i == len(np.unique(self.point_estimates.camera_indices))-1: #if end of list (last port), get distance between last port (current) and first port
-                interdist[f"{str(port)}-{str(first_port)}"] = self.cam_dist(cam_origins[i],cam_origins[0],type)
+                interdist[f"{str(port)} {str(first_port)}"] = self.cam_dist(cam_origins[i],cam_origins[0],type)
             else:#get distance between current and next port cam origin
-                interdist[f"{str(port)}-{str(port+1)}"] = self.cam_dist(cam_origins[i],cam_origins[i+1],type)
+                interdist[f"{str(port)} {str(port+1)}"] = self.cam_dist(cam_origins[i],cam_origins[i+1],type)
                 
         return interdist
 
     def get_rmse_summary(self):
-        rmse_string = f"RMSE of Reprojection Overall: {round(self.rmse['overall'],2)}\n"
-        rmse_string += "    by camera:\n"
+        rmse_string = f"<pre>RMSE of Reprojection Overall: {round(self.rmse['overall'],2)}\n"
+        rmse_string += "    by camera:\n</pre>"
         for key, value in self.rmse.items():
             if key == "overall":
                 pass
             else:
-                rmse_string += f"    {key: >9}: {round(float(value),2)}\n"
+                rmse_string += f"<pre>    <font color='{self.camera_array.cameras[int(key)].color_hex}'>{key: >9}</font>: {round(float(value),2)}\n</pre>"
 
         return rmse_string
     
@@ -118,20 +120,41 @@ class CaptureVolume:
         return cam_dist
     
     def get_cam_distance_summary(self):
-        cam_dist_string = f"Distance between lens optical centres (Total): \n"
-        cam_dist_string += "    by camera:\n"
-        for key, value in self.cam_distances().items():
-            cam_dist_string += f"    {key: >9}: {round(float(value)*100,3)} cm\n"# x100 for cm
+        preferred_monospace_font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        font_family = preferred_monospace_font.family()
+        default_app_font_size = preferred_monospace_font.pointSize()
+        TARGET_KEY_WIDTH = 9
+        cam_dist_string = f"<pre>Distance between lens optical centres (Total): \n"
+        cam_dist_string += "    by camera pairs:\n</pre>"
+        for key, value in self.cam_distances().items(): #key[0] is first camera and key [2] is second camera in string pair (minus '-')
+            cam_ports = key.split()
+            cam_1_port = cam_ports[0]
+            cam_2_port = cam_ports[1]
+            cam_dist_string += (f"<pre>    <font face='{font_family}' color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
+                                f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
+                                f"{round(float(value)*100,3)} cm\n</pre>")# x100 for cm
 
-        cam_dist_string += f"(xy): \n"
-        cam_dist_string += "    by camera:\n"
+        cam_dist_string += f"<pre>(xy): \n"
+        cam_dist_string += "    by camera pairs:\n</pre>"
+        
         for key, value in self.cam_distances('horizontal').items():
-            cam_dist_string += f"    {key: >9}: {round(float(value)*100,3)} cm\n"# x100 for cm
+            cam_ports = key.split()
+            cam_1_port = cam_ports[0]
+            cam_2_port = cam_ports[1]
+            cam_dist_string += (f"<pre>    <font color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
+                                f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
+                                f"{round(float(value)*100,3)} cm\n</pre>")# x100 for cm
 
-        cam_dist_string += f"(z): \n"
-        cam_dist_string += "    by camera:\n"
+        cam_dist_string += f"<pre>(z): \n"
+        cam_dist_string += "    by camera pairs:\n</pre>"
+
         for key, value in self.cam_distances('vertical').items():
-            cam_dist_string += f"    {key: >9}: {round(float(value)*100,3)} cm\n"# x100 for cm
+            cam_ports = key.split()
+            cam_1_port = cam_ports[0]
+            cam_2_port = cam_ports[1]
+            cam_dist_string += (f"<pre>    <font color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
+                                f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
+                                f"{round(float(value)*100,3)} cm\n</pre>")# x100 for cm
 
         return cam_dist_string
 

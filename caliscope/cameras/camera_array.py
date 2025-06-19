@@ -34,7 +34,8 @@ class CameraData:
     verified_resolutions: np.ndarray = None
     translation: np.ndarray = None  # camera relative to world
     rotation: np.ndarray = None  # camera relative to world
-    color: str = None #used for simulation colour
+    color: tuple = None #used for simulation colour
+    color_hex: str = None #used for qlabel colour
 
     @property
     def world_origin(self) -> np.ndarray:
@@ -212,8 +213,9 @@ class CameraArray:
     
     def _generate_colors(self): #generates camera colours for plotting purposes
         saturation=0.9 
-        lightness=0.8
+        lightness=0.5
         cam_colors = {}
+        cam_hexes = {}
         num_colors = len(self.cameras)
         
         for i, port in enumerate(self.port_index):
@@ -225,17 +227,29 @@ class CameraArray:
             # colorsys.hls_to_rgb returns values between 0 and 1
             r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
 
+
             # Append with alpha = 1 (fully opaque)
             cam_colors[port] = (r, g, b, 1.0)
+            cam_hexes[port] = self._rgb_to_html_hex(r,g,b)
 
-        return cam_colors
+        return cam_colors, cam_hexes
+
+    def _rgb_to_html_hex(self, r, g, b):
+        """Converts a 0-1 RGB tuple to an HTML hex color string (e.g., #FF0000)."""
+        # Scale 0-1 RGB to 0-255 integers
+        r_int = int(r * 255)
+        g_int = int(g * 255)
+        b_int = int(b * 255)
+        # Format as hex string
+        return f"#{r_int:02X}{g_int:02X}{b_int:02X}"
+
     
     def _assign_colors_to_cameras(self): # Uses the generated map to assign
         """
         Generates colors and then assigns them directly to the 'color'
         attribute of each CameraData object in self.cameras.
         """
-        generated_colors_map = self._generate_colors()
+        generated_colors_map, generated_colors_map_hex = self._generate_colors()
 
         if not generated_colors_map:
             logger.warning("No colors generated or cameras to assign to.")
@@ -243,7 +257,9 @@ class CameraArray:
 
         for port, color_value in generated_colors_map.items():
             if port in self.cameras:
+                hex_val = generated_colors_map_hex[port]
                 self.cameras[port].color = color_value
+                self.cameras[port].color_hex = hex_val
             else:
                 logger.warning(f"Port {port} not found in cameras dictionary during color assignment.")
     
