@@ -25,3 +25,7 @@ caliscope.code-workspace
 site/*
 _version.py
 cali_env/*
+bin/*
+lib/*
+pyvenv.cfg
+lib64
