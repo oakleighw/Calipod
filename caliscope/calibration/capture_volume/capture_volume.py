@@ -16,7 +16,7 @@ from caliscope.calibration.capture_volume.set_origin_functions import (
 from caliscope.calibration.charuco import Charuco
 from caliscope.cameras.camera_array import CameraArray
 
-from PyQt5.QtGui import QFont, QFontDatabase
+from PySide6.QtGui import QFont, QFontDatabase
 
 logger = caliscope.logger.get(__name__)
 
