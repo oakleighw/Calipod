@@ -234,7 +234,6 @@ class CameraArrayInitializer:
                 matrix = np.array(data["matrix"], dtype=np.float64)
                 distortions = np.array(data["distortions"], dtype=np.float64)
                 grid_count = data["grid_count"]
-                cam_color = self.colors[port]
 
                 # update with extrinsics, though place anchor camera at origin
                 if port == anchor_port:
@@ -259,7 +258,6 @@ class CameraArrayInitializer:
                     # verified_resolutions,
                     translation=translation,
                     rotation=rotation,
-                    color = cam_color
                 )
 
                 cameras[port] = cam_data
