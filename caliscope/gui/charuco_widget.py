@@ -44,7 +44,7 @@ class CharucoWidget(QWidget):
         self.charuco_config.invert_checkbox.stateChanged.connect(self.build_charuco)
 
         # Build primary actions
-        self.build_save_png_group()
+        self.build_save_board_group()
         self.build_true_up_group()
 
         # Build display of board
@@ -61,12 +61,14 @@ class CharucoWidget(QWidget):
         self.layout().addWidget(QLabel("<i>Top left corner is point (0,0,0) when setting capture volume origin</i>"))
         self.layout().addWidget(self.charuco_display, 2)
         self.layout().addSpacing(10)
-        self.layout().addLayout(self.save_png_hbox)
+        self.layout().addLayout(self.save_board_hbox)
         self.layout().addSpacing(10)
         self.layout().addLayout(self.true_up_hbox)
         self.layout().addWidget(QLabel("<i>Printed square size will set the scale of the capture volume</i>"))
 
-    def build_save_png_group(self):
+    def build_save_board_group(self):
+        self.save_board_hbox = QHBoxLayout()
+
         # basic png save button
         self.png_btn = QPushButton("Save &png")
         self.png_btn.setMaximumSize(100, 30)
@@ -85,6 +87,25 @@ class CharucoWidget(QWidget):
                 self.charuco.save_image(save_file_name)
 
         self.png_btn.clicked.connect(save_png)
+
+        self.pdf_btn = QPushButton("Save &A4 pdf")
+        self.pdf_btn.setMaximumSize(100, 30)
+
+        #basic a4 pdf save button
+        def save_pdf():
+            save_file_tuple = QFileDialog.getSaveFileName(
+                self,
+                "Save As",
+                str(Path(self.controller.workspace, "charuco.pdf")),
+                "PDF (*.pdf)",
+            )
+            print(save_file_tuple)
+            save_file_name = str(Path(save_file_tuple[0]))
+            if len(save_file_name) > 1:
+                print(f"Saving board to {save_file_name}")
+                self.charuco.save_pdf(save_file_name)
+
+        self.pdf_btn.clicked.connect(save_pdf)
 
         # additional mirror image option
         self.png_mirror_btn = QPushButton("Save &mirror png")
@@ -105,9 +126,31 @@ class CharucoWidget(QWidget):
 
         self.png_mirror_btn.clicked.connect(save_mirror_png)
 
-        self.save_png_hbox = QHBoxLayout()
-        self.save_png_hbox.addWidget(self.png_btn)
-        self.save_png_hbox.addWidget(self.png_mirror_btn)
+        self.pdf_mirror_btn = QPushButton("Save &A4 mir pdf")
+        self.pdf_mirror_btn.setMaximumSize(100, 30)
+
+        #additional a4 mirror pdf save button
+        def save_mirror_pdf():
+            save_file_tuple = QFileDialog.getSaveFileName(
+                self,
+                "Save As",
+                str(Path(self.controller.workspace, "charuco_mirror.pdf")),
+                "PDF (*.pdf)",
+            )
+            print(save_file_tuple)
+            save_file_name = str(Path(save_file_tuple[0]))
+            if len(save_file_name) > 1:
+                print(f"Saving board to {save_file_name}")
+                self.charuco.save_mirror_pdf(save_file_name)
+
+        self.pdf_mirror_btn.clicked.connect(save_mirror_pdf)
+
+
+        self.save_board_hbox.addWidget(self.png_btn)
+        self.save_board_hbox.addWidget(self.pdf_btn)
+        self.save_board_hbox.addWidget(self.png_mirror_btn)
+        self.save_board_hbox.addWidget(self.pdf_mirror_btn)
+        
 
     def build_true_up_group(self):
         self.true_up_hbox = QHBoxLayout()

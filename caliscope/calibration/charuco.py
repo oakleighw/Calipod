@@ -13,7 +13,15 @@ import cv2
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 
+#for pdf saving
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import cm, inch
+import tempfile
+import os
+
 import caliscope.logger
+
 
 logger = caliscope.logger.get(__name__)
 
@@ -153,12 +161,60 @@ class Charuco:
         """
         cv2.imwrite(path, self.board_img(pixmap_scale=10000))
 
+    def save_to_pdf(self, scaled_board, path):
+        a4_width, a4_height = A4 # A4 dimensions in points
+
+        img_width_on_pdf = self.board_width_cm * cm
+        img_height_on_pdf = self.board_height_cm * cm
+
+        # Calculate the position to center the image on the A4 page
+        x_offset = (a4_width - img_width_on_pdf) / 2
+        y_offset = (a4_height - img_height_on_pdf) / 2
+        
+        c = canvas.Canvas(path, pagesize=A4)
+        
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_image_file:
+            temp_filename = temp_image_file.name
+            
+             # Ensure the image is 3-channel BGR for broader compatibility, even if grayscale 
+            if scaled_board.ndim == 2: 
+                scaled_board_bgr = cv2.cvtColor(scaled_board, cv2.COLOR_GRAY2BGR)
+            elif scaled_board.ndim == 3 and scaled_board.shape[2] == 4: 
+                scaled_board_bgr = cv2.cvtColor(scaled_board, cv2.COLOR_RGBA2BGR)
+            else: # Already BGR or other 3-channel format
+                scaled_board_bgr = scaled_board
+            
+            cv2.imwrite(temp_filename, scaled_board_bgr)
+
+        try:
+            c.drawImage(temp_filename, x_offset, y_offset, 
+                        width=img_width_on_pdf, height=img_height_on_pdf)
+            c.showPage()
+            c.save()
+        finally:
+            os.remove(temp_filename)
+
+    def save_pdf(self, path):
+        """
+        Saving pdf at 10x higher resolution than used for GUI
+        """
+        scaled_board = self.board_img(pixmap_scale=10000)
+        self.save_to_pdf(scaled_board, path)
+
     def save_mirror_image(self, path):
         """
         Saving image at 10x higher resolution than used for GUI
         """
         mirror = cv2.flip(self.board_img(pixmap_scale=10000), 1)
         cv2.imwrite(path, mirror)
+
+    def save_mirror_pdf(self, path):
+        """
+        Saving pdf at 10x higher resolution than used for GUI
+        """
+        mirror = cv2.flip(self.board_img(pixmap_scale=10000), 1)
+        scaled_board = mirror
+        self.save_to_pdf(scaled_board, path)
 
     def get_connected_points(self):
         """

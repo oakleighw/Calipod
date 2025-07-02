@@ -104,3 +104,5 @@ six==1.17.0
     # via python-dateutil
 sounddevice==0.5.2
     # via mediapipe
+
+reportlab==4.4.2
