@@ -75,6 +75,7 @@ class Controller(QObject):
         self.workspace_guide.recording_dir.mkdir(exist_ok=True, parents=True)
 
         self.capture_volume = None
+        self.capture_volume_loaded = False
 
         # needs to exist before main widget can connect to its finished signal
         self.load_workspace_thread = QThread()
