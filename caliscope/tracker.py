@@ -64,16 +64,16 @@ class Tracker(ABC):
         """
         pass
 
-    @property
-    def metarig_mapped(self):
-        """
-        OPTIONAL PROPERTY
+    # @property
+    # def metarig_mapped(self):
+    #     """
+    #     OPTIONAL PROPERTY
 
-        Defaults to false and can be overriden to True
-        Used to ensure that metarig_config creation is not presented as
-        an option in GUI
-        """
-        return False
+    #     Defaults to false and can be overriden to True
+    #     Used to ensure that metarig_config creation is not presented as
+    #     an option in GUI
+    #     """
+    #     return False
 
     @property
     def metarig_symmetrical_measures(self):
@@ -97,6 +97,15 @@ class Tracker(ABC):
         will be calculated and stored as the measure
         """
         raise NotImplementedError(f"Tracker {self.name} has not provided its measures for configuring a metarig")
+    
+    @classmethod
+    def metarig_mapped(cls) -> bool:
+        """
+        Indicates if this tracker type supports mapping to a metarig.
+        This is a classmethod, so it can be called on the class itself (e.g., `FlyTracker.metarig_mapped()`).
+        Subclasses should override this.
+        """
+        return False # Default for all trackers if not explicitly overridden
 
 
 @dataclass(slots=True, frozen=True)

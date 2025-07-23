@@ -5,6 +5,7 @@ from caliscope.trackers.hand_tracker import HandTracker
 from caliscope.trackers.holistic.holistic_tracker import HolisticTracker
 from caliscope.trackers.pose_tracker import PoseTracker
 from caliscope.trackers.simple_holistic_tracker import SimpleHolisticTracker
+from caliscope.trackers.fly_tracker import FlyTracker
 
 # Temporarily removed face tracker because crashing sample project
 # from caliscope.trackers.face_tracker import FaceTracker
@@ -12,6 +13,7 @@ from caliscope.trackers.simple_holistic_tracker import SimpleHolisticTracker
 
 class TrackerEnum(Enum):
     HAND = HandTracker
+    FLY = FlyTracker
     POSE = PoseTracker
     SIMPLE_HOLISTIC = SimpleHolisticTracker
     HOLISTIC = HolisticTracker

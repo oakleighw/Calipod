@@ -253,15 +253,15 @@ class PostProcessingWidget(QWidget):
     def update_enabled_disabled(self):
         # set availability of metarig generation
         logger.info("Checking if metarig config can be created...")
-        tracker = self.tracker_combo.currentData().value()
+        tracker = self.tracker_combo.currentData().value() #error here...
         logger.info(tracker)
-        if tracker.metarig_mapped and self.xyz_processed_path.exists() and not self.metarig_config_path.exists():
+        if tracker.metarig_mapped() and self.xyz_processed_path.exists() and not self.metarig_config_path.exists():
             self.generate_metarig_config_btn.setEnabled(True)
             self.generate_metarig_config_btn.setToolTip("Creation of metarig configuration file is now available")
         else:
             self.generate_metarig_config_btn.setEnabled(False)
 
-        if not tracker.metarig_mapped:
+        if not tracker.metarig_mapped():
             self.generate_metarig_config_btn.setToolTip("Tracker is not set up to scale to a metarig")
         elif self.metarig_config_path.exists():
             self.generate_metarig_config_btn.setToolTip(

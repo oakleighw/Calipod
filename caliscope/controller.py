@@ -385,7 +385,7 @@ class Controller(QObject):
         self.calibrate_capture_volume_thread.finished.connect(self.capture_volume_calibrated.emit)
         self.calibrate_capture_volume_thread.start()
 
-    def process_recordings(self, recording_path: Path, tracker_enum: TrackerEnum):
+    def process_recordings(self, recording_path: Path,  tracker_enum: TrackerEnum):
         """
         Initiates worker thread to begin post processing.
         TrackerEnum passed in so that access is given to both the tracker and the name
@@ -395,7 +395,8 @@ class Controller(QObject):
         def worker():
             logger.info(f"Beginning to process video files at {recording_path}")
             logger.info(f"Creating post processor for {recording_path}")
-            self.post_processor = PostProcessor(self.camera_array, recording_path, tracker_enum)
+            annotations_path = self.workspace_guide.annotations_dir
+            self.post_processor = PostProcessor(self.camera_array, recording_path, annotations_path, tracker_enum)
 
             # config settings that help to throttle processing rate to manage resource demands
             include_video = self.config.get_save_tracked_points()

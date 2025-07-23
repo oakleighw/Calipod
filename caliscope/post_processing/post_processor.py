@@ -30,12 +30,27 @@ class PostProcessor:
     The post processor will archive the active config.toml file into the subdirectory
     """
 
-    def __init__(self, camera_array: CameraArray, recording_path: Path, tracker_enum: TrackerEnum):
+    def __init__(self, camera_array: CameraArray, recording_path: Path, annotations_path: Path, tracker_enum: TrackerEnum):
         self.camera_array = camera_array
         self.recording_path = recording_path
+        self.annotations_path = annotations_path
         self.tracker_enum = tracker_enum
         self.tracker_name = tracker_enum.name
         self.tracker = tracker_enum.value()
+
+        logger.info(f"!!!!!!!!!SET ANNOTATIONS name here {self.tracker_name} !!!!!!!!!")
+        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        if self.tracker_name == "FLY":
+            # Instantiate FlyTracker WITHOUT arguments
+            # NOW SET THE PROPERTIES
+            
+            self.tracker.annotations_dir = self.annotations_path
+
+        
 
         # save out current camera array to output folder
         tracker_subdirectory = Path(self.recording_path, self.tracker_name)
