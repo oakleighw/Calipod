@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
     QSlider,
     QVBoxLayout,
     QWidget,
-    QPushButton
+    QPushButton,
+    QApplication
 )
 from PySide6.QtGui import QImage, QColorConstants, QColor, QVector3D
 
@@ -108,9 +109,42 @@ class PlaybackTriangulationWidget(QWidget):
                 if self.visualizer.motion_trial is None: 
                     self.visualizer.motion_trial = MotionTrial() 
 
+            # --- MODIFIED EXPORT LOOP START ---
+            # Temporarily disconnect display_points and update_segment_lines from the slider's valueChanged signal
+            # This prevents multiple updates per frame (one from setValue, one from direct call)
+            # and gives more direct control over when rendering happens for export.
+            try:
+                self.slider.valueChanged.disconnect(self.visualizer.display_points)
+                self.slider.valueChanged.disconnect(self.visualizer.update_segment_lines)
+            except TypeError: # Disconnect might fail if not connected, ignore.
+                pass 
+
             for i in range(export_start_frame, export_end_frame + 1):
-                self.slider.setValue(i) 
-            logger.info("Finished collecting frames.")
+                # Update slider value for visual feedback, but block its signals
+                # to prevent re-triggering display_points/update_segment_lines via the signal.
+                self.slider.blockSignals(True) 
+                self.slider.setValue(i)
+                self.slider.blockSignals(False) 
+
+                # Directly call display_points and update_segment_lines to render and collect the frame
+                # This ensures the visualizer state is updated for framebuffer grab.
+                self.visualizer.display_points(i) 
+                self.visualizer.update_segment_lines(i) 
+
+                # Process events to keep the GUI responsive during the potentially long export loop.
+                # This allows camera panning or other UI interactions to be handled,
+                # which can help prevent the "EError" by not starving the event loop.
+                QApplication.processEvents() 
+
+            # Reconnect display_points and update_segment_lines to the slider after export is complete
+            self.slider.valueChanged.connect(self.visualizer.display_points)
+            self.slider.valueChanged.connect(self.visualizer.update_segment_lines)
+            # --- MODIFIED EXPORT LOOP END ---
+
+
+            # for i in range(export_start_frame, export_end_frame + 1):
+            #     self.slider.setValue(i) 
+            # logger.info("Finished collecting frames.")
 
             if self.xyz_history_path: 
                 video_name = self.xyz_history_path.stem.replace("xyz_", "exported_") + ".mp4"

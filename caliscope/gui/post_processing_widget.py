@@ -19,6 +19,7 @@ from caliscope.configurator import Configurator
 from caliscope.controller import Controller
 from caliscope.gui.vizualize.playback_triangulation_widget import (
     PlaybackTriangulationWidget,
+    TriangulationVisualizer
 )
 from caliscope.post_processing.blender_tools import generate_metarig_config
 from caliscope.trackers.tracker_enum import TrackerEnum
