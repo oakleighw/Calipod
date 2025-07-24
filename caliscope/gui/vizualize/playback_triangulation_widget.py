@@ -84,6 +84,7 @@ class PlaybackTriangulationWidget(QWidget):
 
         if checked:
             self.visualizer.clear_collected_frames()
+            self.export_button.setEnabled(False)
             logger.info("Starting video export process (collecting frames in memory)...")
 
             export_start_frame = 0
@@ -178,6 +179,7 @@ class PlaybackTriangulationWidget(QWidget):
             else:
                 logger.warning("No frames were collected to combine into video.")
 
+            self.export_button.setEnabled(True)
             self.export_button.setChecked(False) 
 
         else:
