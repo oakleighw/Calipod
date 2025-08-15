@@ -195,7 +195,11 @@ class RecordedStream:
                 break
 
             if self.tracker is not None:
-                self.point_data = self.tracker.get_points(self.frame, self.port, self.rotation_count,self.frame_index)
+                if self.tracker.name == "FLY":
+                    self.point_data = self.tracker.get_points(self.frame, self.port, self.rotation_count, self.frame_index)
+                else:
+                    self.point_data = self.tracker.get_points(self.frame, self.port, self.rotation_count)
+                
                 draw_instructions = self.tracker.scatter_draw_instructions
             else:
                 self.point_data = None
