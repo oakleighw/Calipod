@@ -1,9 +1,9 @@
 
 <div align="center">
 
-# Caliscope
+# Calipod
 
-*Multicamera Calibration + Pose Estimation --> Open Source Motion Capture*
+*Multicamera Planning, Calibration & Triangulation Gui for Insect Tracking, Derived from Caliscope -  Open Source Motion Capture*
 
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/caliscope?color=blue)](https://pypi.org/project/caliscope/)
 [![PyPI - License](https://img.shields.io/pypi/l/caliscope?color=blue)](https://opensource.org/license/bsd-2-clause/)
