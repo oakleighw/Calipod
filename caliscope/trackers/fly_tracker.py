@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from pathlib import Path
-from queue import Queue, Empty, Full # Import Full and Empty for non-blocking queue operations
+from queue import Queue
 from threading import Thread
 import os
 
@@ -25,7 +25,6 @@ class FlyTracker(Tracker):
         self.in_queues = {}  # Dictionary to hold input queues for each port
         self.out_queues = {} # Dictionary to hold output queues for each port
         self.threads = {}    # Dictionary to hold processing threads for each port
-        self._thread_stop_flags = {} # To cleanly stop threads
 
         # Instance attribute for annotations_dir, set via property
         self._annotations_dir: Path = None
@@ -92,15 +91,14 @@ class FlyTracker(Tracker):
 
     def run_frame_processor(self, port: int, rotation_count: int):
         logger.info(f"FlyTracker thread for port {port} started.")
-        self._thread_stop_flags[port] = False
 
-        while not self._thread_stop_flags[port]:
+        while True:
             # Always initialize an empty packet, in case an error prevents populating it
             point_packet = PointPacket(np.array([], dtype=int), np.array([], dtype=np.float32), None) 
 
             try:
-                # 1. Get frame and frame_idx from input queue (with timeout)
-                frame, frame_idx = self.in_queues[port].get(timeout=0.1)
+                # 1. Get frame and frame_idx from input queue (blocking, like other trackers)
+                frame, frame_idx = self.in_queues[port].get()
                 logger.debug(f"FlyTracker (Port {port}): Got frame {frame_idx} from queue.")
 
                 height, width, _ = frame.shape
@@ -149,39 +147,15 @@ class FlyTracker(Tracker):
                 # Create the PointPacket with processed data
                 point_packet = PointPacket(point_ids, landmark_xy, None)
 
-            except Empty: # Input queue was empty during timeout, loop again
-                continue
             except Exception as e: # Catch ANY other error during processing this frame
-                logger.error(f"FlyTracker (Port {port}, Frame {frame_idx}): Unhandled error during frame processing (file read/parse/YOLO inference): {e}", exc_info=True)
-                # If an error occurred, point_packet remains the default empty one, or is set here
+                logger.error(f"FlyTracker (Port {port}): Unhandled error during frame processing: {e}", exc_info=True)
+                # If an error occurred, point_packet remains the default empty one
                 point_packet = PointPacket(np.array([], dtype=int), np.array([], dtype=np.float32), None) 
             
-            # 4. ALWAYS put a point_packet into the output queue to unblock the main thread
-            try:
-                self.out_queues[port].put(point_packet, timeout=1) # Timeout to prevent indefinite blocking
-                logger.debug(f"FlyTracker (Port {port}): Processed frame {frame_idx} and put result in out_queue.")
-            except Full:
-                logger.warning(f"FlyTracker (Port {port}): Output queue is full, result for frame {frame_idx} was dropped. This implies the main thread isn't reading fast enough or is stuck elsewhere.")
-        
-        logger.info(f"FlyTracker thread for port {port} stopped.")
+            # 4. Put the point_packet into the output queue (blocking, like other trackers)
+            self.out_queues[port].put(point_packet)
+            logger.debug(f"FlyTracker (Port {port}): Processed frame and put result in out_queue.")
 
-    # Override tear_down to stop threads gracefully
-    def tear_down(self):
-        logger.info("FlyTracker: Tearing down threads...")
-        for port in list(self.threads.keys()): # Iterate over a copy of keys as dict might change during join
-            self._thread_stop_flags[port] = True
-        for port, thread in self.threads.items():
-            if thread.is_alive():
-                thread.join(timeout=1.0) # Wait for thread to finish
-                if thread.is_alive():
-                    logger.warning(f"Thread for port {port} did not terminate gracefully.")
-        self.in_queues.clear()
-        self.out_queues.clear()
-        self.threads.clear()
-        self._thread_stop_flags.clear()
-        logger.info("FlyTracker: Threads torn down.")
-
- 
     def get_points(self, frame: np.ndarray, port: int, rotation_count: int, frame_idx: int) -> PointPacket:
         # Initialize queues and thread for this port if not already done
         if port not in self.in_queues:
@@ -195,29 +169,15 @@ class FlyTracker(Tracker):
             )
             self.threads[port].start()
             logger.info(f"FlyTracker: Initialized thread for port {port}.")
-                
-# 1. Put the incoming (frame, frame_idx) tuple into the input queue for the thread to process
-        try:
-            self.in_queues[port].put_nowait((frame, frame_idx)) # Pass the tuple
-            logger.debug(f"FlyTracker (Port {port}): Frame {frame_idx} put into in_queue.")
-        except Full:
-            logger.warning(f"FlyTracker (Port {port}): Input queue is full, skipping frame {frame_idx}. Processing is too slow.")
-            # If the queue is full, the previous frame is still being processed.
-            # Try to get previous result or return empty to avoid blocking.
-            try:
-                return self.out_queues[port].get_nowait()
-            except Empty:
-                return PointPacket(np.array([]), np.array([]), None)
 
-        # 2. Get the processed PointPacket from the output queue
-        # This will block until the thread puts a result. Add a timeout.
-        try:
-            point_packet = self.out_queues[port].get(timeout=5) # Wait up to 5 seconds
-            logger.debug(f"FlyTracker (Port {port}): PointPacket retrieved from out_queue for frame {frame_idx}.")
-            return point_packet
-        except Empty:
-            logger.error(f"FlyTracker (Port {port}): Timed out waiting for processed points from thread for frame {frame_idx}. Returning empty packet.")
-            return PointPacket(np.array([]), np.array([]), None)
+        # Put the incoming (frame, frame_idx) tuple into the input queue
+        self.in_queues[port].put((frame, frame_idx))
+        logger.debug(f"FlyTracker (Port {port}): Frame {frame_idx} put into in_queue.")
+
+        # Get the processed PointPacket from the output queue (blocking)
+        point_packet = self.out_queues[port].get()
+        logger.debug(f"FlyTracker (Port {port}): PointPacket retrieved from out_queue.")
+        return point_packet
 
     # --- Other helper methods ---
     def get_point_name(self, point_id: int) -> str:

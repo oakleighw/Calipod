@@ -159,7 +159,7 @@ class RecordedStream:
 
     def play_video(self):
         logger.info(f"Initiating _play_worker for Camera {self.port}")
-        self.thread = Thread(target=self._play_worker, args=[], daemon=False)
+        self.thread = Thread(target=self._play_worker, args=[], daemon=True)
         self.thread.start()
 
     def _play_worker(self):

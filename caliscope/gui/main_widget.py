@@ -239,6 +239,65 @@ class MainWindow(QMainWindow):
         with open(__settings_path__, "w") as f:
             rtoml.dump(self.app_settings, f)
 
+    def closeEvent(self, event):
+        """Handle window close event to clean up resources"""
+        logger.info("MainWindow closeEvent triggered - cleaning up resources")
+        
+        # Clean up controller resources FIRST (before closing streams)
+        if hasattr(self, 'controller'):
+            logger.info("Cleaning up controller resources")
+            
+            # Stop intrinsic stream manager and its threads
+            if hasattr(self.controller, 'intrinsic_stream_manager'):
+                logger.info("Closing intrinsic stream manager")
+                try:
+                    self.controller.intrinsic_stream_manager.close_stream_tools()
+                except Exception as e:
+                    logger.error(f"Error closing intrinsic stream manager: {e}")
+            
+            # Stop extrinsic stream manager if it exists
+            if hasattr(self.controller, 'extrinsic_stream_manager'):
+                logger.info("Stopping extrinsic stream manager")
+                try:
+                    if hasattr(self.controller.extrinsic_stream_manager, 'streams'):
+                        for port, stream in self.controller.extrinsic_stream_manager.streams.items():
+                            stream.stop_event.set()
+                            if hasattr(stream, 'thread'):
+                                stream.thread.join(timeout=1.0)
+                    if hasattr(self.controller.extrinsic_stream_manager, 'recorder'):
+                        self.controller.extrinsic_stream_manager.recorder.stop_recording()
+                except Exception as e:
+                    logger.error(f"Error closing extrinsic stream manager: {e}")
+            
+            # Stop synchronizer
+            if hasattr(self.controller, 'synchronizer'):
+                logger.info("Stopping synchronizer")
+                try:
+                    self.controller.synchronizer.stop()
+                except Exception as e:
+                    logger.error(f"Error stopping synchronizer: {e}")
+        
+        # Stop any QThread emitters if they exist
+        if hasattr(self, 'post_processing_widget') and hasattr(self.post_processing_widget, 'thumbnail_emitter'):
+            logger.info("Stopping post processing thumbnail emitter")
+            try:
+                self.post_processing_widget.thumbnail_emitter.stop()
+                self.post_processing_widget.thumbnail_emitter.wait(1000)
+            except Exception as e:
+                logger.error(f"Error stopping post processing emitter: {e}")
+        
+        # Stop intrinsic calibration widget threads if they exist
+        if hasattr(self, 'intrinsic_cal_widget') and hasattr(self.intrinsic_cal_widget, 'thumbnail_emitter'):
+            logger.info("Stopping intrinsic calibration thumbnail emitter")
+            try:
+                self.intrinsic_cal_widget.thumbnail_emitter.stop()
+                self.intrinsic_cal_widget.thumbnail_emitter.wait(1000)
+            except Exception as e:
+                logger.error(f"Error stopping intrinsic emitter: {e}")
+        
+        logger.info("MainWindow cleanup complete")
+        event.accept()
+
 
 def launch_main():
     # import qdarktheme
@@ -249,7 +308,7 @@ def launch_main():
     # qdarktheme.setup_theme("auto")
     window = MainWindow()
     window.show()
-    app.exec()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

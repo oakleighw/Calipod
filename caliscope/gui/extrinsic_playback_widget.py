@@ -109,6 +109,16 @@ class ExtrinsicPlaybackWidget(QWidget):
             self.playback_displays[port].setPixmap(qpixmap)
             logger.debug("successfully set display")
 
+    def closeEvent(self, event):
+        """Stop the thumbnail emitter thread when widget is closed"""
+        logger.info("ExtrinsicPlaybackWidget closeEvent triggered - stopping thumbnail emitter")
+        if hasattr(self, 'thumbnail_emitter'):
+            self.thumbnail_emitter.keep_collecting.clear()
+            if self.thumbnail_emitter.isRunning():
+                self.thumbnail_emitter.wait(1000)
+        logger.info("ExtrinsicPlaybackWidget cleanup complete")
+        event.accept()
+
 
 class FrameDictionaryEmitter(QThread):
     ThumbnailImagesBroadcast = Signal(dict)

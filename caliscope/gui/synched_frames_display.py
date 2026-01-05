@@ -113,3 +113,12 @@ class SynchedFramesDisplay(QWidget):
             logger.debug("About to set qpixmap to display")
             self.recording_displays[str(port)].setPixmap(qpixmap)
             logger.debug("successfully set display")
+
+    def closeEvent(self, event):
+        """Stop the frame dictionary emitter thread when window is closed"""
+        logger.info("SynchedFramesDisplay closeEvent triggered - stopping frame emitter")
+        if hasattr(self, 'frame_dictionary_emitter'):
+            self.frame_dictionary_emitter.stop()
+            self.frame_dictionary_emitter.wait(1000)
+        logger.info("SynchedFramesDisplay cleanup complete")
+        event.accept()
