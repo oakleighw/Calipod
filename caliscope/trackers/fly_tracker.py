@@ -45,13 +45,14 @@ class FlyTracker(Tracker):
                 img_loc = []
                 for i, line in enumerate(lines):
                     split_l = line.strip().split(' ')
-                    x_centre = float(split_l[1]) * frame_shape[1]
-                    y_centre = float(split_l[2]) * frame_shape[0]
-                    ids.append(i)
-                    img_loc.append((x_centre, y_centre))
+                    if split_l[0] == "0": #check if label 0 (fly)
+                        x_centre = float(split_l[1]) * frame_shape[1]
+                        y_centre = float(split_l[2]) * frame_shape[0]
+                        ids.append(i)
+                        img_loc.append((x_centre, y_centre))
 
-                    logger.debug(f"Parsed point: ({x_centre}, {y_centre}) from '{line.strip()}' in {text_file}")
-                    logger.debug(f"Type of x_pixel: {type(x_centre)}, Type of y_pixel: {type(y_centre)}")
+                        logger.debug(f"Parsed point: ({x_centre}, {y_centre}) from '{line.strip()}' in {text_file}")
+                        logger.debug(f"Type of x_pixel: {type(x_centre)}, Type of y_pixel: {type(y_centre)}")
 
         except FileNotFoundError:
             logger.warning(f"YOLO label file not found (inside yolo_to_idloc): {text_file}")
