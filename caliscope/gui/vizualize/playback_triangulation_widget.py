@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QSlider,
     QVBoxLayout,
+    QHBoxLayout,
     QWidget,
     QPushButton,
     QApplication
@@ -26,6 +27,7 @@ from caliscope.motion_trial import MotionTrial
 import cv2
 import rtoml
 import pandas as pd
+import subprocess
 from typing import Optional
 
 
@@ -40,8 +42,10 @@ class PlaybackTriangulationWidget(QWidget):
         self.visualizer = TriangulationVisualizer(self.camera_array)
         self.slider = QSlider(Qt.Orientation.Horizontal)
 
-        self.export_button = QPushButton("Export Video")
+        self.export_button = QPushButton("Export Triang'd-Sim Video")
         self.export_button.setCheckable(True)
+
+        self.export_compare_button = QPushButton("Export Real Video Compare")
 
         self.measurement_view_button = QPushButton("Measurement View") 
 
@@ -51,6 +55,7 @@ class PlaybackTriangulationWidget(QWidget):
 
         self.export_video_mode = False
         self.video_framerate = 60 
+        self.last_exported_video_path: Optional[Path] = None
 
         self._session_start_frame: Optional[int] = None
         self._session_end_frame: Optional[int] = None
@@ -72,7 +77,10 @@ class PlaybackTriangulationWidget(QWidget):
         self.setLayout(QVBoxLayout())
         self.layout().addWidget(self.visualizer.scene)
         self.layout().addWidget(self.slider)
-        self.layout().addWidget(self.export_button)
+        button_row = QHBoxLayout()
+        button_row.addWidget(self.export_button)
+        button_row.addWidget(self.export_compare_button)
+        self.layout().addLayout(button_row)
         self.layout().addWidget(self.measurement_view_button)
         self.layout().addWidget(self.toggle_frustums_button)
 
@@ -80,6 +88,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.slider.valueChanged.connect(self.visualizer.display_points)
         self.slider.valueChanged.connect(self.visualizer.update_segment_lines)
         self.export_button.toggled.connect(self.toggle_export_mode)
+        self.export_compare_button.clicked.connect(self.export_real_video_compare)
         self.measurement_view_button.clicked.connect(self.visualizer.toggle_measurement_mode)
         self.toggle_frustums_button.toggled.connect(self.visualizer.toggle_camera_frustums)
 
@@ -89,78 +98,77 @@ class PlaybackTriangulationWidget(QWidget):
         self.visualizer.set_export_mode(checked) 
 
         if checked:
-            self.visualizer.clear_collected_frames()
-            self.export_button.setEnabled(False)
-            logger.info("Starting video export process (collecting frames in memory)...")
+            self.last_exported_video_path = None
+            self.last_exported_video_path = self._export_motion_video()
+        else:
+            logger.info("Video export mode disabled.")
 
+    def _derive_export_paths(self):
+        if self.xyz_history_path:
+            tracker_suffix = self.xyz_history_path.stem.replace("xyz_", "")
+            export_video_path = self.xyz_history_path.parent / f"exported_{tracker_suffix}.mp4"
+            compare_video_path = self.xyz_history_path.parent / f"exported_compare_{tracker_suffix}.mp4"
+            recording_dir = self.xyz_history_path.parent.parent
+        else:
+            export_video_path = Path.cwd() / "exported_motion_video.mp4"
+            compare_video_path = Path.cwd() / "exported_real_compare.mp4"
+            recording_dir = None
+
+        return export_video_path, compare_video_path, recording_dir
+
+    def _export_motion_video(self) -> Optional[Path]:
+        """Render the 3D visualization to a video file and return its path."""
+        self.visualizer.set_export_mode(True)
+        self.visualizer.clear_collected_frames()
+        self.export_button.setEnabled(False)
+        logger.info("Starting video export process (collecting frames in memory)...")
+
+        export_start_frame = 0
+        export_end_frame = 0 
+        
+        if self._session_start_frame is not None and self._session_end_frame is not None:
+            export_start_frame = self._session_start_frame
+            export_end_frame = self._session_end_frame
+            logger.info(f"Exporting video based on full session frame range: {export_start_frame} to {export_end_frame}.")
+            
+            if self.visualizer.motion_trial is None: 
+                self.visualizer.motion_trial = MotionTrial() 
+            
+        elif self.motion_trial and not self.motion_trial.is_empty:
+            export_start_frame = self.motion_trial.start_index
+            export_end_frame = self.motion_trial.end_index
+            logger.info(f"Exporting video based on loaded motion trial range: {export_start_frame} to {export_end_frame}.")
+        
+        else:
             export_start_frame = 0
-            export_end_frame = 0 
-            
-            if self._session_start_frame is not None and self._session_end_frame is not None:
-                export_start_frame = self._session_start_frame
-                export_end_frame = self._session_end_frame
-                logger.info(f"Exporting video based on full session frame range: {export_start_frame} to {export_end_frame}.")
-                
-                if self.visualizer.motion_trial is None: 
-                    self.visualizer.motion_trial = MotionTrial() 
-                
-            elif self.motion_trial and not self.motion_trial.is_empty:
-                export_start_frame = self.motion_trial.start_index
-                export_end_frame = self.motion_trial.end_index
-                logger.info(f"Exporting video based on loaded motion trial range: {export_start_frame} to {export_end_frame}.")
-            
-            else:
-                export_start_frame = 0
-                export_end_frame = self.video_framerate * 3 
-                logger.warning(f"No valid motion trial or session range available. Exporting {export_end_frame - export_start_frame + 1} frames of empty scene.")
-                if self.visualizer.motion_trial is None: 
-                    self.visualizer.motion_trial = MotionTrial() 
+            export_end_frame = self.video_framerate * 3 
+            logger.warning(f"No valid motion trial or session range available. Exporting {export_end_frame - export_start_frame + 1} frames of empty scene.")
+            if self.visualizer.motion_trial is None: 
+                self.visualizer.motion_trial = MotionTrial() 
 
-            # --- MODIFIED EXPORT LOOP START ---
-            # Temporarily disconnect display_points and update_segment_lines from the slider's valueChanged signal
-            # This prevents multiple updates per frame (one from setValue, one from direct call)
-            # and gives more direct control over when rendering happens for export.
-            try:
-                self.slider.valueChanged.disconnect(self.visualizer.display_points)
-                self.slider.valueChanged.disconnect(self.visualizer.update_segment_lines)
-            except TypeError: # Disconnect might fail if not connected, ignore.
-                pass 
+        reconnect_needed = False
+        try:
+            self.slider.valueChanged.disconnect(self.visualizer.display_points)
+            self.slider.valueChanged.disconnect(self.visualizer.update_segment_lines)
+            reconnect_needed = True
+        except TypeError:
+            pass 
 
+        exported_path: Optional[Path] = None
+        export_video_path: Optional[Path] = None
+
+        try:
             for i in range(export_start_frame, export_end_frame + 1):
-                # Update slider value for visual feedback, but block its signals
-                # to prevent re-triggering display_points/update_segment_lines via the signal.
                 self.slider.blockSignals(True) 
                 self.slider.setValue(i)
                 self.slider.blockSignals(False) 
 
-                # Directly call display_points and update_segment_lines to render and collect the frame
-                # This ensures the visualizer state is updated for framebuffer grab.
                 self.visualizer.display_points(i) 
                 self.visualizer.update_segment_lines(i) 
 
-                # Process events to keep the GUI responsive during the potentially long export loop.
-                # This allows camera panning or other UI interactions to be handled,
-                # which can help prevent the "EError" by not starving the event loop.
                 QApplication.processEvents() 
 
-            # Reconnect display_points and update_segment_lines to the slider after export is complete
-            self.slider.valueChanged.connect(self.visualizer.display_points)
-            self.slider.valueChanged.connect(self.visualizer.update_segment_lines)
-            # --- MODIFIED EXPORT LOOP END ---
-
-
-            # for i in range(export_start_frame, export_end_frame + 1):
-            #     self.slider.setValue(i) 
-            # logger.info("Finished collecting frames.")
-
-            if self.xyz_history_path: 
-                video_name = self.xyz_history_path.stem.replace("xyz_", "exported_") + ".mp4"
-                output_video_path = self.xyz_history_path.parent / video_name
-            else:
-                output_video_path = Path.cwd() / "exported_motion_video.mp4" 
-                logger.warning(f"Motion trial path not available. Saving video to current working directory: {output_video_path}")
-
-            
+            export_video_path, _, _ = self._derive_export_paths()
             collected_frames = self.visualizer.get_collected_frames()
 
             if collected_frames:
@@ -169,27 +177,427 @@ class PlaybackTriangulationWidget(QWidget):
                     height, width, _ = first_frame.shape
                     size = (width, height)
 
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    out = cv2.VideoWriter(str(output_video_path), fourcc, self.video_framerate, size)
+                    # Use FFmpeg for compressed output
+                    ffmpeg_cmd = [
+                        "ffmpeg",
+                        "-f", "rawvideo",
+                        "-pix_fmt", "bgr24",
+                        "-s", f"{width}x{height}",
+                        "-r", str(self.video_framerate),
+                        "-i", "-",
+                        "-c:v", "libx264",
+                        "-b:v", "8000k",  # 8 Mbps bitrate
+                        "-preset", "medium",
+                        "-pix_fmt", "yuv420p",  # Ensure compatibility
+                        "-movflags", "+faststart",  # Make mp4 streamable
+                        "-y",
+                        str(export_video_path)
+                    ]
 
-                    if not out.isOpened():
-                        logger.error(f"Failed to open video writer for {output_video_path}. Check codec availability (e.g., system FFmpeg) and path.")
+                    try:
+                        proc = subprocess.Popen(
+                            ffmpeg_cmd,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE
+                        )
+                    except FileNotFoundError:
+                        logger.error("FFmpeg not found. Install FFmpeg or add it to PATH.")
+                        raise IOError("FFmpeg is required for video encoding but was not found.")
+
+                    logger.info(f"Writing {len(collected_frames)} frames to video: {export_video_path}")
+                    for frame in collected_frames:
+                        try:
+                            proc.stdin.write(frame.tobytes())
+                        except BrokenPipeError:
+                            logger.error("FFmpeg pipe closed unexpectedly")
+                            break
+
+                    proc.stdin.close()
+                    QApplication.processEvents()
+                    
+                    stdout, stderr = proc.communicate(timeout=300)
+                    if proc.returncode == 0:
+                        exported_path = export_video_path
+                        logger.info(f"Video saved to: {export_video_path}")
                     else:
-                        logger.info(f"Writing {len(collected_frames)} frames to video: {output_video_path}")
-                        for frame in collected_frames:
-                            out.write(frame)
-                        out.release() 
-                        logger.info(f"Video saved to: {output_video_path}")
+                        logger.error(f"FFmpeg encoding failed: {stderr.decode() if stderr else 'Unknown error'}")
                 except Exception as e:
                     logger.error(f"Failed to create video from collected frames: {e}")
+                    try:
+                        proc.stdin.close()
+                        proc.terminate()
+                    except:
+                        pass
             else:
                 logger.warning("No frames were collected to combine into video.")
 
+            return exported_path
+        finally:
+            if reconnect_needed:
+                self.slider.valueChanged.connect(self.visualizer.display_points)
+                self.slider.valueChanged.connect(self.visualizer.update_segment_lines)
+
+            self.visualizer.set_export_mode(False)
             self.export_button.setEnabled(True)
             self.export_button.setChecked(False) 
+            self.last_exported_video_path = exported_path or (export_video_path if export_video_path else None)
 
+    def _collect_port_videos(self, recording_dir: Path, expected_count: int = 3):
+        port_videos = []
+
+        for video_file in recording_dir.glob("port_*.mp4"):
+            try:
+                port_number = int(video_file.stem.split("_")[1])
+            except (IndexError, ValueError):
+                logger.warning(f"Skipping unexpected video file name: {video_file}")
+                continue
+
+            port_videos.append((port_number, video_file))
+
+        port_videos = [path for _, path in sorted(port_videos, key=lambda x: x[0])]
+
+        if len(port_videos) < expected_count:
+            logger.error(
+                f"Found {len(port_videos)} camera videos at {recording_dir}, but {expected_count} are required for compare export."
+            )
+            return []
+
+        return port_videos[:expected_count]
+
+    def _resize_and_center_crop(self, frame: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
+        """Resize with aspect preservation and center-crop/pad to target size."""
+        h, w = frame.shape[:2]
+        if w == 0 or h == 0 or target_w == 0 or target_h == 0:
+            return frame
+
+        target_aspect = target_w / target_h
+        src_aspect = w / h
+
+        if src_aspect > target_aspect:
+            # crop width
+            new_w = int(h * target_aspect)
+            x0 = max((w - new_w) // 2, 0)
+            frame = frame[:, x0:x0 + new_w]
+        elif src_aspect < target_aspect:
+            # crop height
+            new_h = int(w / target_aspect)
+            y0 = max((h - new_h) // 2, 0)
+            frame = frame[y0:y0 + new_h, :]
+
+        return cv2.resize(frame, (target_w, target_h))
+
+    def create_quad_split_video(self, video_paths: list[Path], output_path: Path):
+        if len(video_paths) != 4:
+            raise ValueError("Please provide exactly 4 video paths.")
+
+        caps = []
+        opened_meta = []
+        for video_path in video_paths:
+            cap = cv2.VideoCapture(str(video_path))
+            if not cap.isOpened():
+                for c in caps:
+                    c.release()
+                raise IOError(f"Failed to open video: {video_path}")
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            opened_meta.append((video_path, width, height, fps))
+            caps.append(cap)
+
+        # Choose a base size from the real videos to keep aspect consistent
+        valid_sizes = [(w, h) for (_, w, h, _) in opened_meta if w > 0 and h > 0]
+        if valid_sizes:
+            quad_width, quad_height = min(valid_sizes, key=lambda wh: wh[0] * wh[1])
         else:
-            logger.info("Video export mode disabled.")
+            quad_width, quad_height = 640, 480  # fallback
+
+        output_resolution = (quad_width * 2, quad_height * 2)
+        if output_resolution[0] <= 0 or output_resolution[1] <= 0:
+            for cap in caps:
+                cap.release()
+            raise IOError(f"Invalid output resolution derived for {output_path}: {output_resolution}")
+
+        target_fps = int(opened_meta[0][3]) if opened_meta and opened_meta[0][3] > 0 else (self.video_framerate or 30)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        fourcc = cv2.VideoWriter_fourcc(*"H264")
+        out = cv2.VideoWriter(str(output_path), fourcc, target_fps, output_resolution)
+        if not out.isOpened():
+            for cap in caps:
+                cap.release()
+            raise IOError(f"Failed to open video writer for {output_path}")
+
+        frame_count = 0
+        while True:
+            frames = []
+            for cap in caps:
+                ret, frame = cap.read()
+                if not ret:
+                    frames = []
+                    break
+                frames.append(frame)
+
+            if len(frames) < 4:
+                break
+
+            # Resize first 3 frames (real videos) with simple resize, crop only the 4th (sim)
+            resized_frames = [
+                cv2.resize(frames[i], (quad_width, quad_height)) if i < 3 
+                else self._resize_and_center_crop(frames[i], quad_width, quad_height) 
+                for i in range(4)
+            ]
+            top_row = np.hstack((resized_frames[0], resized_frames[1]))
+            bottom_row = np.hstack((resized_frames[2], resized_frames[3]))
+            combined_frame = np.vstack((top_row, bottom_row))
+
+            out.write(combined_frame)
+            frame_count += 1
+            
+            # Keep UI responsive during long video processing
+            if frame_count % 30 == 0:
+                QApplication.processEvents()
+
+        logger.info(f"Finished processing {frame_count} frames, finalizing video file...")
+        QApplication.processEvents()
+        
+        for cap in caps:
+            cap.release()
+        out.release()
+        
+        QApplication.processEvents()
+
+        if frame_count == 0:
+            logger.error(f"No frames written to combined video: {output_path}")
+            if output_path.exists():
+                try:
+                    output_path.unlink()
+                except OSError:
+                    pass
+            return
+
+        logger.info(
+            f"Combined video saved to: {output_path} ({frame_count} frames at {target_fps} fps, base quad {quad_width}x{quad_height})"
+        )
+
+    def create_quad_split_video_streaming(self, port_video_paths: list[Path], start_frame: int, end_frame: int, output_path: Path):
+        """Create quad-split video using port videos and on-demand sim frame rendering (no memory pre-collection)."""
+        if len(port_video_paths) != 3:
+            raise ValueError("Please provide exactly 3 port video paths.")
+
+        caps = []
+        opened_meta = []
+        for video_path in port_video_paths:
+            cap = cv2.VideoCapture(str(video_path))
+            if not cap.isOpened():
+                for c in caps:
+                    c.release()
+                raise IOError(f"Failed to open video: {video_path}")
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            opened_meta.append((video_path, width, height, fps))
+            caps.append(cap)
+
+        # Choose a base size from the real videos
+        valid_sizes = [(w, h) for (_, w, h, _) in opened_meta if w > 0 and h > 0]
+        if valid_sizes:
+            quad_width, quad_height = min(valid_sizes, key=lambda wh: wh[0] * wh[1])
+        else:
+            quad_width, quad_height = 640, 480
+
+        output_resolution = (quad_width * 2, quad_height * 2)
+        if output_resolution[0] <= 0 or output_resolution[1] <= 0:
+            for cap in caps:
+                cap.release()
+            raise IOError(f"Invalid output resolution derived for {output_path}: {output_resolution}")
+
+        target_fps = int(opened_meta[0][3]) if opened_meta and opened_meta[0][3] > 0 else (self.video_framerate or 30)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Use FFmpeg for compressed output via pipe
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-f", "rawvideo",
+            "-pix_fmt", "bgr24",
+            "-s", f"{output_resolution[0]}x{output_resolution[1]}",
+            "-r", str(target_fps),
+            "-i", "-",
+            "-c:v", "libx264",
+            "-b:v", "8000k",  # 8 Mbps bitrate (adjust as needed)
+            "-preset", "medium",  # medium speed/quality tradeoff
+            "-pix_fmt", "yuv420p",  # Ensure compatibility
+            "-movflags", "+faststart",  # Make mp4 streamable
+            "-y",  # Overwrite output
+            str(output_path)
+        ]
+
+        try:
+            proc = subprocess.Popen(
+                ffmpeg_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+        except FileNotFoundError:
+            logger.error("FFmpeg not found. Install FFmpeg or add it to PATH.")
+            for cap in caps:
+                cap.release()
+            raise IOError("FFmpeg is required for video encoding but was not found.")
+
+        reconnect_needed = False
+        try:
+            self.slider.valueChanged.disconnect(self.visualizer.display_points)
+            self.slider.valueChanged.disconnect(self.visualizer.update_segment_lines)
+            reconnect_needed = True
+        except TypeError:
+            pass
+
+        frame_count = 0
+        try:
+            for sync_idx in range(start_frame, end_frame + 1):
+                port_frames = []
+                for cap in caps:
+                    ret, frame = cap.read()
+                    if not ret:
+                        port_frames = []
+                        break
+                    port_frames.append(frame)
+
+                if len(port_frames) < 3:
+                    break
+                
+                # Render sim frame on-demand (no memory pre-collection)
+                self.slider.blockSignals(True)
+                self.slider.setValue(sync_idx)
+                self.slider.blockSignals(False)
+                self.visualizer.display_points(sync_idx)
+                self.visualizer.update_segment_lines(sync_idx)
+                
+                # Grab framebuffer
+                qimage = self.visualizer.scene.grabFramebuffer()
+                sim_frame = self.visualizer.qimage_to_cv2(qimage) if not qimage.isNull() else None
+                
+                if sim_frame is None or sim_frame.size == 0:
+                    logger.warning(f"Failed to grab sim frame at sync_idx {sync_idx}, skipping")
+                    continue
+
+                # Stitch: resize real videos without crop, crop only sim
+                resized_frames = [
+                    cv2.resize(port_frames[i], (quad_width, quad_height)) if i < 3 
+                    else self._resize_and_center_crop(sim_frame, quad_width, quad_height) 
+                    for i in range(3)
+                ]
+                resized_frames.append(self._resize_and_center_crop(sim_frame, quad_width, quad_height))
+                
+                top_row = np.hstack((resized_frames[0], resized_frames[1]))
+                bottom_row = np.hstack((resized_frames[2], resized_frames[3]))
+                combined_frame = np.vstack((top_row, bottom_row))
+
+                # Send to FFmpeg via pipe
+                try:
+                    proc.stdin.write(combined_frame.tobytes())
+                except BrokenPipeError:
+                    logger.error("FFmpeg pipe closed unexpectedly")
+                    break
+
+                frame_count += 1
+                
+                # Keep UI responsive during long video processing
+                if frame_count % 30 == 0:
+                    QApplication.processEvents()
+
+            # Close FFmpeg pipe
+            logger.info(f"Finished processing {frame_count} frames, finalizing video file...")
+            proc.stdin.close()
+            QApplication.processEvents()
+            
+            # Wait for FFmpeg to finish
+            stdout, stderr = proc.communicate(timeout=300)
+            if proc.returncode != 0:
+                logger.error(f"FFmpeg encoding failed: {stderr.decode() if stderr else 'Unknown error'}")
+                if output_path.exists():
+                    try:
+                        output_path.unlink()
+                    except OSError:
+                        pass
+                return
+
+        except Exception as e:
+            logger.error(f"Error during video encoding: {e}")
+            try:
+                proc.stdin.close()
+                proc.terminate()
+            except:
+                pass
+            if output_path.exists():
+                try:
+                    output_path.unlink()
+                except OSError:
+                    pass
+            raise
+        finally:
+            if reconnect_needed:
+                self.slider.valueChanged.connect(self.visualizer.display_points)
+                self.slider.valueChanged.connect(self.visualizer.update_segment_lines)
+        
+        for cap in caps:
+            cap.release()
+
+        QApplication.processEvents()
+
+        if frame_count == 0:
+            logger.error(f"No frames written to combined video: {output_path}")
+            if output_path.exists():
+                try:
+                    output_path.unlink()
+                except OSError:
+                    pass
+            return
+
+        logger.info(
+            f"Combined video saved to: {output_path} ({frame_count} frames at {target_fps} fps, base quad {quad_width}x{quad_height})"
+        )
+
+    def export_real_video_compare(self):
+        export_video_path, compare_video_path, recording_dir = self._derive_export_paths()
+
+        if recording_dir is None or not recording_dir.exists():
+            logger.error("Cannot export compare video without a valid recording directory.")
+            return
+
+        port_videos = self._collect_port_videos(recording_dir)
+        if len(port_videos) < 3:
+            return
+
+        self.export_compare_button.setEnabled(False)
+
+        try:
+            # Determine frame range
+            export_start_frame = 0
+            export_end_frame = 0 
+            
+            if self._session_start_frame is not None and self._session_end_frame is not None:
+                export_start_frame = self._session_start_frame
+                export_end_frame = self._session_end_frame
+                logger.info(f"Compare export using session frame range: {export_start_frame} to {export_end_frame}")
+            elif self.motion_trial and not self.motion_trial.is_empty:
+                export_start_frame = self.motion_trial.start_index
+                export_end_frame = self.motion_trial.end_index
+                logger.info(f"Compare export using motion trial range: {export_start_frame} to {export_end_frame}")
+            else:
+                export_start_frame = 0
+                export_end_frame = self.video_framerate * 3 
+                logger.warning(f"Compare export using default 3-second range: {export_start_frame} to {export_end_frame}")
+
+            # Create quad-split by rendering sim frames on-demand
+            self.create_quad_split_video_streaming(port_videos[:3], export_start_frame, export_end_frame, compare_video_path)
+        except Exception as exc:
+            logger.error(f"Failed to export real video compare: {exc}")
+        finally:
+            self.export_compare_button.setEnabled(True)
 
 
     def update_motion_trial(self, xyz_history_path):
