@@ -45,6 +45,10 @@ class PlaybackTriangulationWidget(QWidget):
 
         self.measurement_view_button = QPushButton("Measurement View") 
 
+        self.toggle_frustums_button = QPushButton("Toggle Camera Frustums")
+        self.toggle_frustums_button.setCheckable(True)
+        self.toggle_frustums_button.setChecked(True)  # Start with frustums visible
+
         self.export_video_mode = False
         self.video_framerate = 60 
 
@@ -70,12 +74,14 @@ class PlaybackTriangulationWidget(QWidget):
         self.layout().addWidget(self.slider)
         self.layout().addWidget(self.export_button)
         self.layout().addWidget(self.measurement_view_button)
+        self.layout().addWidget(self.toggle_frustums_button)
 
     def connect_widgets(self):
         self.slider.valueChanged.connect(self.visualizer.display_points)
         self.slider.valueChanged.connect(self.visualizer.update_segment_lines)
         self.export_button.toggled.connect(self.toggle_export_mode)
         self.measurement_view_button.clicked.connect(self.visualizer.toggle_measurement_mode)
+        self.toggle_frustums_button.toggled.connect(self.visualizer.toggle_camera_frustums)
 
     def toggle_export_mode(self, checked):
         """Toggles video export mode based on button state."""
@@ -331,6 +337,17 @@ class TriangulationVisualizer:
     def update_camera_array(self, camera_array: CameraArray):
         self.camera_array = camera_array
         self.build_scene()
+
+    def toggle_camera_frustums(self, checked: bool):
+        """Toggle visibility of camera frustum meshes."""
+        if hasattr(self, 'meshes') and hasattr(self, 'origin_points'):
+            for mesh in self.meshes.values():
+                mesh.setVisible(checked)
+            for origin_point in self.origin_points.values():
+                origin_point.setVisible(checked)
+            logger.info(f"Camera frustums visibility toggled to: {checked}")
+        else:
+            logger.warning("Camera meshes not available to toggle")
 
     def update_motion_trial(self, motion_trial: MotionTrial):
         logger.info("Updating xyz history in playback widget")
