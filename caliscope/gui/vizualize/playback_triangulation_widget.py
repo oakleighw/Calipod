@@ -503,6 +503,49 @@ class TriangulationVisualizer:
                     elif point_id_int >= 1000:
                         regular_mask[i] = False
                 
+                # Create floor mesh from the 4 bottom corner points
+                # Points: 3=blic, 4=bric, 7=brfic, 8=blfic
+                floor_point_ids = [3, 4, 7, 8]
+                floor_coords = []
+                
+                for floor_id in floor_point_ids:
+                    floor_mask = point_ids == floor_id
+                    if np.any(floor_mask):
+                        floor_coords.append(xyz_coords[floor_mask][0])
+                        # Mark floor points as not regular scatter points
+                        floor_idx = np.where(point_ids == floor_id)[0]
+                        if len(floor_idx) > 0:
+                            regular_mask[floor_idx[0]] = False
+                
+                # If we have all 4 floor corner points, create the floor mesh
+                if len(floor_coords) == 4:
+                    logger.info(f"Creating floor mesh from 4 bottom corner points")
+                    vertices = np.array(floor_coords, dtype=np.float32)
+                    
+                    # Order should be: blic(0), bric(1), brfic(2), blfic(3)
+                    # Form two triangles: [0,1,2] and [0,2,3]
+                    faces = np.array([
+                        [0, 1, 2],  # blic, bric, brfic
+                        [0, 2, 3],  # blic, brfic, blfic
+                    ], dtype=np.uint32)
+                    
+                    colors = np.array([(1, 1, 1, 0.3), (1, 1, 1, 0.3)], dtype=np.float32)  # White, semi-transparent
+                    
+                    floor_mesh = gl.GLMeshItem(
+                        vertexes=vertices,
+                        faces=faces,
+                        faceColors=colors,
+                        smooth=False,
+                        drawEdges=True,
+                        edgeColor=(1, 1, 1, 0.8)  # White edges
+                    )
+                    floor_mesh.setGLOptions("translucent")
+                    self.scene.addItem(floor_mesh)
+                    self.custom_mesh_items.append(floor_mesh)
+                    logger.info(f"Created white floor mesh from bottom corners")
+                else:
+                    logger.debug(f"Could not find all 4 floor corner points, found {len(floor_coords)} points")
+                
                 # Display regular points (excluding special labels)
                 regular_coords = xyz_coords[regular_mask]
                 if len(regular_coords) > 0:
