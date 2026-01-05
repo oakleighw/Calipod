@@ -177,6 +177,10 @@ class FramePacket:
 
     @property
     def frame_with_points(self):
+        if self.frame is None:
+            # Skip frame drawing if there's no actual frame data (annotations-only mode)
+            return None
+        
         if self.points is not None:
             drawn_frame = self.frame.copy()
             ids = self.points.point_id

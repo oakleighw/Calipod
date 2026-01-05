@@ -31,9 +31,17 @@ class FlyTracker(Tracker):
         # You can define self.yolo_model_path here, which would be derived from annotations_dir
         # For live YOLO inference, you'd load a model (e.g., yolov8n.pt)
         self.yolo_model = None # Placeholder for your loaded YOLO model
+        self._annotations_only_mode = False  # Track if we're using pre-made annotations without video processing
 
 
-    def yolo_to_idloc(self, frame_shape, text_file):
+    def yolo_to_idloc(self, text_file, frame_shape=None):
+        """Parse YOLO label file to extract point IDs and locations.
+        
+        Args:
+            text_file: Path to YOLO label file
+            frame_shape: Optional tuple of (height, width, channels). If not provided,
+                        normalized coordinates from file won't be scaled.
+        """
         ids = np.array([],dtype=int)
         img_loc = np.array([],dtype=float)
         try:
@@ -46,16 +54,21 @@ class FlyTracker(Tracker):
                     split_l = line.strip().split(' ')
                     # Extract class_id from the YOLO label (first value)
                     class_id = int(split_l[0])
-                    x_centre = float(split_l[1]) * frame_shape[1]
-                    y_centre = float(split_l[2]) * frame_shape[0]
-                    ids.append(class_id)  # Use class_id instead of line index
+                    x_centre = float(split_l[1])
+                    y_centre = float(split_l[2])
+                    
+                    # Scale to pixel coordinates if frame_shape is provided
+                    if frame_shape is not None:
+                        x_centre *= frame_shape[1]
+                        y_centre *= frame_shape[0]
+                    
+                    ids.append(class_id)
                     img_loc.append((x_centre, y_centre))
 
                     logger.debug(f"Parsed point: class={class_id}, pos=({x_centre}, {y_centre}) from '{line.strip()}' in {text_file}")
-                    logger.debug(f"Type of x_pixel: {type(x_centre)}, Type of y_pixel: {type(y_centre)}")
 
         except FileNotFoundError:
-            logger.warning(f"YOLO label file not found (inside yolo_to_idloc): {text_file}")
+            logger.warning(f"YOLO label file not found: {text_file}")
         except (ValueError, IndexError) as e:
             logger.error(f"Error parsing YOLO label file {text_file}: {e}")
 
@@ -64,6 +77,38 @@ class FlyTracker(Tracker):
     @property
     def name(self):
         return "FLY"
+
+    @property
+    def annotations_only_mode(self) -> bool:
+        """Returns True if operating in annotations-only mode (no video processing needed)"""
+        return self._annotations_only_mode
+    
+    def check_annotations_available(self, recording_dir: Path, all_camera_data: dict) -> bool:
+        """Check if all cameras have complete annotations for the recording.
+        
+        Returns True if annotations exist for all ports and frames.
+        """
+        if not self._annotations_dir or not self._annotations_dir.exists():
+            return False
+        
+        logger.info("Checking if annotations are available for all cameras...")
+        for camera_data in all_camera_data.values():
+            port = camera_data.port
+            annotations_path = Path(self._annotations_dir, f"port_{port}", "labels", "train")
+            
+            if not annotations_path.exists():
+                logger.info(f"No annotations found for port {port}")
+                return False
+            
+            # Check if any annotation files exist
+            annotation_files = list(annotations_path.glob("frame_*.txt"))
+            if not annotation_files:
+                logger.info(f"No annotation files found in {annotations_path}")
+                return False
+        
+        logger.info("Annotations available for all cameras - enabling annotations-only mode")
+        self._annotations_only_mode = True
+        return True
 
     @property
     def annotations_dir(self) -> Path:
@@ -90,7 +135,7 @@ class FlyTracker(Tracker):
         return True
 
     def run_frame_processor(self, port: int, rotation_count: int):
-        logger.info(f"FlyTracker thread for port {port} started.")
+        logger.info(f"FlyTracker thread for port {port} started (annotations_only_mode={self._annotations_only_mode}).")
 
         while True:
             # Always initialize an empty packet, in case an error prevents populating it
@@ -101,14 +146,13 @@ class FlyTracker(Tracker):
                 frame, frame_idx = self.in_queues[port].get()
                 logger.debug(f"FlyTracker (Port {port}): Got frame {frame_idx} from queue.")
 
-                height, width, _ = frame.shape
-                
                 point_ids = np.array([], dtype=int)
                 landmark_xy = np.array([], dtype=np.float32)
 
                 if self.yolo_model is not None:
                     # --- LIVE YOLO INFERENCE PATH ---
                     logger.debug(f"FlyTracker (Port {port}): Processing frame for live detection...")
+                    height, width, _ = frame.shape
                     
                     # Assuming your YOLO model expects a BGR image and returns results
                     # You might need to adjust based on your actual YOLO library's requirements
@@ -129,16 +173,18 @@ class FlyTracker(Tracker):
                     landmark_xy = np.array(landmark_xy, dtype=np.float32)
 
                 else:
-                    # --- STATIC FILE READING PATH ---
+                    # --- STATIC FILE READING PATH (annotations from disk) ---
                     logger.debug(f"FlyTracker (Port {port}): Processing frame {frame_idx} with offline detections from file...")
 
                     # Construct label file path using frame_idx
-                    label_filename = f"frame_{frame_idx:06d}.txt" # CONFIRMED CORRECT with your file naming
+                    label_filename = f"frame_{frame_idx:06d}.txt"
                     label_file_path = Path(self.annotations_dir, f"port_{port}", "labels", "train", label_filename)
                     
                     if label_file_path.exists():
-                        # Call yolo_to_idloc (the CORRECTED version)
-                        point_ids, landmark_xy = self.yolo_to_idloc(frame.shape, label_file_path)
+                        # Always provide frame_shape for proper pixel coordinate scaling
+                        # In annotations-only mode, frame may be a dummy zero array, but shape is still valid
+                        frame_shape = frame.shape if frame is not None else None
+                        point_ids, landmark_xy = self.yolo_to_idloc(label_file_path, frame_shape)
                         logger.debug(f"FlyTracker (Port {port}, Frame {frame_idx}): Found {len(point_ids)} points from {label_file_path}")
                     else:
                         logger.debug(f"FlyTracker (Port {port}, Frame {frame_idx}): No label file found at {label_file_path}. Returning empty points for this frame.")

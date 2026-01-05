@@ -68,7 +68,15 @@ class PostProcessor:
         The xy_TrackerName.csv file is saved out to the same directory by the VideoRecorder
 
         Note that high fps target and including video will increase processing overhead
+        
+        For FlyTracker with annotations, automatically uses annotations-only mode for faster processing.
         """
+        # Auto-detect if we should use annotations-only mode
+        if self.tracker_name == "FLY" and hasattr(self.tracker, 'check_annotations_available'):
+            if self.tracker.check_annotations_available(self.recording_path, self.camera_array.cameras):
+                logger.info("✓ Using annotations-only mode for faster post-processing")
+                include_video = False
+        
         self.sync_stream_manager.process_streams(include_video=include_video, fps_target=fps_target)
 
         while self.sync_stream_manager.recorder.recording:

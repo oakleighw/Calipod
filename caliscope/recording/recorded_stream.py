@@ -186,10 +186,28 @@ class RecordedStream:
                 logger.info(f"Spinlock released at port {self.port}")
             ########## END NO SUBSCRIBERS SPINLOCK ##################
 
-            if self.milestones is not None:
+            # --- ANNOTATIONS-ONLY MODE OPTIMIZATION: Skip fps throttling ---
+            # In annotations-only mode, process as fast as possible (no sleep)
+            # In normal mode, sleep to match target fps
+            annotations_only = (self.tracker is not None and 
+                              hasattr(self.tracker, 'annotations_only_mode') and 
+                              self.tracker.annotations_only_mode)
+            
+            if self.milestones is not None and not annotations_only:
                 sleep(self.wait_to_next_frame())
-            # logger.info(f"about to read frame {self.frame_index} from capture at port {self.port}")
-            success, self.frame = self.capture.read()
+            
+            # --- ANNOTATIONS-ONLY MODE OPTIMIZATION ---
+            # If tracker is in annotations-only mode (has pre-made annotations), skip video reading
+            if annotations_only:
+                logger.debug(f"RecordedStream (Port {self.port}): Using annotations-only mode for frame {self.frame_index} (no video reading)")
+                # Create a dummy frame with correct dimensions but no pixel data
+                # This allows the tracker to get frame shape for calculations without decoding video
+                self.frame = np.zeros((self.size[1], self.size[0], 3), dtype=np.uint8)
+                success = True
+            else:
+                # --- NORMAL MODE: Read video frame ---
+                # logger.info(f"about to read frame {self.frame_index} from capture at port {self.port}")
+                success, self.frame = self.capture.read()
 
             if not success:
                 break
