@@ -263,6 +263,9 @@ class TriangulationVisualizer:
         self.is_measurement_mode_active = False 
         self.xy_grid: Optional[gl.GLGridItem] = None
         self.xz_grid: Optional[gl.GLGridItem] = None
+        
+        # Storage for custom mesh items for special labels
+        self.custom_mesh_items = []  # Store references to added mesh items
 
     def build_scene(self):
         if hasattr(self, "scene"):
@@ -370,15 +373,148 @@ class TriangulationVisualizer:
     def display_points(self, sync_index: int):
         logger.debug(f"display_points called for sync_index: {sync_index}")
 
+        # Clear previous custom meshes
+        for mesh_item in self.custom_mesh_items:
+            self.scene.removeItem(mesh_item)
+        self.custom_mesh_items = []
+
         if self.motion_trial is None or self.motion_trial.is_empty:
             logger.debug(f"Motion trial is not loaded or is empty for sync_index: {sync_index}. Skipping point display.")
             self.scatter.setVisible(False)  # Hide scatter when no data
             self.scatter.setData(pos=np.empty((0, 3)))  # Use empty array instead of None
         else:
             logger.debug(f"Displaying xyz points for sync index {sync_index}")
-            xyz_coords = self.motion_trial.get_xyz(sync_index).point_xyz
-            self.scatter.setVisible(True)  # Make visible when we have data
-            self.scatter.setData(pos=xyz_coords)
+            xyz_packet = self.motion_trial.get_xyz(sync_index)
+            xyz_coords = xyz_packet.point_xyz
+            point_ids = xyz_packet.point_ids
+            
+            # Check if we're using FlyTracker with special labels
+            has_fly_tracker = (hasattr(self.motion_trial, 'tracker') and 
+                             hasattr(self.motion_trial.tracker, 'name') and
+                             self.motion_trial.tracker.name == "FLY")
+            
+            logger.info(f"has_fly_tracker: {has_fly_tracker}, tracker: {self.motion_trial.tracker if hasattr(self.motion_trial, 'tracker') else 'None'}, point_ids: {point_ids}, num_points: {len(xyz_coords)}")
+            
+            if has_fly_tracker and len(xyz_coords) > 0:
+                # Get average bbox dimensions for this tracker
+                try:
+                    avg_bbox_by_id = self.motion_trial.tracker.get_average_bbox_by_point_id()
+                    logger.info(f"Average bbox data retrieved: {avg_bbox_by_id}")
+                except Exception as e:
+                    logger.warning(f"Could not get bbox data from tracker: {e}")
+                    avg_bbox_by_id = {}
+                
+                # If bbox_data is empty (tracking done before bbox capture was added),
+                # use default sizes for fruit and leaves
+                if not avg_bbox_by_id:
+                    logger.info("Using default bbox sizes for fruit and leaves (no captured bbox data)")
+                    # Default sizes in pixels - adjust these based on your typical object sizes
+                    # These are reasonable defaults for fruit/leaves at typical camera distances
+                    avg_bbox_by_id = {
+                        9: (100.0, 100.0),   # fruit: 100x100 pixels default
+                        10: (150.0, 150.0)   # leaves: 150x150 pixels default
+                    }
+                
+                # Separate special labels (9=fruit, 10=leaves) from regular points
+                regular_mask = np.ones(len(point_ids), dtype=bool)
+                
+                for i, (point_id, xyz) in enumerate(zip(point_ids, xyz_coords)):
+                    logger.info(f"Processing point {i}: point_id={point_id} (type: {type(point_id)}), xyz={xyz}")
+                    # Convert point_id to int for dictionary lookup
+                    point_id_int = int(point_id)
+                    
+                    # Check if this is a center point for fruit or leaves
+                    if point_id_int in [9, 10]:
+                        regular_mask[i] = False
+                        
+                        # Find the 4 corner points for this object
+                        # Corner IDs are: point_id * 1000 + [0, 1, 2, 3]
+                        corner_ids = [point_id_int * 1000 + j for j in range(4)]
+                        corner_xyzs = []
+                        
+                        for corner_id in corner_ids:
+                            corner_mask = point_ids == corner_id
+                            if np.any(corner_mask):
+                                corner_xyz = xyz_coords[corner_mask][0]
+                                corner_xyzs.append(corner_xyz)
+                                # Mark corners as not regular points
+                                corner_idx = np.where(point_ids == corner_id)[0]
+                                if len(corner_idx) > 0:
+                                    regular_mask[corner_idx[0]] = False
+                        
+                        # If we found all 4 corners, use them to create the mesh
+                        if len(corner_xyzs) == 4:
+                            logger.info(f"Found all 4 triangulated corners for point_id={point_id_int}")
+                            
+                            if point_id_int == 10:  # leaves - flat green square using triangulated corners
+                                vertices = np.array(corner_xyzs, dtype=np.float32)
+                                
+                                # Two triangles to form the square
+                                faces = np.array([
+                                    [0, 1, 2],  # First triangle: TL, TR, BR
+                                    [0, 2, 3],  # Second triangle: TL, BR, BL
+                                ], dtype=np.uint32)
+                                
+                                colors = np.array([(0, 1, 0, 0.6), (0, 1, 0, 0.6)], dtype=np.float32)
+                                
+                                mesh_item = gl.GLMeshItem(
+                                    vertexes=vertices,
+                                    faces=faces,
+                                    faceColors=colors,
+                                    smooth=False,
+                                    drawEdges=True,
+                                    edgeColor=(0, 0.5, 0, 1)
+                                )
+                                mesh_item.setGLOptions("translucent")
+                                self.scene.addItem(mesh_item)
+                                self.custom_mesh_items.append(mesh_item)
+                                logger.info(f"Created flat square mesh for leaves from triangulated corners")
+                                
+                            elif point_id_int == 9:  # fruit - red hemisphere using triangulated corners
+                                # Use the 4 corners to determine the actual 3D extent
+                                corners_array = np.array(corner_xyzs)
+                                
+                                # Calculate the actual 3D width and height from corners
+                                width_3d = np.linalg.norm(corners_array[1] - corners_array[0])  # TR - TL
+                                height_3d = np.linalg.norm(corners_array[3] - corners_array[0])  # BL - TL
+                                radius_3d = min(width_3d, height_3d) * 0.5
+                                
+                                # Use center point as peak of hemisphere
+                                vertices, faces, colors = self.create_hemisphere_from_center(
+                                    xyz, radius_3d, color=(1, 0, 0, 0.6), segments=16
+                                )
+                                
+                                mesh_item = gl.GLMeshItem(
+                                    vertexes=vertices,
+                                    faces=faces,
+                                    faceColors=colors,
+                                    smooth=True,
+                                    drawEdges=False
+                                )
+                                mesh_item.setGLOptions("translucent")
+                                self.scene.addItem(mesh_item)
+                                self.custom_mesh_items.append(mesh_item)
+                                logger.info(f"Created hemisphere mesh for fruit with radius={radius_3d:.4f}")
+                        else:
+                            logger.warning(f"Could not find all 4 corners for point_id={point_id_int}, found {len(corner_xyzs)} corners")
+                            # Fall back to showing just the center point
+                    
+                    # Skip corner points (IDs >= 1000) - they're already handled above
+                    elif point_id_int >= 1000:
+                        regular_mask[i] = False
+                
+                # Display regular points (excluding special labels)
+                regular_coords = xyz_coords[regular_mask]
+                if len(regular_coords) > 0:
+                    self.scatter.setVisible(True)
+                    self.scatter.setData(pos=regular_coords)
+                else:
+                    self.scatter.setVisible(False)
+                    self.scatter.setData(pos=np.empty((0, 3)))
+            else:
+                # Default behavior for non-FlyTracker or when no special handling needed
+                self.scatter.setVisible(True)  # Make visible when we have data
+                self.scatter.setData(pos=xyz_coords)
 
             if self.export_video_mode:
                 logger.debug(f"Export mode is active for sync_index: {sync_index}. Attempting to grab framebuffer.")
@@ -405,6 +541,69 @@ class TriangulationVisualizer:
         else:
             logger.debug(f"No wireframe to update from PlaybackTriangulationWidget for sync index {sync_index}.")
 
+    def create_hemisphere_from_center(self, center_xyz, radius_3d, color=(1, 0, 0, 0.6), segments=16):
+        """Create a hemisphere mesh with a specified 3D radius.
+        
+        Args:
+            center_xyz: (x, y, z) center position (peak of hemisphere)
+            radius_3d: radius in 3D world coordinates
+            color: RGBA color tuple
+            segments: number of segments for hemisphere smoothness
+        
+        Returns:
+            tuple: (vertices, faces, colors) for GLMeshItem
+        """
+        cx, cy, cz = center_xyz
+        
+        vertices = []
+        faces = []
+        
+        # Add center peak point of hemisphere
+        vertices.append([cx, cy, cz])
+        
+        # Generate hemisphere vertices
+        for i in range(segments // 2 + 1):  # From equator to pole
+            lat = i * (np.pi / 2) / (segments // 2)  # 0 to pi/2
+            z_offset = -radius_3d * np.cos(lat)  # Negative because hemisphere extends down from peak
+            ring_radius = radius_3d * np.sin(lat)
+            
+            for j in range(segments):
+                lon = j * (2 * np.pi) / segments
+                x_offset = ring_radius * np.cos(lon)
+                y_offset = ring_radius * np.sin(lon)
+                
+                vertices.append([cx + x_offset, cy + y_offset, cz + z_offset])
+        
+        vertices = np.array(vertices, dtype=np.float32)
+        
+        # Create faces
+        # Connect peak to first ring
+        for j in range(segments):
+            next_j = (j + 1) % segments
+            faces.append([0, j + 1, next_j + 1])
+        
+        # Connect rings
+        for i in range(segments // 2):
+            for j in range(segments):
+                next_j = (j + 1) % segments
+                
+                current_base = 1 + i * segments
+                next_base = 1 + (i + 1) * segments
+                
+                v1 = current_base + j
+                v2 = current_base + next_j
+                v3 = next_base + next_j
+                v4 = next_base + j
+                
+                # Two triangles per quad
+                faces.append([v1, v2, v3])
+                faces.append([v1, v3, v4])
+        
+        faces = np.array(faces, dtype=np.uint32)
+        colors = np.array([color] * len(faces), dtype=np.float32)
+        
+        return vertices, faces, colors
+
     def clear_grid_labels(self): # <--- ADD THIS ENTIRE METHOD
         for label in self.grid_labels:
             self.scene.removeItem(label)
@@ -413,7 +612,7 @@ class TriangulationVisualizer:
 
         
 
-    def add_grid_labels(self, grid_total_extent_m=10, grid_spacing_m=0.1, text_color='white'): # <--- ADD THIS ENTIRE METHOD
+    def add_grid_labels(self, grid_total_extent_m=10, grid_spacing_m=0.1, text_color='white'):
         self.clear_grid_labels() # Clear existing labels before adding new ones
 
         label_interval_m = 0.5 # Label every 0.5 meters (50 cm) for less clutter. Adjust as needed.
