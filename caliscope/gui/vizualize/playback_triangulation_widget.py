@@ -49,6 +49,8 @@ class PlaybackTriangulationWidget(QWidget):
 
         self.measurement_view_button = QPushButton("Measurement View") 
 
+        self.generate_graph_button = QPushButton("Generate Graph")
+
         self.toggle_frustums_button = QPushButton("Toggle Camera Frustums")
         self.toggle_frustums_button.setCheckable(True)
         self.toggle_frustums_button.setChecked(True)  # Start with frustums visible
@@ -81,7 +83,10 @@ class PlaybackTriangulationWidget(QWidget):
         button_row.addWidget(self.export_button)
         button_row.addWidget(self.export_compare_button)
         self.layout().addLayout(button_row)
-        self.layout().addWidget(self.measurement_view_button)
+        view_button_row = QHBoxLayout()
+        view_button_row.addWidget(self.measurement_view_button)
+        view_button_row.addWidget(self.generate_graph_button)
+        self.layout().addLayout(view_button_row)
         self.layout().addWidget(self.toggle_frustums_button)
 
     def connect_widgets(self):
@@ -90,6 +95,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.export_button.toggled.connect(self.toggle_export_mode)
         self.export_compare_button.clicked.connect(self.export_real_video_compare)
         self.measurement_view_button.clicked.connect(self.visualizer.toggle_measurement_mode)
+        self.generate_graph_button.clicked.connect(self.generate_3d_graph)
         self.toggle_frustums_button.toggled.connect(self.visualizer.toggle_camera_frustums)
 
     def toggle_export_mode(self, checked):
@@ -660,6 +666,192 @@ class PlaybackTriangulationWidget(QWidget):
 
     def update_camera_array(self, camera_array: CameraArray):
         self.visualizer.update_camera_array(camera_array)
+
+    def generate_3d_graph(self):
+        """Generate and save a 3D matplotlib plot of camera positions, arena, leaves, strawberry, and fly track."""
+        if self.motion_trial is None or self.motion_trial.is_empty:
+            logger.warning("No motion trial loaded; cannot generate graph.")
+            return
+        
+        try:
+            import matplotlib.pyplot as plt
+            from mpl_toolkits.mplot3d import Axes3D
+            from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+        except ImportError:
+            logger.error("Matplotlib not available; cannot generate graph.")
+            return
+
+        # Conversion factor: meters to mm
+        MM_PER_M = 1000
+
+        # Collect all fly xyz data (point_id 0)
+        all_xyz = []
+        if hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
+            fly_mask = self.motion_trial.xyz_df['point_id'] == 0
+            fly_data = self.motion_trial.xyz_df[fly_mask].sort_values('sync_index')
+            
+            if not fly_data.empty:
+                x = fly_data['x_coord'].values * MM_PER_M
+                y = fly_data['y_coord'].values * MM_PER_M
+                z = fly_data['z_coord'].values * MM_PER_M
+                all_xyz = list(zip(x, y, z))
+
+        # Create figure
+        fig = plt.figure(figsize=(12, 9))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Plot fly track
+        if all_xyz:
+            x_fly, y_fly, z_fly = zip(*all_xyz)
+            ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, label='Fly Track')
+            ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=100, marker='o', label='Start')
+            ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='red', s=100, marker='s', label='End')
+
+        # Plot arena (corner points: 1-8)
+        arena_points = {i: None for i in range(1, 9)}
+        if hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
+            for pid in range(1, 9):
+                mask = self.motion_trial.xyz_df['point_id'] == pid
+                if mask.any():
+                    data = self.motion_trial.xyz_df[mask]
+                    x_mean = data['x_coord'].mean() * MM_PER_M
+                    y_mean = data['y_coord'].mean() * MM_PER_M
+                    z_mean = data['z_coord'].mean() * MM_PER_M
+                    arena_points[pid] = np.array([x_mean, y_mean, z_mean])
+
+        # Draw arena wireframe edges
+        if all(arena_points[i] is not None for i in range(1, 9)):
+            edge_pairs = [
+                (1, 3), (2, 4), (5, 8), (6, 7),  # Vertical
+                (1, 2), (1, 5), (2, 6), (5, 6),  # Top
+                (3, 4), (3, 8), (4, 7), (8, 7),  # Bottom
+            ]
+            for i, j in edge_pairs:
+                if arena_points[i] is not None and arena_points[j] is not None:
+                    x = [arena_points[i][0], arena_points[j][0]]
+                    y = [arena_points[i][1], arena_points[j][1]]
+                    z = [arena_points[i][2], arena_points[j][2]]
+                    ax.plot(x, y, z, 'k-', alpha=0.3, linewidth=1)
+            
+            # Draw arena floor as filled polygon (bottom 4 corners)
+            if all(arena_points[i] is not None for i in [3, 4, 7, 8]):
+                floor_verts = [
+                    [arena_points[3], arena_points[4], arena_points[7]],
+                    [arena_points[3], arena_points[7], arena_points[8]]
+                ]
+                floor_collection = Poly3DCollection(floor_verts, alpha=0.2, facecolor='gray', edgecolor='black')
+                ax.add_collection3d(floor_collection)
+
+        # Plot leaves as filled square (point_id 10 center + corners 10000-10003)
+        leaves_center = None
+        leaves_corners = [None] * 4
+        if hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
+            center_mask = self.motion_trial.xyz_df['point_id'] == 10
+            if center_mask.any():
+                center_data = self.motion_trial.xyz_df[center_mask]
+                leaves_center = np.array([
+                    center_data['x_coord'].mean() * MM_PER_M,
+                    center_data['y_coord'].mean() * MM_PER_M,
+                    center_data['z_coord'].mean() * MM_PER_M
+                ])
+            
+            for i, corner_id in enumerate([10000, 10001, 10002, 10003]):
+                corner_mask = self.motion_trial.xyz_df['point_id'] == corner_id
+                if corner_mask.any():
+                    corner_data = self.motion_trial.xyz_df[corner_mask]
+                    leaves_corners[i] = np.array([
+                        corner_data['x_coord'].mean() * MM_PER_M,
+                        corner_data['y_coord'].mean() * MM_PER_M,
+                        corner_data['z_coord'].mean() * MM_PER_M
+                    ])
+        
+        if leaves_center is not None and all(c is not None for c in leaves_corners):
+            leaves_verts = [
+                [leaves_corners[0], leaves_corners[1], leaves_corners[2]],
+                [leaves_corners[0], leaves_corners[2], leaves_corners[3]]
+            ]
+            leaves_collection = Poly3DCollection(leaves_verts, alpha=0.6, facecolor='green', edgecolor='darkgreen', linewidth=1.5)
+            ax.add_collection3d(leaves_collection)
+            ax.scatter(*leaves_center, color='green', s=50, marker='x')
+
+        # Plot strawberry as hemisphere (point_id 9 center + corners)
+        fruit_center = None
+        fruit_corners = [None] * 4
+        if hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
+            center_mask = self.motion_trial.xyz_df['point_id'] == 9
+            if center_mask.any():
+                center_data = self.motion_trial.xyz_df[center_mask]
+                fruit_center = np.array([
+                    center_data['x_coord'].mean() * MM_PER_M,
+                    center_data['y_coord'].mean() * MM_PER_M,
+                    center_data['z_coord'].mean() * MM_PER_M
+                ])
+            
+            for i, corner_id in enumerate([9000, 9001, 9002, 9003]):
+                corner_mask = self.motion_trial.xyz_df['point_id'] == corner_id
+                if corner_mask.any():
+                    corner_data = self.motion_trial.xyz_df[corner_mask]
+                    fruit_corners[i] = np.array([
+                        corner_data['x_coord'].mean() * MM_PER_M,
+                        corner_data['y_coord'].mean() * MM_PER_M,
+                        corner_data['z_coord'].mean() * MM_PER_M
+                    ])
+        
+        if fruit_center is not None and all(c is not None for c in fruit_corners):
+            # Create simple sphere-like mesh for strawberry
+            u = np.linspace(0, 2 * np.pi, 12)
+            v = np.linspace(0, np.pi / 2, 6)  # Hemisphere
+            
+            # Estimate radius from corners
+            corners_array = np.array(fruit_corners)
+            radius = np.linalg.norm(corners_array[1] - corners_array[0]) / 2 * 0.5
+            
+            x_sphere = fruit_center[0] + radius * np.outer(np.cos(u), np.sin(v))
+            y_sphere = fruit_center[1] + radius * np.outer(np.sin(u), np.sin(v))
+            z_sphere = fruit_center[2] + radius * np.outer(np.ones(np.size(u)), np.cos(v))
+            
+            # Create triangulated surface
+            fruit_verts = []
+            for i in range(len(u) - 1):
+                for j in range(len(v) - 1):
+                    fruit_verts.append([
+                        [x_sphere[i, j], y_sphere[i, j], z_sphere[i, j]],
+                        [x_sphere[i+1, j], y_sphere[i+1, j], z_sphere[i+1, j]],
+                        [x_sphere[i, j+1], y_sphere[i, j+1], z_sphere[i, j+1]]
+                    ])
+            
+            fruit_collection = Poly3DCollection(fruit_verts, alpha=0.7, facecolor='red', edgecolor='darkred', linewidth=0.5)
+            ax.add_collection3d(fruit_collection)
+
+        # Plot camera origin points
+        if self.camera_array and hasattr(self.camera_array, 'cameras'):
+            for port, cam in self.camera_array.cameras.items():
+                if hasattr(cam, 'extrinsic_matrix') and cam.extrinsic_matrix is not None:
+                    ext = cam.extrinsic_matrix
+                    cam_pos = -ext[:3, :3].T @ ext[:3, 3]
+                    ax.scatter([cam_pos[0] * MM_PER_M], [cam_pos[1] * MM_PER_M], [cam_pos[2] * MM_PER_M], 
+                              s=100, marker='*', label=f'Camera {port}')
+
+        ax.set_xlabel('X (mm)')
+        ax.set_ylabel('Y (mm)')
+        ax.set_zlabel('Z (mm)')
+        ax.set_title('3D Trajectory, Arena, and Object Positions')
+        ax.legend()
+        
+        # Set camera view: elevation 20°, azimuth -60° (front-facing, looking slightly down)
+        ax.view_init(elev=20, azim=-60)
+        if self.xyz_history_path:
+            graph_path = self.xyz_history_path.parent / f"trajectory_graph_{self.xyz_history_path.stem}.png"
+        else:
+            graph_path = Path.cwd() / "trajectory_graph.png"
+
+        try:
+            plt.savefig(str(graph_path), dpi=150, bbox_inches='tight')
+            logger.info(f"3D graph saved to: {graph_path}")
+            plt.close(fig)
+        except Exception as e:
+            logger.error(f"Failed to save 3D graph: {e}")
+            plt.close(fig)
 
 
 class TriangulationVisualizer:
