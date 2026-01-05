@@ -315,15 +315,15 @@ class TriangulationVisualizer:
                 self.scene.addItem(origin_point)
 
         self.scatter = gl.GLScatterPlotItem(
-            pos=np.array([0, 0, 0]),
+            pos=np.empty((0, 3)),  # Start with empty array instead of None
             color=self.default_scatter_color, # Set initial scatter color
             size=0.01,
             pxMode=False,
         )
+        self.scatter.setVisible(False)  # Hide until we have data
 
         self.segments = {}
         self.scene.addItem(self.scatter)
-        self.scatter.setData(pos=None)
 
     def update_camera_array(self, camera_array: CameraArray):
         self.camera_array = camera_array
@@ -372,10 +372,12 @@ class TriangulationVisualizer:
 
         if self.motion_trial is None or self.motion_trial.is_empty:
             logger.debug(f"Motion trial is not loaded or is empty for sync_index: {sync_index}. Skipping point display.")
-            self.scatter.setData(pos=None) 
+            self.scatter.setVisible(False)  # Hide scatter when no data
+            self.scatter.setData(pos=np.empty((0, 3)))  # Use empty array instead of None
         else:
             logger.debug(f"Displaying xyz points for sync index {sync_index}")
             xyz_coords = self.motion_trial.get_xyz(sync_index).point_xyz
+            self.scatter.setVisible(True)  # Make visible when we have data
             self.scatter.setData(pos=xyz_coords)
 
             if self.export_video_mode:
