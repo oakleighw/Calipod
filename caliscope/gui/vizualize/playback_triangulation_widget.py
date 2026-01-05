@@ -546,6 +546,53 @@ class TriangulationVisualizer:
                 else:
                     logger.debug(f"Could not find all 4 floor corner points, found {len(floor_coords)} points")
                 
+                # Create edge lines connecting the 8 corner points (forming a rectangular box)
+                # Point IDs: 1=tlic, 2=tric, 3=blic, 4=bric, 5=tlfic, 6=trfic, 7=brfic, 8=blfic
+                edge_pairs = [
+                    # Vertical edges
+                    (1, 3),  # tlic - blic
+                    (2, 4),  # tric - bric
+                    (5, 8),  # tlfic - blfic
+                    (6, 7),  # trfic - brfic
+                    # Top edges
+                    (1, 2),  # tlic - tric
+                    (1, 5),  # tlic - tlfic
+                    (2, 6),  # tric - trfic
+                    (5, 6),  # tlfic - trfic
+                    # Bottom edges
+                    (3, 4),  # blic - bric
+                    (3, 8),  # blic - blfic
+                    (4, 7),  # bric - brfic
+                    (8, 7),  # blfic - brfic
+                ]
+                
+                edges_found = 0
+                for point_id_a, point_id_b in edge_pairs:
+                    mask_a = point_ids == point_id_a
+                    mask_b = point_ids == point_id_b
+                    
+                    if np.any(mask_a) and np.any(mask_b):
+                        coord_a = xyz_coords[mask_a][0]
+                        coord_b = xyz_coords[mask_b][0]
+                        
+                        # Create line segment
+                        line_pos = np.array([coord_a, coord_b], dtype=np.float32)
+                        line = gl.GLLinePlotItem(
+                            pos=line_pos,
+                            color=(1, 1, 1, 0.6),  # White, semi-transparent
+                            width=1.5,
+                            antialias=True
+                        )
+                        self.scene.addItem(line)
+                        self.custom_mesh_items.append(line)
+                        edges_found += 1
+                        
+                        # Mark corner points as not regular scatter points
+                        regular_mask[np.where(mask_a)[0]] = False
+                        regular_mask[np.where(mask_b)[0]] = False
+                
+                logger.info(f"Created {edges_found} edge lines for capture volume box")
+                
                 # Display regular points (excluding special labels)
                 regular_coords = xyz_coords[regular_mask]
                 if len(regular_coords) > 0:
