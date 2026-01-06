@@ -1168,35 +1168,47 @@ class TriangulationVisualizer:
                                         drawEdges=True,
                                         edgeColor=(0, 0.5, 0, 1)
                                     )
-                                    mesh_item.setGLOptions("additive")  # Draw both faces to avoid backface culling
+                                    mesh_item.setGLOptions("translucent")  # Draw both faces to avoid backface culling
                                     self.scene.addItem(mesh_item)
                                     self.custom_mesh_items.append(mesh_item)
                                     logger.info(f"Created flat square mesh for leaves from triangulated corners")
                                 
                             elif point_id_int == 9:  # fruit - red hemisphere using triangulated corners
-                                # Use the 4 corners to determine the actual 3D size
                                 corners_array = self._order_corners_on_plane(np.array(corner_xyzs, dtype=np.float32))
 
                                 width_3d = np.linalg.norm(corners_array[1] - corners_array[0])
                                 height_3d = np.linalg.norm(corners_array[3] - corners_array[0])
-                                radius_3d = min(width_3d, height_3d) * 0.5
+                                radius_3d = min(width_3d, height_3d) * 0.5 * 1.05  # slight inflate for visibility
 
-                                # Use fixed -Z orientation (downward) to match triangulation view
-                                # Hemisphere extends downward from the peak
-                                normal = np.array([0, 0, -1.0])
-                                axis_x = np.array([1.0, 0, 0])
-                                axis_y = np.array([0, 1.0, 0])
+                                # Derive plane axes from corners; snap to world axes if nearly horizontal
+                                centered = corners_array - corners_array.mean(axis=0)
+                                _, _, vh = np.linalg.svd(centered)
+                                plane_normal = vh[2]
+                                axis_x = vh[0]
+                                axis_y = np.cross(plane_normal, axis_x)
+
+                                # Normalize axes
+                                for vec in (plane_normal, axis_x, axis_y):
+                                    norm = np.linalg.norm(vec)
+                                    if norm > 1e-8:
+                                        vec /= norm
+
+                                world_z = np.array([0.0, 0.0, 1.0])
+                                if abs(np.dot(plane_normal, world_z)) > 0.95:
+                                    plane_normal = np.array([0.0, 0.0, -1.0])
+                                    axis_x = np.array([1.0, 0.0, 0.0])
+                                    axis_y = np.array([0.0, 1.0, 0.0])
 
                                 vertices, faces, colors = self.create_oriented_hemisphere(
                                     center_xyz=xyz,
                                     radius_3d=radius_3d,
-                                    normal=normal,
+                                    normal=plane_normal,
                                     axis_x=axis_x,
                                     axis_y=axis_y,
-                                    color=(1, 0, 0, 0.6),
+                                    color=(1, 0, 0, 0.8),
                                     segments=16,
                                 )
-                                
+
                                 mesh_item = gl.GLMeshItem(
                                     vertexes=vertices,
                                     faces=faces,
@@ -1204,7 +1216,7 @@ class TriangulationVisualizer:
                                     smooth=True,
                                     drawEdges=False
                                 )
-                                mesh_item.setGLOptions("additive")  # Draw both faces to avoid backface culling
+                                mesh_item.setGLOptions("translucent")  # brighter
                                 self.scene.addItem(mesh_item)
                                 self.custom_mesh_items.append(mesh_item)
                                 logger.info(f"Created hemisphere mesh for fruit with radius={radius_3d:.4f}")
