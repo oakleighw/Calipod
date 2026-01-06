@@ -160,7 +160,14 @@ class Interactive3DGraphWindow(QWidget):
                 [leaves_corners[0], leaves_corners[1], leaves_corners[2]],
                 [leaves_corners[0], leaves_corners[2], leaves_corners[3]]
             ]
-            leaves_collection = self.Poly3DCollection(leaves_verts, alpha=0.6, facecolor='green', edgecolor='darkgreen', linewidth=1.5)
+            leaves_collection = self.Poly3DCollection(
+                leaves_verts,
+                alpha=0.35,
+                facecolor='green',
+                edgecolor='darkgreen',
+                linewidth=1.5,
+                zorder=1,
+            )
             self.ax.add_collection3d(leaves_collection)
 
         # Plot strawberry as hemisphere (point_id 9 center + corners)
@@ -220,7 +227,14 @@ class Interactive3DGraphWindow(QWidget):
             
             # Reshape verts for Poly3DCollection (triangles)
             fruit_tris = [fruit_verts[i*3:(i+1)*3] for i in range(len(fruit_verts) // 3)]
-            fruit_collection = self.Poly3DCollection(fruit_tris, alpha=0.7, facecolor='red', edgecolor='darkred', linewidth=0.5)
+            fruit_collection = self.Poly3DCollection(
+                fruit_tris,
+                alpha=0.9,
+                facecolor='red',
+                edgecolor='darkred',
+                linewidth=0.5,
+                zorder=3,
+            )
             self.ax.add_collection3d(fruit_collection)
 
         # Plot camera origin points
@@ -950,6 +964,7 @@ class TriangulationVisualizer:
         self.camera_array = camera_array
         self.default_scatter_color = (1, 1, 1, 1) # White
         self.default_mesh_color = (1, 1, 1, 1)    # White
+        self.point_size = 0.005  # Shared size for track markers
         self.build_scene()
         self.export_video_mode = False
         self.collected_frames = [] 
@@ -1017,13 +1032,25 @@ class TriangulationVisualizer:
         self.scatter = gl.GLScatterPlotItem(
             pos=np.empty((0, 3)),  # Start with empty array instead of None
             color=self.default_scatter_color, # Set initial scatter color
-            size=0.01,
+            size=self.point_size,
             pxMode=False,
         )
+        self.scatter.setGLOptions("opaque")  # keep points solid
         self.scatter.setVisible(False)  # Hide until we have data
+
+        # Dedicated overlay for fly center points to stay visible over translucent meshes
+        self.fly_overlay = gl.GLScatterPlotItem(
+            pos=np.empty((0, 3)),
+            color=(1, 1, 1, 1),
+            size=self.point_size,
+            pxMode=False,
+        )
+        self.fly_overlay.setGLOptions("additive")
+        self.fly_overlay.setVisible(False)
 
         self.segments = {}
         self.scene.addItem(self.scatter)
+        self.scene.addItem(self.fly_overlay)
 
     def update_camera_array(self, camera_array: CameraArray):
         self.camera_array = camera_array
@@ -1090,6 +1117,8 @@ class TriangulationVisualizer:
             logger.debug(f"Motion trial is not loaded or is empty for sync_index: {sync_index}. Skipping point display.")
             self.scatter.setVisible(False)  # Hide scatter when no data
             self.scatter.setData(pos=np.empty((0, 3)))  # Use empty array instead of None
+            self.fly_overlay.setVisible(False)
+            self.fly_overlay.setData(pos=np.empty((0, 3)))
         else:
             logger.debug(f"Displaying xyz points for sync index {sync_index}")
             xyz_packet = self.motion_trial.get_xyz(sync_index)
@@ -1169,7 +1198,7 @@ class TriangulationVisualizer:
                                         [0, 2, 3],  # Second triangle: TL, BR, BL
                                     ], dtype=np.uint32)
 
-                                    colors = np.array([(0, 1, 0, 0.6), (0, 1, 0, 0.6)], dtype=np.float32)
+                                    colors = np.array([(0, 1, 0, 0.35), (0, 1, 0, 0.35)], dtype=np.float32)
 
                                     mesh_item = gl.GLMeshItem(
                                         vertexes=ordered,
@@ -1210,7 +1239,7 @@ class TriangulationVisualizer:
                                     normal=plane_normal,
                                     axis_x=axis_x,
                                     axis_y=axis_y,
-                                    color=(1, 0, 0, 0.8),
+                                    color=(1, 0, 0, 0.9),
                                     segments=16,
                                 )
 
@@ -1354,10 +1383,29 @@ class TriangulationVisualizer:
                 else:
                     self.scatter.setVisible(False)
                     self.scatter.setData(pos=np.empty((0, 3)))
+
+                # Ensure fly point(s) are always visible over translucent meshes
+                fly_mask = (point_ids == 0)
+                if np.any(fly_mask):
+                    fly_coords = xyz_coords[fly_mask]
+                    self.fly_overlay.setVisible(True)
+                    self.fly_overlay.setData(pos=fly_coords, color=(1, 1, 1, 1))
+                else:
+                    self.fly_overlay.setVisible(False)
+                    self.fly_overlay.setData(pos=np.empty((0, 3)))
             else:
                 # Default behavior for non-FlyTracker or when no special handling needed
                 self.scatter.setVisible(True)  # Make visible when we have data
                 self.scatter.setData(pos=xyz_coords)
+                # Fly overlay for default path
+                fly_mask = (point_ids == 0)
+                if np.any(fly_mask):
+                    fly_coords = xyz_coords[fly_mask]
+                    self.fly_overlay.setVisible(True)
+                    self.fly_overlay.setData(pos=fly_coords, color=(1, 1, 1, 1))
+                else:
+                    self.fly_overlay.setVisible(False)
+                    self.fly_overlay.setData(pos=np.empty((0, 3)))
 
             if self.export_video_mode:
                 logger.debug(f"Export mode is active for sync_index: {sync_index}. Attempting to grab framebuffer.")
