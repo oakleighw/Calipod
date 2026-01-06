@@ -237,7 +237,7 @@ class Interactive3DGraphWindow(QWidget):
             x_fly, y_fly, z_fly = zip(*all_xyz)
             self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, label='Fly Track')
             self.ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=10, marker='o', label='Start')
-            self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='red', s=10, marker='s', label='End')
+            self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='black', s=10, marker='s', label='End')
 
         self.ax.set_xlabel('X (mm)')
         self.ax.set_ylabel('Y (mm)')
