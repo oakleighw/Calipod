@@ -100,9 +100,9 @@ class Interactive3DGraphWindow(QWidget):
         # Plot fly track
         if all_xyz:
             x_fly, y_fly, z_fly = zip(*all_xyz)
-            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=1, label='Fly Track')
+            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, label='Fly Track')
             self.ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=10, marker='o', label='Start')
-            self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='black', s=10, marker='s', label='End')
+            self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='red', s=10, marker='s', label='End')
 
         # Plot arena (corner points: 1-8)
         arena_points = {i: None for i in range(1, 9)}
@@ -205,7 +205,7 @@ class Interactive3DGraphWindow(QWidget):
             
             x_sphere = fruit_center[0] + radius * np.outer(np.cos(u), np.sin(v))
             y_sphere = fruit_center[1] + radius * np.outer(np.sin(u), np.sin(v))
-            z_sphere = fruit_center[2] + radius * np.outer(np.ones(np.size(u)), np.cos(v))
+            z_sphere = fruit_center[2] - radius * np.outer(np.ones(np.size(u)), np.cos(v))
             
             # Create triangulated surface
             fruit_verts = []
@@ -234,6 +234,9 @@ class Interactive3DGraphWindow(QWidget):
         self.ax.set_zlabel('Z (mm)')
         self.ax.set_title('3D Trajectory with Arena, Leaves, and Strawberry')
         self.ax.legend()
+        
+        # Set camera view: elevation 20°, azimuth -60° (front-facing, looking slightly down)
+        self.ax.view_init(elev=20, azim=-60)
         
         # Set equal aspect ratio for all axes to prevent distortion
         self.ax.set_box_aspect([1, 1, 1])
@@ -1142,41 +1145,57 @@ class TriangulationVisualizer:
                             logger.info(f"Found all 4 triangulated corners for point_id={point_id_int}")
                             
                             if point_id_int == 10:  # leaves - flat green square using triangulated corners
-                                vertices = np.array(corner_xyzs, dtype=np.float32)
-                                
-                                # Two triangles to form the square
-                                faces = np.array([
-                                    [0, 1, 2],  # First triangle: TL, TR, BR
-                                    [0, 2, 3],  # Second triangle: TL, BR, BL
-                                ], dtype=np.uint32)
-                                
-                                colors = np.array([(0, 1, 0, 0.6), (0, 1, 0, 0.6)], dtype=np.float32)
-                                
-                                mesh_item = gl.GLMeshItem(
-                                    vertexes=vertices,
-                                    faces=faces,
-                                    faceColors=colors,
-                                    smooth=False,
-                                    drawEdges=True,
-                                    edgeColor=(0, 0.5, 0, 1)
-                                )
-                                mesh_item.setGLOptions("translucent")
-                                self.scene.addItem(mesh_item)
-                                self.custom_mesh_items.append(mesh_item)
-                                logger.info(f"Created flat square mesh for leaves from triangulated corners")
+                                ordered = self._order_corners_on_plane(np.array(corner_xyzs, dtype=np.float32))
+
+                                # Skip degenerate quads that could render as crosses
+                                v0, v1, v2 = ordered[0], ordered[1], ordered[2]
+                                tri_area = np.linalg.norm(np.cross(v1 - v0, v2 - v0)) * 0.5
+                                if tri_area < 1e-6:
+                                    logger.debug("Leaf quad degenerate; skipping mesh to avoid artefacts")
+                                else:
+                                    # Two triangles to form the square
+                                    faces = np.array([
+                                        [0, 1, 2],  # First triangle: TL, TR, BR
+                                        [0, 2, 3],  # Second triangle: TL, BR, BL
+                                    ], dtype=np.uint32)
+
+                                    colors = np.array([(0, 1, 0, 0.6), (0, 1, 0, 0.6)], dtype=np.float32)
+
+                                    mesh_item = gl.GLMeshItem(
+                                        vertexes=ordered,
+                                        faces=faces,
+                                        faceColors=colors,
+                                        smooth=False,
+                                        drawEdges=True,
+                                        edgeColor=(0, 0.5, 0, 1)
+                                    )
+                                    mesh_item.setGLOptions("additive")  # Draw both faces to avoid backface culling
+                                    self.scene.addItem(mesh_item)
+                                    self.custom_mesh_items.append(mesh_item)
+                                    logger.info(f"Created flat square mesh for leaves from triangulated corners")
                                 
                             elif point_id_int == 9:  # fruit - red hemisphere using triangulated corners
-                                # Use the 4 corners to determine the actual 3D extent
-                                corners_array = np.array(corner_xyzs)
-                                
-                                # Calculate the actual 3D width and height from corners
-                                width_3d = np.linalg.norm(corners_array[1] - corners_array[0])  # TR - TL
-                                height_3d = np.linalg.norm(corners_array[3] - corners_array[0])  # BL - TL
+                                # Use the 4 corners to determine the actual 3D size
+                                corners_array = self._order_corners_on_plane(np.array(corner_xyzs, dtype=np.float32))
+
+                                width_3d = np.linalg.norm(corners_array[1] - corners_array[0])
+                                height_3d = np.linalg.norm(corners_array[3] - corners_array[0])
                                 radius_3d = min(width_3d, height_3d) * 0.5
-                                
-                                # Use center point as peak of hemisphere
-                                vertices, faces, colors = self.create_hemisphere_from_center(
-                                    xyz, radius_3d, color=(1, 0, 0, 0.6), segments=16
+
+                                # Use fixed -Z orientation (downward) to match triangulation view
+                                # Hemisphere extends downward from the peak
+                                normal = np.array([0, 0, -1.0])
+                                axis_x = np.array([1.0, 0, 0])
+                                axis_y = np.array([0, 1.0, 0])
+
+                                vertices, faces, colors = self.create_oriented_hemisphere(
+                                    center_xyz=xyz,
+                                    radius_3d=radius_3d,
+                                    normal=normal,
+                                    axis_x=axis_x,
+                                    axis_y=axis_y,
+                                    color=(1, 0, 0, 0.6),
+                                    segments=16,
                                 )
                                 
                                 mesh_item = gl.GLMeshItem(
@@ -1186,7 +1205,7 @@ class TriangulationVisualizer:
                                     smooth=True,
                                     drawEdges=False
                                 )
-                                mesh_item.setGLOptions("translucent")
+                                mesh_item.setGLOptions("additive")  # Draw both faces to avoid backface culling
                                 self.scene.addItem(mesh_item)
                                 self.custom_mesh_items.append(mesh_item)
                                 logger.info(f"Created hemisphere mesh for fruit with radius={radius_3d:.4f}")
@@ -1326,68 +1345,93 @@ class TriangulationVisualizer:
         else:
             logger.debug(f"No wireframe to update from PlaybackTriangulationWidget for sync index {sync_index}.")
 
-    def create_hemisphere_from_center(self, center_xyz, radius_3d, color=(1, 0, 0, 0.6), segments=16):
-        """Create a hemisphere mesh with a specified 3D radius.
-        
+    def create_oriented_hemisphere(self, center_xyz, radius_3d, normal, axis_x, axis_y, color=(1, 0, 0, 0.6), segments=16):
+        """Create a hemisphere oriented along a plane normal using provided axes.
+
         Args:
-            center_xyz: (x, y, z) center position (peak of hemisphere)
+            center_xyz: (x, y, z) center position (base center)
             radius_3d: radius in 3D world coordinates
+            normal: unit normal vector pointing the bulge direction
+            axis_x: unit vector along one base edge
+            axis_y: unit vector perpendicular to axis_x in the plane
             color: RGBA color tuple
             segments: number of segments for hemisphere smoothness
-        
+
         Returns:
             tuple: (vertices, faces, colors) for GLMeshItem
         """
         cx, cy, cz = center_xyz
-        
+
         vertices = []
         faces = []
-        
-        # Add center peak point of hemisphere
-        vertices.append([cx, cy, cz])
-        
-        # Generate hemisphere vertices
-        for i in range(segments // 2 + 1):  # From equator to pole
-            lat = i * (np.pi / 2) / (segments // 2)  # 0 to pi/2
-            z_offset = -radius_3d * np.cos(lat)  # Negative because hemisphere extends down from peak
-            ring_radius = radius_3d * np.sin(lat)
-            
+
+        # Peak of the dome along +normal
+        peak = np.array(center_xyz) + normal * radius_3d
+        vertices.append(peak.tolist())
+
+        # Generate hemisphere vertices relative to center
+        for i in range(segments // 2 + 1):  # From equator (0) to pole (pi/2)
+            lat = i * (np.pi / 2) / (segments // 2)
+            height = radius_3d * np.cos(lat)   # along normal
+            ring_r = radius_3d * np.sin(lat)   # in plane
+
+            ring_center = np.array(center_xyz) + normal * height
             for j in range(segments):
                 lon = j * (2 * np.pi) / segments
-                x_offset = ring_radius * np.cos(lon)
-                y_offset = ring_radius * np.sin(lon)
-                
-                vertices.append([cx + x_offset, cy + y_offset, cz + z_offset])
-        
+                offset = axis_x * (ring_r * np.cos(lon)) + axis_y * (ring_r * np.sin(lon))
+                vertex = ring_center + offset
+                vertices.append(vertex.tolist())
+
         vertices = np.array(vertices, dtype=np.float32)
-        
-        # Create faces
-        # Connect peak to first ring
+
+        # Faces: connect peak to first ring
         for j in range(segments):
             next_j = (j + 1) % segments
             faces.append([0, j + 1, next_j + 1])
-        
+
         # Connect rings
         for i in range(segments // 2):
             for j in range(segments):
                 next_j = (j + 1) % segments
-                
+
                 current_base = 1 + i * segments
                 next_base = 1 + (i + 1) * segments
-                
+
                 v1 = current_base + j
                 v2 = current_base + next_j
                 v3 = next_base + next_j
                 v4 = next_base + j
-                
-                # Two triangles per quad
+
                 faces.append([v1, v2, v3])
                 faces.append([v1, v3, v4])
-        
+
         faces = np.array(faces, dtype=np.uint32)
         colors = np.array([color] * len(faces), dtype=np.float32)
-        
+
         return vertices, faces, colors
+
+    def _order_corners_on_plane(self, corners: np.ndarray) -> np.ndarray:
+        """Return corners ordered consistently around their plane.
+        Uses PCA to find the best-fit plane, projects to 2D, and sorts by angle.
+        """
+        # Center the points
+        centroid = corners.mean(axis=0)
+        centered = corners - centroid
+
+        # PCA to find plane axes
+        _, _, vh = np.linalg.svd(centered)
+        normal = vh[2]
+        axis_x = vh[0]
+        axis_y = np.cross(normal, axis_x)
+
+        # Project to 2D plane coordinates
+        proj_x = centered @ axis_x
+        proj_y = centered @ axis_y
+        angles = np.arctan2(proj_y, proj_x)
+
+        order = np.argsort(angles)
+        ordered = corners[order]
+        return ordered
 
     def clear_grid_labels(self): # <--- ADD THIS ENTIRE METHOD
         for label in self.grid_labels:
