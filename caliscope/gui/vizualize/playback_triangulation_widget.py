@@ -100,9 +100,9 @@ class Interactive3DGraphWindow(QWidget):
         # Plot fly track
         if all_xyz:
             x_fly, y_fly, z_fly = zip(*all_xyz)
-            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, label='Fly Track')
-            self.ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=100, marker='o', label='Start')
-            self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='red', s=100, marker='s', label='End')
+            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=1, label='Fly Track')
+            self.ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=10, marker='o', label='Start')
+            self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='black', s=10, marker='s', label='End')
 
         # Plot arena (corner points: 1-8)
         arena_points = {i: None for i in range(1, 9)}
