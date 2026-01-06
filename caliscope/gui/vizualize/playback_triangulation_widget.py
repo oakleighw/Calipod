@@ -97,13 +97,6 @@ class Interactive3DGraphWindow(QWidget):
                 z = fly_data['z_coord'].values * MM_PER_M
                 all_xyz = list(zip(x, y, z))
 
-        # Plot fly track
-        if all_xyz:
-            x_fly, y_fly, z_fly = zip(*all_xyz)
-            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, label='Fly Track')
-            self.ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=10, marker='o', label='Start')
-            self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='red', s=10, marker='s', label='End')
-
         # Plot arena (corner points: 1-8)
         arena_points = {i: None for i in range(1, 9)}
         if hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
@@ -169,7 +162,6 @@ class Interactive3DGraphWindow(QWidget):
             ]
             leaves_collection = self.Poly3DCollection(leaves_verts, alpha=0.6, facecolor='green', edgecolor='darkgreen', linewidth=1.5)
             self.ax.add_collection3d(leaves_collection)
-            self.ax.scatter(*leaves_center, color='green', s=50, marker='x')
 
         # Plot strawberry as hemisphere (point_id 9 center + corners)
         fruit_center = None
@@ -228,6 +220,13 @@ class Interactive3DGraphWindow(QWidget):
                     cam_pos = -ext[:3, :3].T @ ext[:3, 3]
                     self.ax.scatter([cam_pos[0] * MM_PER_M], [cam_pos[1] * MM_PER_M], [cam_pos[2] * MM_PER_M], 
                                   s=100, marker='*', label=f'Camera {port}')
+
+        # Plot fly track last so it renders on top of arena and objects
+        if all_xyz:
+            x_fly, y_fly, z_fly = zip(*all_xyz)
+            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, label='Fly Track')
+            self.ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=10, marker='o', label='Start')
+            self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='red', s=10, marker='s', label='End')
 
         self.ax.set_xlabel('X (mm)')
         self.ax.set_ylabel('Y (mm)')
@@ -1236,27 +1235,34 @@ class TriangulationVisualizer:
                     logger.info(f"Creating floor mesh from 4 bottom corner points")
                     vertices = np.array(floor_coords, dtype=np.float32)
                     
-                    # Order should be: blic(0), bric(1), brfic(2), blfic(3)
-                    # Form two triangles: [0,1,2] and [0,2,3]
-                    faces = np.array([
-                        [0, 1, 2],  # blic, bric, brfic
-                        [0, 2, 3],  # blic, brfic, blfic
-                    ], dtype=np.uint32)
+                    # Check for degenerate floor mesh
+                    v0, v1, v2 = vertices[0], vertices[1], vertices[2]
+                    tri_area = np.linalg.norm(np.cross(v1 - v0, v2 - v0)) * 0.5
                     
-                    colors = np.array([(1, 1, 1, 0.3), (1, 1, 1, 0.3)], dtype=np.float32)  # White, semi-transparent
-                    
-                    floor_mesh = gl.GLMeshItem(
-                        vertexes=vertices,
-                        faces=faces,
-                        faceColors=colors,
-                        smooth=False,
-                        drawEdges=True,
-                        edgeColor=(1, 1, 1, 0.8)  # White edges
-                    )
-                    floor_mesh.setGLOptions("translucent")
-                    self.scene.addItem(floor_mesh)
-                    self.custom_mesh_items.append(floor_mesh)
-                    logger.info(f"Created white floor mesh from bottom corners")
+                    if tri_area < 1e-6:
+                        logger.debug(f"Floor mesh degenerate (area={tri_area}); skipping to avoid artefacts")
+                    else:
+                        # Order should be: blic(0), bric(1), brfic(2), blfic(3)
+                        # Form two triangles: [0,1,2] and [0,2,3]
+                        faces = np.array([
+                            [0, 1, 2],  # blic, bric, brfic
+                            [0, 2, 3],  # blic, brfic, blfic
+                        ], dtype=np.uint32)
+                        
+                        colors = np.array([(1, 1, 1, 0.3), (1, 1, 1, 0.3)], dtype=np.float32)  # White, semi-transparent
+                        
+                        floor_mesh = gl.GLMeshItem(
+                            vertexes=vertices,
+                            faces=faces,
+                            faceColors=colors,
+                            smooth=False,
+                            drawEdges=True,
+                            edgeColor=(1, 1, 1, 0.8)  # White edges
+                        )
+                        floor_mesh.setGLOptions("translucent")
+                        self.scene.addItem(floor_mesh)
+                        self.custom_mesh_items.append(floor_mesh)
+                        logger.info(f"Created white floor mesh from bottom corners")
                 else:
                     logger.debug(f"Could not find all 4 floor corner points, found {len(floor_coords)} points")
                 
@@ -1289,6 +1295,17 @@ class TriangulationVisualizer:
                         coord_a = xyz_coords[mask_a][0]
                         coord_b = xyz_coords[mask_b][0]
                         
+                        # Skip edges with NaN or infinite values
+                        if np.any(np.isnan(coord_a)) or np.any(np.isinf(coord_a)) or np.any(np.isnan(coord_b)) or np.any(np.isinf(coord_b)):
+                            logger.debug(f"Skipping edge ({point_id_a}, {point_id_b}): contains NaN or Inf values")
+                            continue
+                        
+                        # Skip degenerate edges (zero length)
+                        edge_length = np.linalg.norm(coord_b - coord_a)
+                        if edge_length < 1e-8:
+                            logger.debug(f"Skipping edge ({point_id_a}, {point_id_b}): degenerate (length={edge_length})")
+                            continue
+                        
                         # Create line segment
                         line_pos = np.array([coord_a, coord_b], dtype=np.float32)
                         line = gl.GLLinePlotItem(
@@ -1309,9 +1326,14 @@ class TriangulationVisualizer:
                 
                 # Display regular points (excluding special labels)
                 regular_coords = xyz_coords[regular_mask]
-                if len(regular_coords) > 0:
+                
+                # Filter out NaN and Inf values from regular coordinates
+                valid_mask = np.all(np.isfinite(regular_coords), axis=1)
+                valid_coords = regular_coords[valid_mask]
+                
+                if len(valid_coords) > 0:
                     self.scatter.setVisible(True)
-                    self.scatter.setData(pos=regular_coords)
+                    self.scatter.setData(pos=valid_coords)
                 else:
                     self.scatter.setVisible(False)
                     self.scatter.setData(pos=np.empty((0, 3)))
