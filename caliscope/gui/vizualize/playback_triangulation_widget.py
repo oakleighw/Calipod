@@ -1193,12 +1193,6 @@ class TriangulationVisualizer:
                                     if norm > 1e-8:
                                         vec /= norm
 
-                                world_z = np.array([0.0, 0.0, 1.0])
-                                if abs(np.dot(plane_normal, world_z)) > 0.95:
-                                    plane_normal = np.array([0.0, 0.0, -1.0])
-                                    axis_x = np.array([1.0, 0.0, 0.0])
-                                    axis_y = np.array([0.0, 1.0, 0.0])
-
                                 vertices, faces, colors = self.create_oriented_hemisphere(
                                     center_xyz=xyz,
                                     radius_3d=radius_3d,
