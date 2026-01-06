@@ -187,29 +187,40 @@ class Interactive3DGraphWindow(QWidget):
                     ])
         
         if fruit_center is not None and all(c is not None for c in fruit_corners):
-            # Create simple sphere-like mesh for strawberry
-            u = np.linspace(0, 2 * np.pi, 12)
-            v = np.linspace(0, np.pi / 2, 6)  # Hemisphere
-            
-            # Estimate radius from corners
+            # Create oriented hemisphere from corners using SVD plane
             corners_array = np.array(fruit_corners)
-            radius = np.linalg.norm(corners_array[1] - corners_array[0]) / 2 * 0.5
             
-            x_sphere = fruit_center[0] + radius * np.outer(np.cos(u), np.sin(v))
-            y_sphere = fruit_center[1] + radius * np.outer(np.sin(u), np.sin(v))
-            z_sphere = fruit_center[2] - radius * np.outer(np.ones(np.size(u)), np.cos(v))
+            # Order corners by angle on their plane
+            centroid = corners_array.mean(axis=0)
+            centered = corners_array - centroid
+            _, _, vh = np.linalg.svd(centered)
+            plane_normal = vh[2]
+            axis_x = vh[0]
+            axis_y = np.cross(plane_normal, axis_x)
             
-            # Create triangulated surface
+            # Calculate radius from bounding box
+            width_3d = np.linalg.norm(corners_array[1] - corners_array[0])
+            height_3d = np.linalg.norm(corners_array[3] - corners_array[0])
+            radius = min(width_3d, height_3d) * 0.5 * 1.05
+            
+            # Generate hemisphere vertices oriented along plane normal
+            u = np.linspace(0, 2 * np.pi, 16)
+            v = np.linspace(0, np.pi / 2, 8)
+            
             fruit_verts = []
             for i in range(len(u) - 1):
                 for j in range(len(v) - 1):
-                    fruit_verts.append([
-                        [x_sphere[i, j], y_sphere[i, j], z_sphere[i, j]],
-                        [x_sphere[i+1, j], y_sphere[i+1, j], z_sphere[i+1, j]],
-                        [x_sphere[i, j+1], y_sphere[i, j+1], z_sphere[i, j+1]]
-                    ])
+                    # Generate vertices for this quad
+                    for (ui, vi) in [(u[i], v[j]), (u[i+1], v[j]), (u[i], v[j+1])]:
+                        height = radius * np.cos(vi)
+                        ring_r = radius * np.sin(vi)
+                        offset = axis_x * (ring_r * np.cos(ui)) + axis_y * (ring_r * np.sin(ui))
+                        vertex = fruit_center + plane_normal * height + offset
+                        fruit_verts.append(vertex)
             
-            fruit_collection = self.Poly3DCollection(fruit_verts, alpha=0.7, facecolor='red', edgecolor='darkred', linewidth=0.5)
+            # Reshape verts for Poly3DCollection (triangles)
+            fruit_tris = [fruit_verts[i*3:(i+1)*3] for i in range(len(fruit_verts) // 3)]
+            fruit_collection = self.Poly3DCollection(fruit_tris, alpha=0.7, facecolor='red', edgecolor='darkred', linewidth=0.5)
             self.ax.add_collection3d(fruit_collection)
 
         # Plot camera origin points
