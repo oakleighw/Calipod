@@ -249,7 +249,7 @@ class Interactive3DGraphWindow(QWidget):
         # Plot fly track last so it renders on top of arena and objects
         if all_xyz:
             x_fly, y_fly, z_fly = zip(*all_xyz)
-            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, label='Fly Track (Ground Truth)')
+            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, alpha=0.6, label='Fly Track (Ground Truth)')
             self.ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=10, marker='o', label='Start')
             self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='black', s=10, marker='s', label='End')
 
@@ -262,9 +262,9 @@ class Interactive3DGraphWindow(QWidget):
                 x_pred = pred_data['x_coord'].values * MM_PER_M
                 y_pred = pred_data['y_coord'].values * MM_PER_M
                 z_pred = pred_data['z_coord'].values * MM_PER_M
-                self.ax.plot(x_pred, y_pred, z_pred, color='green', linestyle='--', linewidth=2, alpha=0.9, label='Fly Track (Predictions)')
-                self.ax.scatter([x_pred[0]], [y_pred[0]], [z_pred[0]], color='lightgreen', s=10, marker='o', label='Pred Start')
-                self.ax.scatter([x_pred[-1]], [y_pred[-1]], [z_pred[-1]], color='darkgreen', s=10, marker='s', label='Pred End')
+                self.ax.plot(x_pred, y_pred, z_pred, color='orange', linestyle='-', linewidth=2, alpha=0.9, label='Fly Track (Predictions)')
+                self.ax.scatter([x_pred[0]], [y_pred[0]], [z_pred[0]], color='lightsalmon', s=10, marker='o', label='Pred Start')
+                self.ax.scatter([x_pred[-1]], [y_pred[-1]], [z_pred[-1]], color='darkorange', s=10, marker='s', label='Pred End')
 
         self.ax.set_xlabel('X (mm)')
         self.ax.set_ylabel('Y (mm)')
@@ -1060,14 +1060,14 @@ class TriangulationVisualizer:
         self.fly_overlay.setGLOptions("additive")
         self.fly_overlay.setVisible(False)
 
-        # Overlay for prediction fly points (green)
+        # Overlay for prediction fly points (orange)
         self.pred_overlay = gl.GLScatterPlotItem(
             pos=np.empty((0, 3)),
-            color=(0, 1, 0, 1),
-            size=self.point_size,
+            color=(1, 0.5, 0, 1),
+            size=self.point_size * 1.3,  # Slightly larger to render over ground truth
             pxMode=False,
         )
-        self.pred_overlay.setGLOptions("additive")
+        self.pred_overlay.setGLOptions("translucent")  # Render on top with depth write disabled
         self.pred_overlay.setVisible(False)
 
         self.segments = {}
@@ -1430,7 +1430,7 @@ class TriangulationVisualizer:
                         if not pred_fly.empty:
                             pred_xyz = pred_fly[['x_coord','y_coord','z_coord']].to_numpy(dtype=np.float32)
                             self.pred_overlay.setVisible(True)
-                            self.pred_overlay.setData(pos=pred_xyz, color=(0, 1, 0, 1))
+                            self.pred_overlay.setData(pos=pred_xyz, color=(1, 0.5, 0, 1))
                             logger.info(f"Plotted prediction fly overlay at sync_index={sync_index}: {pred_xyz.shape[0]} point(s)")
                         else:
                             self.pred_overlay.setVisible(False)
