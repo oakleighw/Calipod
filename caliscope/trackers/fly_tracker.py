@@ -240,6 +240,8 @@ class FlyTracker(Tracker):
                     label_filename = f"frame_{frame_idx:06d}.txt"
                     label_file_path = Path(self.annotations_dir, f"port_{port}", "labels", "train", label_filename)
                     
+                    predictions_file_path =  Path(self.annotations_dir, "predictions", f"port_{port}", "labels",  label_filename)
+                    
                     if label_file_path.exists():
                         # Always provide frame_shape for proper pixel coordinate scaling
                         # In annotations-only mode, frame may be a dummy zero array, but shape is still valid
@@ -316,6 +318,28 @@ class FlyTracker(Tracker):
         """
         key = (port, frame_idx, point_id)
         return self.bbox_data.get(key, None)
+    
+    def load_predictions_from_file(self, predictions_file_path: Path, frame_shape=None):
+        """Load predictions from a YOLO predictions file.
+        
+        This method is useful for comparing predictions against ground truth.
+        Uses the same parsing logic as yolo_to_idloc for consistency.
+        
+        Args:
+            predictions_file_path: Path to YOLO predictions label file
+            frame_shape: Optional tuple of (height, width, channels)
+        
+        Returns:
+            ids: array of class IDs
+            img_loc: array of (x, y) positions
+            bboxes: array of (width, height) for each detection
+        """
+        if not predictions_file_path.exists():
+            logger.debug(f"Predictions file not found: {predictions_file_path}")
+            return np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype=float)
+        
+        # Reuse yolo_to_idloc parsing logic
+        return self.yolo_to_idloc(predictions_file_path, frame_shape)
     
     def get_average_bbox_by_point_id(self):
         """Calculate average bounding box dimensions for each point_id across all frames.

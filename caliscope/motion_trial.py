@@ -18,6 +18,7 @@ class MotionTrial:
 
     # MODIFIED: Make xyz_csv optional, default to None
     xyz_csv: Optional[Path] = None
+    predictions_csv: Optional[Path] = None  # Optional predictions for comparison (auto-detected if None)
     xyz_packets: dict = field(default_factory=dict[int:XYZPacket])
 
     def __post_init__(self):
@@ -28,6 +29,7 @@ class MotionTrial:
         if self.xyz_csv is None:
             self.is_empty = True
             self.xyz_df = pd.DataFrame() # Initialize with an empty DataFrame
+            self.predictions_df = pd.DataFrame()  # Initialize predictions as empty
             self.start_index = 0
             self.end_index = 0
             self.tracker = None # No tracker associated if no CSV
@@ -48,6 +50,36 @@ class MotionTrial:
             self.wireframe = None
 
         self.xyz_df = pd.read_csv(self.xyz_csv, engine="pyarrow")
+        
+        # Auto-detect and load predictions if not explicitly provided
+        if self.predictions_csv is None:
+            # Try to find predictions CSV in the same directory as ground truth
+            tracker_name = self.xyz_csv.stem[4:]  # peel off "xyz_"
+            auto_pred_path = self.xyz_csv.parent / f"xyz_{tracker_name}_predictions.csv"
+            if auto_pred_path.exists():
+                self.predictions_csv = auto_pred_path
+                logger.get(__name__).debug(f"Auto-detected predictions CSV at {auto_pred_path}")
+        
+        # Load predictions if provided or auto-detected
+        if self.predictions_csv is not None and self.predictions_csv.exists():
+            try:
+                self.predictions_df = pd.read_csv(self.predictions_csv, engine="pyarrow")
+                logger.get(__name__).info(f"Loaded predictions from {self.predictions_csv}")
+                try:
+                    pred_count = len(self.predictions_df)
+                    if pred_count > 0 and {"sync_index","point_id","x_coord","y_coord","z_coord"}.issubset(self.predictions_df.columns):
+                        syncs = self.predictions_df["sync_index"].unique()
+                        logger.get(__name__).info(f"Predictions summary: rows={pred_count}, sync_index range={syncs.min()}..{syncs.max()}, point_id counts={self.predictions_df['point_id'].value_counts().to_dict()}")
+                    else:
+                        logger.get(__name__).info(f"Predictions loaded but missing expected columns or empty; columns={list(self.predictions_df.columns)}")
+                except Exception as e2:
+                    logger.get(__name__).warning(f"Error summarizing predictions_df: {e2}")
+            except Exception as e:
+                logger.get(__name__).warning(f"Failed to load predictions from {self.predictions_csv}: {e}")
+                self.predictions_df = pd.DataFrame()
+        else:
+            self.predictions_df = pd.DataFrame()
+        
         sync_indices = self.xyz_df["sync_index"].unique()
 
         # MODIFIED: Ensure start/end indices are 0 if no sync_indices are found even if CSV exists

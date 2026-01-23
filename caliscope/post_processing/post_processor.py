@@ -3,6 +3,8 @@ from pathlib import Path
 from time import sleep
 
 import pandas as pd
+import cv2
+import numpy as np
 
 import caliscope.logger
 from caliscope.cameras.camera_array import CameraArray
@@ -94,6 +96,9 @@ class PostProcessor:
         don't already exist, the triangulating them. Makes use of an internal method self.triangulate_xy_data
 
         """
+        logger.info("=" * 80)
+        logger.info("CREATE_XYZ STARTING - Predictions pipeline enabled and active")
+        logger.info("=" * 80)
 
         tracker_output_path = Path(self.recording_path, self.tracker_name)
         xy_csv_path = Path(tracker_output_path, f"xy_{self.tracker_name}.csv")
@@ -134,14 +139,235 @@ class PostProcessor:
 
         # only include trc if wanted and only if there is actually good data to export
         if include_trc and xyz.shape[0] > 0:
-            trc_path = Path(tracker_output_path, f"xyz_{self.tracker_name}.trc")
-            time_history_path = Path(tracker_output_path, "frame_time_history.csv")
-            xyz_to_trc(
-                xyz,
-                tracker=self.tracker_enum.value(),
-                time_history_path=time_history_path,
-                target_path=trc_path,
-            )
+            try:
+                trc_path = Path(tracker_output_path, f"xyz_{self.tracker_name}.trc")
+                time_history_path = Path(tracker_output_path, "frame_time_history.csv")
+                xyz_to_trc(
+                    xyz,
+                    tracker=self.tracker_enum.value(),
+                    time_history_path=time_history_path,
+                    target_path=trc_path,
+                )
+                logger.info(f"TRC file exported to {trc_path}")
+            except Exception as e:
+                logger.warning(f"Failed to export TRC file: {type(e).__name__}: {e}")
+                logger.warning("Continuing with predictions pipeline despite TRC export failure...")
+        
+        # Attempt to build and triangulate predictions if available
+        logger.info("(Predictions) Checking for prediction label files to process...")
+        logger.info(f"(Predictions) annotations_path={self.annotations_path}")
+        try:
+            self.create_xy_predictions()
+            logger.info("(Predictions) create_xy_predictions() completed successfully")
+        except Exception as e:
+            logger.error(f"(Predictions) EXCEPTION in create_xy_predictions(): {type(e).__name__}: {e}", exc_info=True)
+        
+        xy_pred_path = Path(tracker_output_path, f"xy_predictions_{self.tracker_name}.csv")
+        if xy_pred_path.exists():
+            logger.info(f"(Predictions) XY predictions file confirmed to exist at {xy_pred_path}")
+        else:
+            logger.info(f"(Predictions) XY predictions file NOT found at {xy_pred_path}")
+        
+        logger.info("(Predictions) Attempting triangulation of predictions (if XY exists)...")
+        try:
+            self.triangulate_predictions()
+            logger.info("(Predictions) triangulate_predictions() completed successfully")
+        except Exception as e:
+            logger.error(f"(Predictions) EXCEPTION in triangulate_predictions(): {type(e).__name__}: {e}", exc_info=True)
+        
+        xyz_pred_path = Path(tracker_output_path, f"xyz_{self.tracker_name}_predictions.csv")
+        if xyz_pred_path.exists():
+            logger.info(f"(Predictions) XYZ predictions file confirmed to exist at {xyz_pred_path}")
+        else:
+            logger.info(f"(Predictions) XYZ predictions file NOT found at {xyz_pred_path}")
+
+
+    def create_xy_predictions(self) -> None:
+        """Create xy_predictions_{tracker_name}.csv from YOLO prediction label files.
+
+        Expects prediction labels under: {annotations_path}/predictions/port_{port}/labels/frame_######.txt
+        Writes consolidated XY CSV to: {recording_path}/{tracker_name}/xy_predictions_{tracker_name}.csv
+        """
+        logger.info(f"(Predictions) create_xy_predictions() called; tracker_name={self.tracker_name}")
+        if self.tracker_name != "FLY":
+            logger.info("(Predictions) XY creation currently implemented for FLY tracker only; skipping.")
+            return
+
+        tracker_output_path = Path(self.recording_path, self.tracker_name)
+        xy_pred_path = Path(tracker_output_path, f"xy_predictions_{self.tracker_name}.csv")
+
+        # If already exists and non-empty, skip to avoid rework
+        if xy_pred_path.exists():
+            try:
+                if pd.read_csv(xy_pred_path, nrows=1).shape[0] > 0:
+                    logger.info(f"(Predictions) XY predictions already exist at {xy_pred_path}; skipping rebuild.")
+                    return
+            except Exception:
+                pass
+
+        if not hasattr(self, "annotations_path") or self.annotations_path is None:
+            logger.info("(Predictions) No annotations_path set; skipping predictions XY creation.")
+            return
+
+        logger.info(f"(Predictions) annotations_path is set: {self.annotations_path}")
+
+        # Determine frame dimensions per port from recorded videos
+        port_frame_size: dict[int, tuple[int,int]] = {}
+        for port, cam in self.camera_array.cameras.items():
+            mp4_path = Path(self.recording_path, f"port_{cam.port}.mp4")
+            try:
+                cap = cv2.VideoCapture(str(mp4_path))
+                if not cap.isOpened():
+                    logger.warning(f"(Predictions) Could not open video {mp4_path} to read frame size; predictions will be skipped for this port.")
+                    continue
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                cap.release()
+                port_frame_size[cam.port] = (width, height)
+            except Exception as e:
+                logger.warning(f"(Predictions) Failed reading video properties for port {cam.port}: {e}")
+
+        logger.info(f"(Predictions) Frame sizes determined: {port_frame_size}")
+        logger.info(f"(Predictions) Recording path: {self.recording_path}")
+        logger.info(f"(Predictions) Annotations path: {self.annotations_path}")
+
+
+        rows = {
+            "sync_index": [],
+            "port": [],
+            "frame_index": [],
+            "frame_time": [],
+            "point_id": [],
+            "img_loc_x": [],
+            "img_loc_y": [],
+            "obj_loc_x": [],
+            "obj_loc_y": [],
+        }
+
+        # Walk prediction label files per port
+        any_found = False
+        for port, cam in self.camera_array.cameras.items():
+            labels_dir = Path(self.annotations_path, "predictions", f"port_{port}", "labels")
+            logger.info(f"(Predictions) Checking for labels at port {port}:")
+            logger.info(f"  Full path: {labels_dir.resolve()}")
+            logger.info(f"  Path exists: {labels_dir.exists()}")
+            
+            if not labels_dir.exists():
+                logger.info(f"(Predictions) No labels directory for port {port}")
+                continue
+
+            if port not in port_frame_size:
+                logger.info(f"(Predictions) Missing frame size for port {port}; skipping its predictions.")
+                continue
+
+            width, height = port_frame_size[port]
+            frame_shape = (height, width, 3)
+
+            # Support multiple naming conventions
+            txt_files = sorted(labels_dir.glob("*.txt"))
+            logger.info(f"(Predictions) Port {port}: found {len(txt_files)} prediction label files")
+
+
+            for txt_path in txt_files:
+                # Parse sync index from file name - support multiple conventions
+                try:
+                    stem = txt_path.stem
+                    # Convention 1: frame_000123.txt
+                    if stem.startswith("frame_"):
+                        idx = int(stem.split("_")[1])
+                    # Convention 2: ..._{number}.txt (last underscore before extension)
+                    elif "_" in stem:
+                        last_part = stem.split("_")[-1]
+                        idx = int(last_part)
+                    # Convention 3: simple numeric like 123.txt
+                    elif stem.isdigit():
+                        idx = int(stem)
+                    else:
+                        logger.warning(f"(Predictions) Cannot parse frame index from filename: {txt_path.name}; skipping")
+                        continue
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"(Predictions) Failed to parse filename {txt_path.name}: {e}; skipping")
+                    continue
+
+                # Reuse tracker YOLO parser for consistency (adds corners for classes 9/10)
+                try:
+                    ids, img_loc, _ = self.tracker.yolo_to_idloc(txt_path, frame_shape=frame_shape)
+                except Exception as e:
+                    logger.warning(f"(Predictions) Failed parsing {txt_path}: {e}")
+                    continue
+
+                if ids.size == 0:
+                    continue
+
+                any_found = True
+                for k in range(len(ids)):
+                    rows["sync_index"].append(idx)
+                    rows["port"].append(port)
+                    rows["frame_index"].append(idx)
+                    rows["frame_time"].append(np.nan)
+                    rows["point_id"].append(int(ids[k]))
+                    rows["img_loc_x"].append(float(img_loc[k][0]))
+                    rows["img_loc_y"].append(float(img_loc[k][1]))
+                    rows["obj_loc_x"].append(np.nan)
+                    rows["obj_loc_y"].append(np.nan)
+
+        if not any_found:
+            logger.info("(Predictions) No prediction labels found across ports; skipping XY predictions creation.")
+            return
+
+        df_xy_pred = pd.DataFrame(rows)
+        tracker_output_path.mkdir(exist_ok=True, parents=True)
+        df_xy_pred.to_csv(xy_pred_path, index=False)
+        try:
+            sync_min = int(df_xy_pred["sync_index"].min()) if "sync_index" in df_xy_pred.columns and len(df_xy_pred) > 0 else None
+            sync_max = int(df_xy_pred["sync_index"].max()) if "sync_index" in df_xy_pred.columns and len(df_xy_pred) > 0 else None
+            logger.info(f"(Predictions) XY predictions written to {xy_pred_path} (rows={len(df_xy_pred)}; sync_index range={sync_min}..{sync_max})")
+        except Exception:
+            logger.info(f"(Predictions) XY predictions written to {xy_pred_path}")
+
+    def triangulate_predictions(self) -> None:
+        """
+        Triangulate predictions from 2D to 3D coordinates using the same process as ground truth.
+        
+        Looks for xy_predictions_{tracker_name}.csv in the tracker output directory.
+        Saves the triangulated predictions to xyz_{tracker_name}_predictions.csv.
+        """
+        tracker_output_path = Path(self.recording_path, self.tracker_name)
+        xy_pred_path = Path(tracker_output_path, f"xy_predictions_{self.tracker_name}.csv")
+        
+        if not xy_pred_path.exists():
+            logger.warning(f"Predictions XY file not found at {xy_pred_path}. Skipping prediction triangulation.")
+            return
+        
+        logger.info(f"Loading predictions from {xy_pred_path}")
+        try:
+            xy_pred = pd.read_csv(xy_pred_path)
+        except Exception as e:
+            logger.error(f"Failed to read predictions CSV: {e}")
+            return
+        
+        if xy_pred.shape[0] == 0:
+            logger.warning("Predictions CSV is empty. Skipping prediction triangulation.")
+            return
+        
+        logger.info(f"Triangulating {xy_pred.shape[0]} prediction points using camera array")
+        try:
+            xyz_pred = triangulate_xy(xy_pred, self.camera_array)
+        except Exception as e:
+            logger.error(f"Failed to triangulate predictions: {e}")
+            return
+        
+        if xyz_pred.shape[0] > 0:
+            xyz_pred_path = Path(tracker_output_path, f"xyz_{self.tracker_name}_predictions.csv")
+            xyz_pred.to_csv(xyz_pred_path, index=False)
+            try:
+                sync_min = int(xyz_pred["sync_index"].min())
+                sync_max = int(xyz_pred["sync_index"].max())
+                logger.info(f"Predictions triangulated and saved to {xyz_pred_path} (rows={len(xyz_pred)}; sync_index range={sync_min}..{sync_max})")
+            except Exception:
+                logger.info(f"Predictions triangulated and saved to {xyz_pred_path}")
+        else:
+            logger.warning("No prediction points were successfully triangulated.")
 
 
 if __name__ == "__main__":

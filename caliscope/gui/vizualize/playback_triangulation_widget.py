@@ -249,9 +249,22 @@ class Interactive3DGraphWindow(QWidget):
         # Plot fly track last so it renders on top of arena and objects
         if all_xyz:
             x_fly, y_fly, z_fly = zip(*all_xyz)
-            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, label='Fly Track')
+            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, label='Fly Track (Ground Truth)')
             self.ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=10, marker='o', label='Start')
             self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='black', s=10, marker='s', label='End')
+
+        # Plot predictions if available
+        if hasattr(self.motion_trial, 'predictions_df') and not self.motion_trial.predictions_df.empty:
+            pred_mask = self.motion_trial.predictions_df['point_id'] == 0
+            pred_data = self.motion_trial.predictions_df[pred_mask].sort_values('sync_index')
+            
+            if not pred_data.empty:
+                x_pred = pred_data['x_coord'].values * MM_PER_M
+                y_pred = pred_data['y_coord'].values * MM_PER_M
+                z_pred = pred_data['z_coord'].values * MM_PER_M
+                self.ax.plot(x_pred, y_pred, z_pred, color='green', linestyle='--', linewidth=2, alpha=0.9, label='Fly Track (Predictions)')
+                self.ax.scatter([x_pred[0]], [y_pred[0]], [z_pred[0]], color='lightgreen', s=10, marker='o', label='Pred Start')
+                self.ax.scatter([x_pred[-1]], [y_pred[-1]], [z_pred[-1]], color='darkgreen', s=10, marker='s', label='Pred End')
 
         self.ax.set_xlabel('X (mm)')
         self.ax.set_ylabel('Y (mm)')
@@ -956,7 +969,6 @@ class PlaybackTriangulationWidget(QWidget):
         )
         self.interactive_graph_window.show()
         logger.info("Interactive 3D graph window opened.")
-        plt.close(fig)
 
 
 class TriangulationVisualizer:
@@ -1048,9 +1060,20 @@ class TriangulationVisualizer:
         self.fly_overlay.setGLOptions("additive")
         self.fly_overlay.setVisible(False)
 
+        # Overlay for prediction fly points (green)
+        self.pred_overlay = gl.GLScatterPlotItem(
+            pos=np.empty((0, 3)),
+            color=(0, 1, 0, 1),
+            size=self.point_size,
+            pxMode=False,
+        )
+        self.pred_overlay.setGLOptions("additive")
+        self.pred_overlay.setVisible(False)
+
         self.segments = {}
         self.scene.addItem(self.scatter)
         self.scene.addItem(self.fly_overlay)
+        self.scene.addItem(self.pred_overlay)
 
     def update_camera_array(self, camera_array: CameraArray):
         self.camera_array = camera_array
@@ -1384,7 +1407,7 @@ class TriangulationVisualizer:
                     self.scatter.setVisible(False)
                     self.scatter.setData(pos=np.empty((0, 3)))
 
-                # Ensure fly point(s) are always visible over translucent meshes
+                # Ensure fly point(s) are always visible over translucent meshes (ground truth)
                 fly_mask = (point_ids == 0)
                 if np.any(fly_mask):
                     fly_coords = xyz_coords[fly_mask]
@@ -1393,6 +1416,34 @@ class TriangulationVisualizer:
                 else:
                     self.fly_overlay.setVisible(False)
                     self.fly_overlay.setData(pos=np.empty((0, 3)))
+
+                # Overlay predictions for the same sync_index (green dot for point_id==0)
+                if (hasattr(self.motion_trial, 'predictions_df') and 
+                    isinstance(self.motion_trial.predictions_df, pd.DataFrame) and
+                    not self.motion_trial.predictions_df.empty):
+                    logger.debug(f"Checking predictions overlay for sync_index={sync_index}")
+                    pred_rows = self.motion_trial.predictions_df[self.motion_trial.predictions_df['sync_index'] == sync_index]
+                    logger.debug(f"Predictions rows for sync_index={sync_index}: {len(pred_rows)}")
+                    if not pred_rows.empty:
+                        pred_fly = pred_rows[pred_rows['point_id'] == 0]
+                        logger.debug(f"Pred fly rows for sync_index={sync_index}: {len(pred_fly)}")
+                        if not pred_fly.empty:
+                            pred_xyz = pred_fly[['x_coord','y_coord','z_coord']].to_numpy(dtype=np.float32)
+                            self.pred_overlay.setVisible(True)
+                            self.pred_overlay.setData(pos=pred_xyz, color=(0, 1, 0, 1))
+                            logger.info(f"Plotted prediction fly overlay at sync_index={sync_index}: {pred_xyz.shape[0]} point(s)")
+                        else:
+                            self.pred_overlay.setVisible(False)
+                            self.pred_overlay.setData(pos=np.empty((0, 3)))
+                            logger.debug(f"No prediction fly points for sync_index={sync_index}")
+                    else:
+                        self.pred_overlay.setVisible(False)
+                        self.pred_overlay.setData(pos=np.empty((0, 3)))
+                        logger.debug(f"No predictions rows for sync_index={sync_index}")
+                else:
+                    self.pred_overlay.setVisible(False)
+                    self.pred_overlay.setData(pos=np.empty((0, 3)))
+                    logger.debug("Predictions DataFrame not available or empty; overlay disabled")
             else:
                 # Default behavior for non-FlyTracker or when no special handling needed
                 self.scatter.setVisible(True)  # Make visible when we have data
