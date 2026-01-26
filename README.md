@@ -44,6 +44,25 @@ Basic installation instructions can be found [here](https://mprib.github.io/cali
 
 For a basic overview of the entire workflow, please see the [sample project](https://mprib.github.io/caliscope/sample_project/) for an example dataset and a video demonstration of the complete workflow.
 
+# Directory layout for projects
+```
+ProjectDirectory/
+├── config.toml    # Only contains default charuco board definition
+├── calibration/
+│   ├── intrinsic/
+│   └── extrinsic/
+├── annotations/
+│   ├── port_1,port_2 etc/      # Ground truth yolo annotations
+│   │   ├── labels/train/ [txt files yolo format]
+│   ├── predictions/            # Optional yolo predictions
+│   │   ├── port_1,port_2 etc/ 
+│   │   │   ├── labels/ [txt files yolo format]
+└── recordings/    # Empty by default prior to user populating data
+    ├── recording_1
+    │   ├── port_1.mp4...
+
+```
+
 # Key Features
 
 ## Calibration board creation
