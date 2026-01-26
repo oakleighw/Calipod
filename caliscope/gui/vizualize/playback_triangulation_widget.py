@@ -347,6 +347,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.kalman_measurement_noise_std = 0.002  # meters
         self.kalman_fps_override: Optional[int] = None
         self.gap_fill_only = False  # If True, only interpolate missing frames; if False, smooth all
+        self.gate_distance_sigma = 3.0  # Mahalanobis distance gating threshold in sigma (standard deviations)
 
         # UI controls for filter params
         self.process_noise_spin = QDoubleSpinBox()
@@ -365,6 +366,16 @@ class PlaybackTriangulationWidget(QWidget):
         self.fps_spin = QSpinBox()
         self.fps_spin.setRange(1, 240)
         self.fps_spin.setValue(self.video_framerate)
+
+        self.gate_distance_slider = QSlider(Qt.Orientation.Horizontal)
+        self.gate_distance_slider.setRange(0, 100)  # 0 to 10.0 sigma (divide by 10)
+        self.gate_distance_slider.setValue(int(self.gate_distance_sigma * 10))
+        self.gate_distance_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.gate_distance_slider.setTickInterval(10)  # Tick every 1.0 sigma
+        self.gate_distance_slider.setMaximumWidth(150)
+        
+        self.gate_distance_label = QLabel(f"{self.gate_distance_sigma:.1f}σ")
+        self.gate_distance_slider.valueChanged.connect(self._update_gate_label)
 
         # Checkbox for gap-fill only mode
         from PySide6.QtWidgets import QCheckBox
@@ -415,9 +426,18 @@ class PlaybackTriangulationWidget(QWidget):
         filter_row.addWidget(self.meas_noise_spin)
         filter_row.addWidget(QLabel("FPS"))
         filter_row.addWidget(self.fps_spin)
+        filter_row.addWidget(QLabel("Gate (σ)"))
+        filter_row.addWidget(self.gate_distance_slider)
+        filter_row.addWidget(self.gate_distance_label)
         filter_row.addWidget(self.gap_fill_only_checkbox)
+        filter_row.addStretch()
         self.layout().addLayout(filter_row)
 
+
+    def _update_gate_label(self, value: int):
+        """Update gate distance label when slider changes."""
+        sigma = value / 10.0
+        self.gate_distance_label.setText(f"{sigma:.1f}σ")
 
     def connect_widgets(self):
         self.slider.valueChanged.connect(self.visualizer.display_points)
@@ -1072,8 +1092,9 @@ class PlaybackTriangulationWidget(QWidget):
                 self.kalman_measurement_noise_std = float(self.meas_noise_spin.value()) / 1000.0  # mm -> m
                 self.kalman_fps_override = int(self.fps_spin.value()) if self.fps_spin.value() > 0 else None
                 self.gap_fill_only = self.gap_fill_only_checkbox.isChecked()
+                self.gate_distance_sigma = float(self.gate_distance_slider.value()) / 10.0
 
-                msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'})"
+                msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'})"
                 logger.info(msg)
                 print(msg)  # Ensure it shows in console
                 
@@ -1193,13 +1214,28 @@ class PlaybackTriangulationWidget(QWidget):
                 z = measurements[frame]
                 y_res = z - H @ state
                 S = H @ P @ H.T + R
-                K = P @ H.T @ np.linalg.inv(S)
-                state = state + K @ y_res
-                P = (np.eye(6) - K @ H) @ P
+                
+                # Mahalanobis distance gating: reject outlier measurements
+                # Mahalanobis distance is unitless (in sigma). Compare directly to gate threshold.
+                try:
+                    S_inv = np.linalg.inv(S)
+                    mahal_dist = np.sqrt(y_res @ S_inv @ y_res)
+                    
+                    if mahal_dist <= self.gate_distance_sigma:
+                        # Measurement passes gate: apply Kalman update
+                        K = P @ H.T @ S_inv
+                        state = state + K @ y_res
+                        P = (np.eye(6) - K @ H) @ P
+                    else:
+                        # Measurement rejected by gate: skip update, keep predicted state
+                        logger.debug(f"Rejected measurement at frame {frame}: Mahal dist {mahal_dist:.2f}σ > gate {self.gate_distance_sigma:.1f}σ")
+                except np.linalg.LinAlgError:
+                    # If S is singular, skip update
+                    logger.debug(f"Singular innovation covariance at frame {frame}; skipping update")
                 
                 # Append result based on mode:
                 # - gap-fill-only: use original measurement (don't smooth), just track state
-                # - full-smooth: use smoothed state
+                # - full-smooth: use smoothed state (unless gated out)
                 if self.gap_fill_only:
                     results.append((frame, 0, z[0], z[1], z[2]))  # Use original measurement
                 else:
