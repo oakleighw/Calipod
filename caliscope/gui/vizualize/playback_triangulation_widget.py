@@ -17,6 +17,9 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QMessageBox,
+    QDoubleSpinBox,
+    QSpinBox,
+    QLabel,
 )
 from PySide6.QtGui import QImage, QColorConstants, QColor, QVector3D
 
@@ -25,6 +28,7 @@ import caliscope.logger
 from caliscope.cameras.camera_array import CameraArray
 from caliscope.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
 from caliscope.motion_trial import MotionTrial
+from caliscope.trackers.motion_models import ConstantVelocity3DModel
 
 import cv2
 import rtoml
@@ -332,9 +336,36 @@ class PlaybackTriangulationWidget(QWidget):
         self.toggle_frustums_button.setChecked(True)  # Start with frustums visible
 
         self.compute_metrics_button = QPushButton("Compute Performance Metrics")
+        self.toggle_filtered_button = QPushButton("Use Filtered Track")
+        self.toggle_filtered_button.setCheckable(True)
+
+        # Defaults for video and filtering
+        self.video_framerate = 60
+        # Tracking/filter params
+        self.filtered_predictions_path: Optional[Path] = None
+        self.kalman_process_noise_scale = 0.05
+        self.kalman_measurement_noise_std = 0.002  # meters
+        self.kalman_fps_override: Optional[int] = None
+
+        # UI controls for filter params
+        self.process_noise_spin = QDoubleSpinBox()
+        self.process_noise_spin.setRange(0.0001, 10.0)
+        self.process_noise_spin.setSingleStep(0.01)
+        self.process_noise_spin.setDecimals(4)
+        self.process_noise_spin.setValue(self.kalman_process_noise_scale)
+
+        self.meas_noise_spin = QDoubleSpinBox()
+        self.meas_noise_spin.setRange(0.01, 100.0)
+        self.meas_noise_spin.setSingleStep(0.1)
+        self.meas_noise_spin.setDecimals(3)
+        self.meas_noise_spin.setSuffix(" mm")
+        self.meas_noise_spin.setValue(self.kalman_measurement_noise_std * 1000.0)
+
+        self.fps_spin = QSpinBox()
+        self.fps_spin.setRange(1, 240)
+        self.fps_spin.setValue(self.video_framerate)
 
         self.export_video_mode = False
-        self.video_framerate = 60 
         self.last_exported_video_path: Optional[Path] = None
         self.interactive_graph_window: Optional[Interactive3DGraphWindow] = None
 
@@ -371,6 +402,16 @@ class PlaybackTriangulationWidget(QWidget):
         metrics_frustum_row.addWidget(self.toggle_frustums_button)
         self.layout().addLayout(metrics_frustum_row)
 
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(self.toggle_filtered_button)
+        filter_row.addWidget(QLabel("Proc noise"))
+        filter_row.addWidget(self.process_noise_spin)
+        filter_row.addWidget(QLabel("Meas noise"))
+        filter_row.addWidget(self.meas_noise_spin)
+        filter_row.addWidget(QLabel("FPS"))
+        filter_row.addWidget(self.fps_spin)
+        self.layout().addLayout(filter_row)
+
 
     def connect_widgets(self):
         self.slider.valueChanged.connect(self.visualizer.display_points)
@@ -381,6 +422,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.generate_graph_button.clicked.connect(self.generate_3d_graph)
         self.compute_metrics_button.clicked.connect(self.compute_and_show_metrics)
         self.toggle_frustums_button.toggled.connect(self.visualizer.toggle_camera_frustums)
+        self.toggle_filtered_button.toggled.connect(self.toggle_filtered_track)
 
     def toggle_export_mode(self, checked):
         """Toggles video export mode based on button state."""
@@ -965,6 +1007,10 @@ class PlaybackTriangulationWidget(QWidget):
             QMessageBox.warning(self, "No Ground Truth", "Ground-truth xyz data are empty; cannot compute metrics.")
             return
 
+        # Log which predictions are active
+        pred_source = "filtered" if self.toggle_filtered_button.isChecked() else "raw"
+        logger.info(f"Computing metrics with {pred_source} predictions ({len(self.motion_trial.predictions_df)} rows)")
+
         metrics = {}
         try:
             metrics = self.motion_trial.performance_metrics()
@@ -978,6 +1024,7 @@ class PlaybackTriangulationWidget(QWidget):
             return
 
         lines = []
+        lines.append(f"[Using {pred_source.upper()} predictions]")
         for key, value in metrics.items():
             if isinstance(value, float):
                 lines.append(f"{key}: {value:.4f}")
@@ -985,6 +1032,157 @@ class PlaybackTriangulationWidget(QWidget):
                 lines.append(f"{key}: {value}")
 
         QMessageBox.information(self, "Performance Metrics", "\n".join(lines))
+
+    def toggle_filtered_track(self, checked: bool):
+        """Toggle use of filtered predictions cached alongside the predictions CSV."""
+        if self.motion_trial is None or self.motion_trial.is_empty:
+            QMessageBox.warning(self, "No Data", "Load a motion trial before enabling filtering.")
+            self.toggle_filtered_button.setChecked(False)
+            return
+
+        if not hasattr(self.motion_trial, "predictions_df") or self.motion_trial.predictions_df.empty:
+            QMessageBox.warning(self, "No Predictions", "Predictions are empty; load predictions before filtering.")
+            self.toggle_filtered_button.setChecked(False)
+            return
+
+        if not hasattr(self.motion_trial, "predictions_csv") or self.motion_trial.predictions_csv is None:
+            QMessageBox.warning(self, "Missing Path", "Predictions path is unknown; cannot cache filtered output.")
+            self.toggle_filtered_button.setChecked(False)
+            return
+
+        base_pred_path = Path(self.motion_trial.predictions_csv)
+        # Strip any existing "_filtered" suffix to avoid chaining
+        base_stem = base_pred_path.stem
+        while base_stem.endswith("_filtered"):
+            base_stem = base_stem[:-9]
+        raw_pred_path = base_pred_path.with_name(f"{base_stem}{base_pred_path.suffix}")
+        filtered_path = raw_pred_path.with_name(f"{base_stem}_filtered{base_pred_path.suffix}")
+
+        if checked:
+            self.toggle_filtered_button.setEnabled(False)
+            try:
+                # Capture UI parameter values
+                self.kalman_process_noise_scale = float(self.process_noise_spin.value())
+                self.kalman_measurement_noise_std = float(self.meas_noise_spin.value()) / 1000.0  # mm -> m
+                self.kalman_fps_override = int(self.fps_spin.value()) if self.fps_spin.value() > 0 else None
+
+                logger.info(f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60})")
+                filtered_df = self._compute_filtered_predictions()
+                
+                if filtered_df is None or filtered_df.empty:
+                    logger.error("Kalman filter computation failed: empty result")
+                    QMessageBox.warning(self, "Filter Error", "Filtered predictions are empty; keeping raw predictions.")
+                    self.toggle_filtered_button.setChecked(False)
+                    self.toggle_filtered_button.setEnabled(True)
+                    return
+                
+                logger.info(f"Kalman filter computation complete; generated {len(filtered_df)} frames")
+                
+                filtered_path.parent.mkdir(parents=True, exist_ok=True)
+                filtered_df.to_csv(filtered_path, index=False)
+                logger.info(f"Saved filtered predictions to {filtered_path}")
+
+                self.motion_trial.predictions_csv = filtered_path
+                self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
+                self.filtered_predictions_path = filtered_path
+                logger.info(f"Using filtered predictions from {filtered_path}")
+                
+                # Refresh display with filtered predictions
+                if hasattr(self.visualizer, "update_motion_trial"):
+                    self.visualizer.update_motion_trial(self.motion_trial)
+                
+                logger.info("Filter toggle complete; UI refreshed with filtered predictions")
+            except Exception as exc:
+                logger.error(f"Failed to enable filtered track: {exc}", exc_info=True)
+                QMessageBox.critical(self, "Filter Error", f"Failed to filter predictions:\n{exc}")
+                self.toggle_filtered_button.setChecked(False)
+                self.toggle_filtered_button.setEnabled(True)
+                return
+            finally:
+                self.toggle_filtered_button.setEnabled(True)
+        else:
+            # revert to raw predictions
+            self.toggle_filtered_button.setEnabled(False)
+            try:
+                if raw_pred_path.exists():
+                    self.motion_trial.predictions_df = pd.read_csv(raw_pred_path, engine="pyarrow")
+                    self.motion_trial.predictions_csv = raw_pred_path
+                    logger.info(f"Reverted to raw predictions at {raw_pred_path}")
+                    
+                    # Refresh display with raw predictions
+                    if hasattr(self.visualizer, "update_motion_trial"):
+                        self.visualizer.update_motion_trial(self.motion_trial)
+                    logger.info("Filter toggle complete; UI refreshed with raw predictions")
+            except Exception as exc:
+                logger.error(f"Failed to reload raw predictions: {exc}", exc_info=True)
+                QMessageBox.critical(self, "Filter Error", f"Failed to reload raw predictions:\n{exc}")
+                self.toggle_filtered_button.setChecked(True)
+                self.toggle_filtered_button.setEnabled(True)
+                return
+            finally:
+                self.toggle_filtered_button.setEnabled(True)
+
+        # Note: visualization refresh already happened above for both checked and unchecked cases
+
+    def _compute_filtered_predictions(self) -> Optional[pd.DataFrame]:
+        """Apply a simple CV Kalman filter to point_id==0 predictions.
+
+        Returns a DataFrame with the same schema as predictions:
+        sync_index, point_id, x_coord, y_coord, z_coord.
+        """
+        pred_df = self.motion_trial.predictions_df
+        if pred_df is None or pred_df.empty:
+            return None
+
+        fly_df = pred_df[pred_df["point_id"] == 0].copy()
+        if fly_df.empty:
+            logger.warning("No point_id==0 rows in predictions; skipping filter.")
+            return None
+
+        fly_df = fly_df.sort_values("sync_index")
+        frames = np.arange(int(fly_df["sync_index"].min()), int(fly_df["sync_index"].max()) + 1)
+        fps_used = self.kalman_fps_override or self.video_framerate or 60
+        base_dt = 1.0 / fps_used
+        model = ConstantVelocity3DModel(self.kalman_process_noise_scale)
+
+        H = np.zeros((3, 6))
+        H[0, 0] = H[1, 1] = H[2, 2] = 1.0
+        R = np.eye(3) * (self.kalman_measurement_noise_std ** 2)
+
+        first_row = fly_df.iloc[0]
+        state = np.zeros(6)
+        state[:3] = [first_row.x_coord, first_row.y_coord, first_row.z_coord]
+        P = np.eye(6) * 1e-3
+
+        measurements = {int(r.sync_index): np.array([r.x_coord, r.y_coord, r.z_coord]) for r in fly_df.itertuples()}
+
+        results = []
+        prev_frame = frames[0]
+        for frame in frames:
+            gap = max(frame - prev_frame, 1)
+            dt = gap * base_dt
+            mats = model.calc_for_dt(dt)
+            A = mats["transition_model"]
+            AT = mats["transition_model_transpose"]
+            Q = mats["transition_noise_covariance"]
+
+            # Predict
+            state = A @ state
+            P = A @ P @ AT + Q
+
+            # Update if measurement exists
+            if frame in measurements:
+                z = measurements[frame]
+                y_res = z - H @ state
+                S = H @ P @ H.T + R
+                K = P @ H.T @ np.linalg.inv(S)
+                state = state + K @ y_res
+                P = (np.eye(6) - K @ H) @ P
+
+            results.append((frame, 0, state[0], state[1], state[2]))
+            prev_frame = frame
+
+        return pd.DataFrame(results, columns=["sync_index", "point_id", "x_coord", "y_coord", "z_coord"])
 
     def generate_3d_graph(self):
         """Generate an interactive 3D matplotlib window for trajectory visualization."""
