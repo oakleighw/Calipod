@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
     QPushButton,
     QApplication,
-    QFileDialog
+    QFileDialog,
+    QMessageBox,
 )
 from PySide6.QtGui import QImage, QColorConstants, QColor, QVector3D
 
@@ -330,6 +331,8 @@ class PlaybackTriangulationWidget(QWidget):
         self.toggle_frustums_button.setCheckable(True)
         self.toggle_frustums_button.setChecked(True)  # Start with frustums visible
 
+        self.compute_metrics_button = QPushButton("Compute Performance Metrics")
+
         self.export_video_mode = False
         self.video_framerate = 60 
         self.last_exported_video_path: Optional[Path] = None
@@ -363,7 +366,11 @@ class PlaybackTriangulationWidget(QWidget):
         view_button_row.addWidget(self.measurement_view_button)
         view_button_row.addWidget(self.generate_graph_button)
         self.layout().addLayout(view_button_row)
-        self.layout().addWidget(self.toggle_frustums_button)
+        metrics_frustum_row = QHBoxLayout()
+        metrics_frustum_row.addWidget(self.compute_metrics_button)
+        metrics_frustum_row.addWidget(self.toggle_frustums_button)
+        self.layout().addLayout(metrics_frustum_row)
+
 
     def connect_widgets(self):
         self.slider.valueChanged.connect(self.visualizer.display_points)
@@ -372,6 +379,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.export_compare_button.clicked.connect(self.export_real_video_compare)
         self.measurement_view_button.clicked.connect(self.visualizer.toggle_measurement_mode)
         self.generate_graph_button.clicked.connect(self.generate_3d_graph)
+        self.compute_metrics_button.clicked.connect(self.compute_and_show_metrics)
         self.toggle_frustums_button.toggled.connect(self.visualizer.toggle_camera_frustums)
 
     def toggle_export_mode(self, checked):
@@ -942,6 +950,41 @@ class PlaybackTriangulationWidget(QWidget):
 
     def update_camera_array(self, camera_array: CameraArray):
         self.visualizer.update_camera_array(camera_array)
+
+    def compute_and_show_metrics(self):
+        """Display metrics from MotionTrial.performance_metrics with basic guards."""
+        if self.motion_trial is None or self.motion_trial.is_empty:
+            QMessageBox.warning(self, "No Data", "No motion trial loaded; cannot compute metrics.")
+            return
+
+        if not hasattr(self.motion_trial, "predictions_df") or self.motion_trial.predictions_df.empty:
+            QMessageBox.warning(self, "No Predictions", "Predictions are empty; load predictions before computing metrics.")
+            return
+
+        if not hasattr(self.motion_trial, "xyz_df") or self.motion_trial.xyz_df.empty:
+            QMessageBox.warning(self, "No Ground Truth", "Ground-truth xyz data are empty; cannot compute metrics.")
+            return
+
+        metrics = {}
+        try:
+            metrics = self.motion_trial.performance_metrics()
+        except Exception as exc:
+            logger.error(f"Error computing performance metrics: {exc}", exc_info=True)
+            QMessageBox.critical(self, "Metrics Error", f"Failed to compute metrics:\n{exc}")
+            return
+
+        if not metrics:
+            QMessageBox.warning(self, "No Matches", "No overlapping (sync_index, point_id) pairs between ground truth and predictions.")
+            return
+
+        lines = []
+        for key, value in metrics.items():
+            if isinstance(value, float):
+                lines.append(f"{key}: {value:.4f}")
+            else:
+                lines.append(f"{key}: {value}")
+
+        QMessageBox.information(self, "Performance Metrics", "\n".join(lines))
 
     def generate_3d_graph(self):
         """Generate an interactive 3D matplotlib window for trajectory visualization."""

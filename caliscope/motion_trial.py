@@ -128,3 +128,36 @@ class MotionTrial:
             self.wireframe.set_points(xyz_packet)
         else:
             logger.get(__name__).debug(f"Skipping wireframe update for sync index {sync_index}: self.wireframe is None (no tracker or no wireframe for tracker).")
+
+    def performance_metrics(self) -> dict:
+        """
+        Computes performance metrics if predictions are available.
+        Returns an empty dictionary if no predictions are loaded.
+        """
+        if self.predictions_df.empty:
+            logger.get(__name__).debug("No predictions loaded; returning empty performance metrics.")
+            return {}
+
+        # Mean Squared Error between ground truth and predictions
+        merged_df = pd.merge(
+            self.xyz_df,
+            self.predictions_df,
+            on=["sync_index", "point_id"],
+            suffixes=('_gt', '_pred')
+        )
+
+        if merged_df.empty:
+            logger.get(__name__).debug("No matching points between ground truth and predictions; returning empty performance metrics.")
+            return {}
+
+        rmse = np.sqrt(np.mean(
+            (merged_df[['x_coord_gt', 'y_coord_gt', 'z_coord_gt']].values -
+             merged_df[['x_coord_pred', 'y_coord_pred', 'z_coord_pred']].values) ** 2
+        ))
+
+        metrics = {
+            "RMSE": rmse
+        }
+
+        logger.get(__name__).debug(f"Computed performance metrics: {metrics}")
+        return metrics
