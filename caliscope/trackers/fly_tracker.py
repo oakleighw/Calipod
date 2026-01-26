@@ -35,9 +35,11 @@ class FlyTracker(Tracker):
         self.bbox_data = {}  # Store bounding box data by (port, frame_idx, point_id)
 
 
-    def yolo_to_idloc(self, text_file, frame_shape=None):
+    def yolo_to_idloc(self, text_file, frame_shape=None, highest_confidence_only=False):
         """Parse YOLO label file to extract point IDs, locations, and bounding boxes.
         
+        If highest_confidence_only set to true, only the highest confidence detection per class is kept per frame (for single-object scenarios).
+
         For labels 9 (fruit) and 10 (leaves), also generates corner points for proper 3D triangulation.
         Corner points use IDs: base_id * 1000 + corner_index (0=TL, 1=TR, 2=BR, 3=BL)
         
@@ -45,7 +47,7 @@ class FlyTracker(Tracker):
             text_file: Path to YOLO label file
             frame_shape: Optional tuple of (height, width, channels). If not provided,
                         normalized coordinates from file won't be scaled.
-        
+            highest_confidence_only: If True, only keep the highest confidence detection per class per frame.
         Returns:
             ids: array of class IDs (including corner point IDs for labels 9 and 10)
             img_loc: array of (x, y) positions (including corners)
@@ -61,6 +63,17 @@ class FlyTracker(Tracker):
                 ids = []
                 img_loc = []
                 bboxes = []
+                if highest_confidence_only:
+                    class_detections = {}
+                    for line in lines:
+                        split_l = line.strip().split(' ')
+                        class_id = int(split_l[0])
+                        confidence = float(split_l[5]) if len(split_l) > 5 else 1.0 # set to 1.0 if no confidence provided
+                        if class_id not in class_detections or confidence > class_detections[class_id][0]:
+                            class_detections[class_id] = (confidence, line)
+                    
+                    lines = [entry[1] for entry in class_detections.values()]
+                    
                 for i, line in enumerate(lines):
                     split_l = line.strip().split(' ')
                     # Extract class_id from the YOLO label (first value)
@@ -338,8 +351,8 @@ class FlyTracker(Tracker):
             logger.debug(f"Predictions file not found: {predictions_file_path}")
             return np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype=float)
         
-        # Reuse yolo_to_idloc parsing logic
-        return self.yolo_to_idloc(predictions_file_path, frame_shape)
+        # Reuse yolo_to_idloc parsing logic, set highest_confidence_only=True for predictions until better track handling is implemented
+        return self.yolo_to_idloc(predictions_file_path, frame_shape, highest_confidence_only=True)
     
     def get_average_bbox_by_point_id(self):
         """Calculate average bounding box dimensions for each point_id across all frames.
