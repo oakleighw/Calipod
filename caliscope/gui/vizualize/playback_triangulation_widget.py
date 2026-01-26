@@ -346,6 +346,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.kalman_process_noise_scale = 0.05
         self.kalman_measurement_noise_std = 0.002  # meters
         self.kalman_fps_override: Optional[int] = None
+        self.gap_fill_only = False  # If True, only interpolate missing frames; if False, smooth all
 
         # UI controls for filter params
         self.process_noise_spin = QDoubleSpinBox()
@@ -364,6 +365,10 @@ class PlaybackTriangulationWidget(QWidget):
         self.fps_spin = QSpinBox()
         self.fps_spin.setRange(1, 240)
         self.fps_spin.setValue(self.video_framerate)
+
+        # Checkbox for gap-fill only mode
+        from PySide6.QtWidgets import QCheckBox
+        self.gap_fill_only_checkbox = QCheckBox("Gap-fill only (don't smooth existing)")
 
         self.export_video_mode = False
         self.last_exported_video_path: Optional[Path] = None
@@ -410,6 +415,7 @@ class PlaybackTriangulationWidget(QWidget):
         filter_row.addWidget(self.meas_noise_spin)
         filter_row.addWidget(QLabel("FPS"))
         filter_row.addWidget(self.fps_spin)
+        filter_row.addWidget(self.gap_fill_only_checkbox)
         self.layout().addLayout(filter_row)
 
 
@@ -1065,27 +1071,39 @@ class PlaybackTriangulationWidget(QWidget):
                 self.kalman_process_noise_scale = float(self.process_noise_spin.value())
                 self.kalman_measurement_noise_std = float(self.meas_noise_spin.value()) / 1000.0  # mm -> m
                 self.kalman_fps_override = int(self.fps_spin.value()) if self.fps_spin.value() > 0 else None
+                self.gap_fill_only = self.gap_fill_only_checkbox.isChecked()
 
-                logger.info(f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60})")
+                msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'})"
+                logger.info(msg)
+                print(msg)  # Ensure it shows in console
+                
                 filtered_df = self._compute_filtered_predictions()
                 
                 if filtered_df is None or filtered_df.empty:
-                    logger.error("Kalman filter computation failed: empty result")
+                    err_msg = "Kalman filter computation failed: empty result"
+                    logger.error(err_msg)
+                    print(err_msg)
                     QMessageBox.warning(self, "Filter Error", "Filtered predictions are empty; keeping raw predictions.")
                     self.toggle_filtered_button.setChecked(False)
                     self.toggle_filtered_button.setEnabled(True)
                     return
                 
-                logger.info(f"Kalman filter computation complete; generated {len(filtered_df)} frames")
+                comp_msg = f"Kalman filter computation complete; generated {len(filtered_df)} frames"
+                logger.info(comp_msg)
+                print(comp_msg)
                 
                 filtered_path.parent.mkdir(parents=True, exist_ok=True)
                 filtered_df.to_csv(filtered_path, index=False)
-                logger.info(f"Saved filtered predictions to {filtered_path}")
+                saved_msg = f"Saved filtered predictions to {filtered_path}"
+                logger.info(saved_msg)
+                print(saved_msg)
 
                 self.motion_trial.predictions_csv = filtered_path
                 self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
                 self.filtered_predictions_path = filtered_path
-                logger.info(f"Using filtered predictions from {filtered_path}")
+                using_msg = f"Using filtered predictions from {filtered_path}"
+                logger.info(using_msg)
+                print(using_msg)
                 
                 # Refresh display with filtered predictions
                 if hasattr(self.visualizer, "update_motion_trial"):
@@ -1178,8 +1196,18 @@ class PlaybackTriangulationWidget(QWidget):
                 K = P @ H.T @ np.linalg.inv(S)
                 state = state + K @ y_res
                 P = (np.eye(6) - K @ H) @ P
-
-            results.append((frame, 0, state[0], state[1], state[2]))
+                
+                # Append result based on mode:
+                # - gap-fill-only: use original measurement (don't smooth), just track state
+                # - full-smooth: use smoothed state
+                if self.gap_fill_only:
+                    results.append((frame, 0, z[0], z[1], z[2]))  # Use original measurement
+                else:
+                    results.append((frame, 0, state[0], state[1], state[2]))  # Use smoothed state
+            else:
+                # No measurement: always use predicted state (fill gap)
+                results.append((frame, 0, state[0], state[1], state[2]))
+            
             prev_frame = frame
 
         return pd.DataFrame(results, columns=["sync_index", "point_id", "x_coord", "y_coord", "z_coord"])
