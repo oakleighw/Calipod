@@ -133,12 +133,28 @@ class MotionTrial:
         """
         Computes performance metrics if predictions are available.
         Returns an empty dictionary if no predictions are loaded.
+        Only single object class & instance capability implemented for now.
+        
+        Metrics:
+        - RMSE: Root Mean Square Error - squares errors so penalizes large errors more (mm)
+        - MOTP: Multiple Object Tracking Precision - mean Euclidean distance error (mm)
+        - MOTA: Multiple Object Tracking Accuracy - detection accuracy per frame (0-1 scale)
+        - Median_Error: Median Euclidean distance error - robust to outliers (mm)
         """
         if self.predictions_df.empty:
             logger.get(__name__).debug("No predictions loaded; returning empty performance metrics.")
             return {}
 
-        # Mean Squared Error between ground truth and predictions
+        # Debug: Check data structure
+        logger.get(__name__).info(f"xyz_df shape: {self.xyz_df.shape}, columns: {list(self.xyz_df.columns)[:5]}")
+        logger.get(__name__).info(f"predictions_df shape: {self.predictions_df.shape}, columns: {list(self.predictions_df.columns)[:5]}")
+        if 'point_id' in self.xyz_df.columns:
+            logger.get(__name__).info(f"GT unique point_ids: {sorted(self.xyz_df['point_id'].unique())}")
+        if 'point_id' in self.predictions_df.columns:
+            logger.get(__name__).info(f"Pred unique point_ids: {sorted(self.predictions_df['point_id'].unique())}")
+
+        # Merge ground truth and predictions on sync_index and point_id
+        # Filters to only those points present in both ground truth and predictions (does not include false positives/negatives)
         merged_df = pd.merge(
             self.xyz_df,
             self.predictions_df,
@@ -150,14 +166,82 @@ class MotionTrial:
             logger.get(__name__).debug("No matching points between ground truth and predictions; returning empty performance metrics.")
             return {}
 
+        # Calculate RMSE (element-wise across all coordinates)
         rmse = np.sqrt(np.mean(
             (merged_df[['x_coord_gt', 'y_coord_gt', 'z_coord_gt']].values -
              merged_df[['x_coord_pred', 'y_coord_pred', 'z_coord_pred']].values) ** 2
         ))
 
+        # Calculate Euclidean distances (errors) for each matched point
+        distances = np.linalg.norm(
+            merged_df[['x_coord_gt', 'y_coord_gt', 'z_coord_gt']].values -
+            merged_df[['x_coord_pred', 'y_coord_pred', 'z_coord_pred']].values, axis=1
+        )
+        
+        # Calculate multiple object tracking precision (MOTP) - mean Euclidean error
+        motp = np.mean(distances)
+        
+        # Median error - robust to outliers
+        median_error = np.median(distances)
+
+        # Calculate multiple object tracking accuracy (MOTA) - PER FRAME
+        # MOTA measures detection accuracy, not distance accuracy
+        # Filter GT to only point_ids that exist in predictions (to compare apples-to-apples)
+        # Example: if predictions only track point_id 0, don't count missing point_ids 1-10 as false negatives
+        relevant_point_ids = self.predictions_df['point_id'].unique()
+        gt_filtered = self.xyz_df[self.xyz_df['point_id'].isin(relevant_point_ids)]
+        
+        logger.get(__name__).info(f"Filtered GT from {len(self.xyz_df)} to {len(gt_filtered)} rows (only point_ids: {sorted(relevant_point_ids)})")
+        
+        # Count detections per frame (only for relevant point_ids)
+        gt_counts_per_frame = gt_filtered.groupby('sync_index').size()
+        pred_counts_per_frame = self.predictions_df.groupby('sync_index').size()
+        matched_counts_per_frame = merged_df.groupby('sync_index').size()
+        
+        # Get all unique frame indices
+        all_frames = sorted(set(gt_counts_per_frame.index) | set(pred_counts_per_frame.index))
+        
+        # Calculate FN and FP per frame, then sum
+        total_false_negatives = 0
+        total_false_positives = 0
+        total_gt_detections = 0
+        
+        for frame_idx in all_frames:
+            gt_count = gt_counts_per_frame.get(frame_idx, 0)
+            pred_count = pred_counts_per_frame.get(frame_idx, 0)
+            matched_count = matched_counts_per_frame.get(frame_idx, 0)
+            
+            fn = gt_count - matched_count  # Missed detections in this frame
+            fp = pred_count - matched_count  # Extra detections in this frame
+            
+            total_false_negatives += fn
+            total_false_positives += fp
+            total_gt_detections += gt_count
+        
+        # MOTA formula: 1 - (FN + FP + ID switches) / total_GT
+        # ID switches not implemented yet
+        mota = 1 - (total_false_negatives + total_false_positives) / total_gt_detections if total_gt_detections > 0 else 0.0
+
+        # Convert distances from meters to millimeters
+        rmse_mm = rmse * 1000
+        motp_mm = motp * 1000
+        median_error_mm = median_error * 1000
+
         metrics = {
-            "RMSE": rmse
+            "RMSE_mm": rmse_mm,
+            "MOTP_mm": motp_mm,
+            "MOTA": mota,
+            "Median_Error_mm": median_error_mm,
+            "Total_GT_Points": total_gt_detections,
+            "Total_Pred_Points": len(self.predictions_df),
+            "Total_Matched_Points": len(merged_df),
+            "False_Negatives": total_false_negatives,
+            "False_Positives": total_false_positives,
+            "Num_Frames": len(all_frames),
+            "Avg_GT_Per_Frame": total_gt_detections / len(all_frames) if len(all_frames) > 0 else 0,
+            "Avg_Matched_Per_Frame": len(merged_df) / len(all_frames) if len(all_frames) > 0 else 0
         }
 
+        logger.get(__name__).info(f"MOTA Debug: GT={total_gt_detections}, Matched={len(merged_df)}, FN={total_false_negatives}, FP={total_false_positives}, Frames={len(all_frames)}")
         logger.get(__name__).debug(f"Computed performance metrics: {metrics}")
         return metrics
