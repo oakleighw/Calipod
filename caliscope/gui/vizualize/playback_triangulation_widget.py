@@ -43,12 +43,13 @@ logger = caliscope.logger.get(__name__)
 class Interactive3DGraphWindow(QWidget):
     """An interactive matplotlib 3D graph visualization in a separate window."""
     
-    def __init__(self, motion_trial: MotionTrial, camera_array: CameraArray, xyz_history_path: Path = None, parent=None):
+    def __init__(self, motion_trial: MotionTrial, camera_array: CameraArray, xyz_history_path: Path = None, is_filtered: bool = False, parent=None):
         super().__init__(parent)
         self.motion_trial = motion_trial
         self.camera_array = camera_array
         self.xyz_history_path = xyz_history_path
-        self.setWindowTitle("3D Trajectory Graph (Interactive)")
+        self.is_filtered = is_filtered
+        self.setWindowTitle("3D Trajectory Graph (Interactive)" + (" - Filtered" if is_filtered else ""))
         self.setGeometry(100, 100, 1200, 900)
         
         try:
@@ -274,7 +275,10 @@ class Interactive3DGraphWindow(QWidget):
         self.ax.set_xlabel('X (mm)')
         self.ax.set_ylabel('Y (mm)')
         self.ax.set_zlabel('Z (mm)')
-        self.ax.set_title('3D Trajectory with Arena, Leaves, and Strawberry')
+        title = '3D Trajectory with Arena, Leaves, and Strawberry'
+        if self.is_filtered:
+            title += ' (Filtered Track)'
+        self.ax.set_title(title)
         self.ax.legend()
         
         # Set camera view: elevation 20°, azimuth -60° (front-facing, looking slightly down)
@@ -1164,8 +1168,9 @@ class PlaybackTriangulationWidget(QWidget):
         # Note: visualization refresh already happened above for both checked and unchecked cases
 
     def _compute_filtered_predictions(self) -> Optional[pd.DataFrame]:
-        """Apply a simple CV Kalman filter to point_id==0 predictions.
-
+        """Apply a simple CV Kalman filter to point_id==0 predictions, filling gaps and smoothing.
+        
+        Other point_ids from the original predictions are preserved unchanged.
         Returns a DataFrame with the same schema as predictions:
         sync_index, point_id, x_coord, y_coord, z_coord.
         """
@@ -1179,7 +1184,9 @@ class PlaybackTriangulationWidget(QWidget):
             return None
 
         fly_df = fly_df.sort_values("sync_index")
-        frames = np.arange(int(fly_df["sync_index"].min()), int(fly_df["sync_index"].max()) + 1)
+        # Fill gaps across all frames where ground truth exists for point_id 0
+        gt_fly_frames = self.motion_trial.xyz_df[self.motion_trial.xyz_df['point_id'] == 0]['sync_index'].unique()
+        frames = sorted(gt_fly_frames)
         fps_used = self.kalman_fps_override or self.video_framerate or 60
         base_dt = 1.0 / fps_used
         model = ConstantVelocity3DModel(self.kalman_process_noise_scale)
@@ -1246,7 +1253,19 @@ class PlaybackTriangulationWidget(QWidget):
             
             prev_frame = frame
 
-        return pd.DataFrame(results, columns=["sync_index", "point_id", "x_coord", "y_coord", "z_coord"])
+        # Create DataFrame for filtered point_id 0
+        filtered_fly_df = pd.DataFrame(results, columns=["sync_index", "point_id", "x_coord", "y_coord", "z_coord"])
+        
+        # Get all other point_ids from original predictions (excluding point_id 0)
+        other_points_df = pred_df[pred_df["point_id"] != 0].copy()
+        
+        # Combine filtered fly data with other points
+        combined_df = pd.concat([filtered_fly_df, other_points_df], ignore_index=True)
+        
+        # Sort by sync_index and point_id for consistency
+        combined_df = combined_df.sort_values(["sync_index", "point_id"]).reset_index(drop=True)
+        
+        return combined_df
 
     def generate_3d_graph(self):
         """Generate an interactive 3D matplotlib window for trajectory visualization."""
@@ -1269,8 +1288,9 @@ class PlaybackTriangulationWidget(QWidget):
             self.interactive_graph_window.close()
         
         # Create new interactive window
+        is_filtered = self.toggle_filtered_button.isChecked() if hasattr(self, 'toggle_filtered_button') else False
         self.interactive_graph_window = Interactive3DGraphWindow(
-            self.motion_trial, self.camera_array, self.xyz_history_path
+            self.motion_trial, self.camera_array, self.xyz_history_path, is_filtered
         )
         self.interactive_graph_window.show()
         logger.info("Interactive 3D graph window opened.")
