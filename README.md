@@ -44,6 +44,60 @@ Basic installation instructions can be found [here](https://mprib.github.io/cali
 
 For a basic overview of the entire workflow, please see the [sample project](https://mprib.github.io/caliscope/sample_project/) for an example dataset and a video demonstration of the complete workflow.
 
+## Quickstart overview
+
+Taken from [guide](https://mprib.github.io/caliscope/installation/)
+
+### Create a virtual environment¶
+We strongly advise installing Caliscope within a virtual environment to avoid conflicts with other packages. Caliscope is compatible with Python 3.10 and 3.11.
+
+## Windows:
+
+### Navigate to the directory that will hold your project
+```
+cd path\to\your\project
+```
+
+### Create a virtual environment named '.venv' using Python 3.10
+```
+uv venv --python 3.11
+```
+
+### Activate the virtual environment
+```
+.\.venv\Scripts\activate
+```
+
+## Linux:
+
+### Install prerequisite packages for GUI display (Ubuntu)
+```
+sudo apt-get update
+sudo apt-get install --fix-missing libgl1-mesa-dev
+```
+
+### Navigate to the directory that will hold your project
+```
+cd path/to/your/project
+```
+
+### Create a virtual environment named '.venv' using Python 3.10
+```
+uv venv --python 3.11
+```
+
+### Activate the virtual environment
+```
+source .venv/bin/activate
+```
+
+### Install Caliscope
+With your virtual environment activated, you can now install Caliscope using uv.
+```
+uv pip install caliscope
+```
+Installation may take a moment as some dependencies are large, but uv's performance makes this process significantly faster than traditional tools.
+
 # Directory layout for projects
 ```
 ProjectDirectory/
