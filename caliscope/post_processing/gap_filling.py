@@ -70,6 +70,10 @@ def gap_fill_xy(xy_base: pd.DataFrame, max_gap_size=3) -> pd.DataFrame:
         merged["img_loc_x"] = merged["img_loc_x"].interpolate(method="linear", limit=max_gap_size).astype("float64")
         merged["img_loc_y"] = merged["img_loc_y"].interpolate(method="linear", limit=max_gap_size).astype("float64")
 
+        # Remove interpolated values that extend beyond the boundaries of actual data
+        # This prevents filter predictions from extending past the last base prediction
+        merged = merged[merged["img_loc_x"].notna()]
+
         # Append to the overall DataFrame
         xy_filled = pd.concat([xy_filled, merged])
 
@@ -113,6 +117,10 @@ def gap_fill_xyz(xyz_base: pd.DataFrame, max_gap_size=3) -> pd.DataFrame:
         merged["x_coord"] = merged["x_coord"].interpolate(method="linear", limit=max_gap_size).astype("float64")
         merged["y_coord"] = merged["y_coord"].interpolate(method="linear", limit=max_gap_size).astype("float64")
         merged["z_coord"] = merged["z_coord"].interpolate(method="linear", limit=max_gap_size).astype("float64")
+
+        # Remove interpolated values that extend beyond the boundaries of actual data
+        # This prevents filter predictions from extending past the last base prediction
+        merged = merged[merged["x_coord"].notna()]
 
         # Append to the overall DataFrame
         xyz_filled = pd.concat([xyz_filled, merged])

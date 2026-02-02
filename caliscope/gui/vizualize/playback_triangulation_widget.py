@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QSpinBox,
     QLabel,
+    QAbstractSpinBox,
 )
 from PySide6.QtGui import QImage, QColorConstants, QColor, QVector3D
 
@@ -353,6 +354,8 @@ class PlaybackTriangulationWidget(QWidget):
         self.gap_fill_only = False  # If True, only interpolate missing frames; if False, smooth all
         self.gate_distance_sigma = 3.0  # Mahalanobis distance gating threshold in sigma (standard deviations)
         self.max_distance_threshold = 500.0  # Fixed distance gating threshold in mm (hybrid gating)
+        self.filter_start_frame: Optional[int] = None  # Optional start frame for filtering
+        self.filter_end_frame: Optional[int] = None  # Optional end frame for filtering
 
         # UI controls for filter params
         self.process_noise_spin = QDoubleSpinBox()
@@ -392,6 +395,17 @@ class PlaybackTriangulationWidget(QWidget):
         # Checkbox for gap-fill only mode
         from PySide6.QtWidgets import QCheckBox
         self.gap_fill_only_checkbox = QCheckBox("Gap-fill only (don't smooth existing)")
+
+        # Spinboxes for filter start/end frames
+        self.filter_start_spin = QSpinBox()
+        self.filter_start_spin.setRange(0, 999999)
+        self.filter_start_spin.setMaximumWidth(60)
+        self.filter_start_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+
+        self.filter_end_spin = QSpinBox()
+        self.filter_end_spin.setRange(0, 999999)
+        self.filter_end_spin.setMaximumWidth(60)
+        self.filter_end_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
         self.export_video_mode = False
         self.last_exported_video_path: Optional[Path] = None
@@ -444,6 +458,10 @@ class PlaybackTriangulationWidget(QWidget):
         filter_row.addWidget(QLabel("Max dist"))
         filter_row.addWidget(self.max_distance_spin)
         filter_row.addWidget(self.gap_fill_only_checkbox)
+        filter_row.addWidget(QLabel("Start frame"))
+        filter_row.addWidget(self.filter_start_spin)
+        filter_row.addWidget(QLabel("End frame"))
+        filter_row.addWidget(self.filter_end_spin)
         filter_row.addStretch()
         self.layout().addLayout(filter_row)
 
@@ -1101,6 +1119,14 @@ class PlaybackTriangulationWidget(QWidget):
         if checked:
             self.toggle_filtered_button.setEnabled(False)
             try:
+                # Set spinbox ranges based on actual prediction data
+                pred_df = self.motion_trial.predictions_df
+                if pred_df is not None and not pred_df.empty:
+                    min_frame = int(pred_df['sync_index'].min())
+                    max_frame = int(pred_df['sync_index'].max())
+                    self.filter_start_spin.setRange(0, max_frame)
+                    self.filter_end_spin.setRange(0, max_frame)
+                
                 # Capture UI parameter values
                 self.kalman_process_noise_scale = float(self.process_noise_spin.value())
                 self.kalman_measurement_noise_std = float(self.meas_noise_spin.value()) / 1000.0  # mm -> m
@@ -1179,7 +1205,7 @@ class PlaybackTriangulationWidget(QWidget):
         # Note: visualization refresh already happened above for both checked and unchecked cases
 
     def _compute_filtered_predictions(self) -> Optional[pd.DataFrame]:
-        """Apply a simple CV Kalman filter to point_id==0 predictions, filling gaps and smoothing.
+        """Apply a Apply an RTS (Forward-Backward) CV Kalman filter to point_id==0 predictions, filling gaps and smoothing.
         
         Other point_ids from the original predictions are preserved unchanged.
         Returns a DataFrame with the same schema as predictions:
@@ -1195,9 +1221,19 @@ class PlaybackTriangulationWidget(QWidget):
             return None
 
         fly_df = fly_df.sort_values("sync_index")
-        # Fill gaps across all frames where ground truth exists for point_id 0
-        gt_fly_frames = self.motion_trial.xyz_df[self.motion_trial.xyz_df['point_id'] == 0]['sync_index'].unique()
-        frames = sorted(gt_fly_frames)
+        # Use prediction frame range, not ground truth, to prevent filtering past the end of base predictions
+        pred_fly_frames = fly_df['sync_index'].unique()
+        frames = sorted(pred_fly_frames)
+        
+        # Apply optional start/end frame filtering only if explicitly set
+        start_frame = self.filter_start_spin.value()
+        end_frame = self.filter_end_spin.value()
+        
+        if start_frame > 0:
+            frames = [f for f in frames if f >= start_frame]
+        if end_frame > 0:
+            frames = [f for f in frames if f <= end_frame]
+        
         fps_used = self.kalman_fps_override or self.video_framerate or 60
         base_dt = 1.0 / fps_used
         model = ConstantVelocity3DModel(self.kalman_process_noise_scale)
@@ -1206,87 +1242,114 @@ class PlaybackTriangulationWidget(QWidget):
         H[0, 0] = H[1, 1] = H[2, 2] = 1.0
         R = np.eye(3) * (self.kalman_measurement_noise_std ** 2)
 
+        # INITIALIZATION: Start with high uncertainty to handle bad initial points
         first_row = fly_df.iloc[0]
         state = np.zeros(6)
         state[:3] = [first_row.x_coord, first_row.y_coord, first_row.z_coord]
-        P = np.eye(6) * 1e-3
+        P = np.eye(6) * 10.0  # Increased from 1e-3 to allow the gate to find the object
 
         measurements = {int(r.sync_index): np.array([r.x_coord, r.y_coord, r.z_coord]) for r in fly_df.itertuples()}
 
-        results = []
+        # Buffers for RTS Backward Pass
+        states_pred = []   # x_{k|k-1}
+        covs_pred = []     # P_{k|k-1}
+        states_filt = []   # x_{k|k}
+        covs_filt = []     # P_{k|k}
+        transitions = []   # A matrices (since dt varies)
+
+        # --- FORWARD PASS ---
         prev_frame = frames[0]
+        consecutive_rejections = 0
+
         for frame in frames:
             gap = max(frame - prev_frame, 1)
             dt = gap * base_dt
             mats = model.calc_for_dt(dt)
-            A = mats["transition_model"]
-            AT = mats["transition_model_transpose"]
-            Q = mats["transition_noise_covariance"]
+            A, Q = mats["transition_model"], mats["transition_noise_covariance"]
 
             # Predict
-            state = A @ state
-            P = A @ P @ AT + Q
+            state_p = A @ state
+            P_p = A @ P @ A.T + Q
 
-            # Update if measurement exists
+            # Store prediction
+            states_pred.append(state_p.copy())
+            covs_pred.append(P_p.copy())
+            transitions.append(A.copy())
+
+            updated = False
             if frame in measurements:
                 z = measurements[frame]
-                y_res = z - H @ state
-                S = H @ P @ H.T + R
+                y_res = z - H @ state_p
+                S = H @ P_p @ H.T + R
                 
-                # Hybrid gating: Mahalanobis distance + fixed distance threshold
-                # Reject outlier measurements using both gates
                 try:
                     S_inv = np.linalg.inv(S)
                     mahal_dist = np.sqrt(y_res @ S_inv @ y_res)
-                    euclidean_dist = np.linalg.norm(y_res)  # in meters
-                    euclidean_dist_mm = euclidean_dist * 1000.0  # convert to mm for comparison
+                    euclidean_dist_mm = np.linalg.norm(y_res) * 1000.0
                     
-                    mahal_gate_passes = mahal_dist <= self.gate_distance_sigma
-                    distance_gate_passes = euclidean_dist_mm <= self.max_distance_threshold
+                    mahal_pass = mahal_dist <= self.gate_distance_sigma
+                    dist_pass = euclidean_dist_mm <= self.max_distance_threshold
                     
-                    if mahal_gate_passes and distance_gate_passes:
-                        # Measurement passes both gates: apply Kalman update
-                        K = P @ H.T @ S_inv
-                        state = state + K @ y_res
-                        P = (np.eye(6) - K @ H) @ P
+                    if mahal_pass and dist_pass:
+                        K = P_p @ H.T @ S_inv
+                        state = state_p + K @ y_res
+                        P = (np.eye(6) - K @ H) @ P_p
+                        updated = True
+                        consecutive_rejections = 0
                     else:
-                        # Measurement rejected by gate(s): skip update, keep predicted state
-                        rejection_reason = []
-                        if not mahal_gate_passes:
-                            rejection_reason.append(f"Mahal {mahal_dist:.2f}σ > {self.gate_distance_sigma:.1f}σ")
-                        if not distance_gate_passes:
-                            rejection_reason.append(f"dist {euclidean_dist_mm:.1f}mm > {self.max_distance_threshold:.1f}mm")
-                        logger.debug(f"Rejected measurement at frame {frame}: {' AND '.join(rejection_reason)}")
+                        consecutive_rejections += 1
+                        # Logic: If we miss too many points, the filter is likely anchored to noise.
+                        # Reset the state to the current measurement to "rescue" the track.
+                        if consecutive_rejections > 5:
+                            state = np.zeros(6)
+                            state[:3] = z
+                            P = np.eye(6) * 10.0
+                            consecutive_rejections = 0
+                            updated = True 
                 except np.linalg.LinAlgError:
-                    # If S is singular, skip update
-                    logger.debug(f"Singular innovation covariance at frame {frame}; skipping update")
-                
-                # Append result based on mode:
-                # - gap-fill-only: use original measurement (don't smooth), just track state
-                # - full-smooth: use smoothed state (unless gated out)
-                if self.gap_fill_only:
-                    results.append((frame, 0, z[0], z[1], z[2]))  # Use original measurement
-                else:
-                    results.append((frame, 0, state[0], state[1], state[2]))  # Use smoothed state
-            else:
-                # No measurement: always use predicted state (fill gap)
-                results.append((frame, 0, state[0], state[1], state[2]))
-            
+                    pass
+
+            if not updated:
+                state, P = state_p, P_p
+
+            states_filt.append(state.copy())
+            covs_filt.append(P.copy())
             prev_frame = frame
 
-        # Create DataFrame for filtered point_id 0
+        # --- BACKWARD PASS (RTS Smoothing) ---
+        smoothed_states = [None] * len(frames)
+        smoothed_states[-1] = states_filt[-1]
+        
+        # Iterate backwards from second-to-last frame
+        for k in range(len(frames) - 2, -1, -1):
+            # We need the prediction for k+1 that was made FROM k
+            A_next = transitions[k+1]
+            x_filt_k = states_filt[k]
+            P_filt_k = covs_filt[k]
+            x_pred_next = states_pred[k+1]
+            P_pred_next = covs_pred[k+1]
+            
+            # Smoother Gain
+            C = P_filt_k @ A_next.T @ np.linalg.inv(P_pred_next)
+            
+            # Smooth the state
+            smoothed_states[k] = x_filt_k + C @ (smoothed_states[k+1] - x_pred_next)
+
+        # --- RECONSTRUCT DATAFRAME ---
+        results = []
+        for i, frame in enumerate(frames):
+            s = smoothed_states[i]
+            # If gap_fill_only is True, we only use smoothed values where measurements were missing
+            if self.gap_fill_only and frame in measurements:
+                z = measurements[frame]
+                results.append((frame, 0, z[0], z[1], z[2]))
+            else:
+                results.append((frame, 0, s[0], s[1], s[2]))
+
         filtered_fly_df = pd.DataFrame(results, columns=["sync_index", "point_id", "x_coord", "y_coord", "z_coord"])
-        
-        # Get all other point_ids from original predictions (excluding point_id 0)
         other_points_df = pred_df[pred_df["point_id"] != 0].copy()
-        
-        # Combine filtered fly data with other points
         combined_df = pd.concat([filtered_fly_df, other_points_df], ignore_index=True)
-        
-        # Sort by sync_index and point_id for consistency
-        combined_df = combined_df.sort_values(["sync_index", "point_id"]).reset_index(drop=True)
-        
-        return combined_df
+        return combined_df.sort_values(["sync_index", "point_id"]).reset_index(drop=True)
 
     def generate_3d_graph(self):
         """Generate an interactive 3D matplotlib window for trajectory visualization."""
