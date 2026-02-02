@@ -56,6 +56,8 @@ class FlyTracker(Tracker):
         ids = np.array([],dtype=int)
         img_loc = np.array([],dtype=float)
         bboxes = np.array([],dtype=float)
+
+        CONF_THRESHOLD = 0.11 #remove this for no confidence filtering
         try:
             with open(text_file, 'r') as txt:
                 lines = txt.readlines()
@@ -69,6 +71,8 @@ class FlyTracker(Tracker):
                         split_l = line.strip().split(' ')
                         class_id = int(split_l[0])
                         confidence = float(split_l[5]) if len(split_l) > 5 else 1.0 # set to 1.0 if no confidence provided
+
+                        # if confidence > CONF_THRESHOLD: not yet applied
                         if class_id not in class_detections or confidence > class_detections[class_id][0]:
                             class_detections[class_id] = (confidence, line)
                     
