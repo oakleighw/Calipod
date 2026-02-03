@@ -101,6 +101,9 @@ class BGSProcessor(QThread):
             analysis_start = int(self.start_sec * fps)
             end_frame = int(self.end_sec * fps)
             
+            logger.info(f"Frame calculations: warmup_start={warmup_start}, analysis_start={analysis_start}, end_frame={end_frame}")
+            logger.info(f"Expected total frames: {end_frame - warmup_start} (including warmup)")
+            
             # Initialize background model
             cap.set(cv2.CAP_PROP_POS_FRAMES, warmup_start)
             ret, frame = cap.read()
@@ -209,7 +212,7 @@ class BGSProcessor(QThread):
                 text_label = f"Frame: {frame_idx} ({timestamp:.1f}s) [{phase_label}]"
                 cv2.putText(display, text_label, (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, label_color, 2)
                 
-                # Write to output video
+                # Write all frames (warmup + analysis) to output video
                 out.write(display)
             
             cap.release()
@@ -217,6 +220,40 @@ class BGSProcessor(QThread):
             pbar.close()
             
             logger.info(f"Processing complete. Output saved to: {output_path}")
+            logger.info(f"Output video contains approximately {frame_idx - warmup_start} frames (from frame {warmup_start} to {frame_idx})")
+            
+            # Save metadata file
+            metadata_path = output_path.with_name(f"{output_path.stem}_metadata.txt")
+            try:
+                with open(metadata_path, 'w') as f:
+                    f.write("BGS Processing Parameters\n")
+                    f.write("=" * 50 + "\n\n")
+                    f.write(f"Video: {Path(self.video_path).name}\n")
+                    f.write(f"Output: {output_path.name}\n\n")
+                    f.write("Processing Parameters:\n")
+                    f.write(f"  Alpha (learning rate): {self.alpha}\n")
+                    f.write(f"  N-Sigma (sensitivity): {self.n_sigma}\n")
+                    f.write(f"  Bright Cutoff: {self.bright_cutoff}\n")
+                    f.write(f"  Replacement: {self.replacement}\n")
+                    f.write(f"  Opening Size: {self.opening_size if self.opening_size and self.opening_size > 0 else 'None (disabled)'}\n")
+                    f.write(f"  Warmup Duration: {self.warmup_secs} seconds\n\n")
+                    f.write("Timing:\n")
+                    f.write(f"  Start (analysis): {self.start_sec} seconds (frame {analysis_start})\n")
+                    f.write(f"  End (analysis): {self.end_sec} seconds (frame {end_frame})\n")
+                    f.write(f"  Warmup Start: {self.start_sec - self.warmup_secs} seconds (frame {warmup_start})\n\n")
+                    f.write("Output:\n")
+                    f.write(f"  Video FPS: {fps}\n")
+                    f.write(f"  Total Frames Written: {frame_idx - warmup_start}\n")
+                    f.write(f"  Output Resolution: {out_w}x{out_h}\n")
+                    if self.bounding_box != (0, 0, frame_w, frame_h):
+                        f.write(f"  Bounding Box (Region): ({self.bounding_box[0]}, {self.bounding_box[1]}, {self.bounding_box[2]}, {self.bounding_box[3]})\n")
+                    f.write("\n")
+                    from datetime import datetime
+                    f.write(f"Processing Date/Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                logger.info(f"Metadata saved to: {metadata_path}")
+            except Exception as e:
+                logger.warning(f"Could not save metadata file: {e}")
+            
             self.processing_complete.emit(str(output_path))
             
         except Exception as e:
@@ -341,7 +378,7 @@ def process_bgs_silent(video_path: str, output_dir: str, alpha: float, n_sigma: 
         text_label = f"Frame: {frame_idx} ({timestamp:.1f}s) [{phase_label}]"
         cv2.putText(display, text_label, (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, label_color, 2)
         
-        # Write to output video
+        # Write all frames (warmup + analysis) to output video
         out.write(display)
     
     cap.release()

@@ -86,6 +86,9 @@ class BGSProcessingWidget(QWidget):
         self.frame_info_label.setText("No video loaded")
         self.frame_info_label.setVisible(False)
         
+        # Store FPS for display
+        self.current_fps = None
+        
         # Create play/pause button
         self.play_btn = QPushButton("Play")
         self.play_btn.setMaximumWidth(80)
@@ -517,21 +520,19 @@ class BGSProcessingWidget(QWidget):
             fps = cap.get(cv2.CAP_PROP_FPS)
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
+            self.current_fps = fps
             logger.info(f"Video properties: {total_frames} frames, {fps} fps")
             
-            # Load all frames (or sample for very long videos)
+            # Load all frames (no sampling)
             self.video_frames = []
             frame_count = 0
-            sample_rate = max(1, total_frames // 100)  # Load at most 100 frames
             
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
                 
-                if frame_count % sample_rate == 0:
-                    self.video_frames.append(frame)
-                
+                self.video_frames.append(frame)
                 frame_count += 1
             
             cap.release()
@@ -587,7 +588,10 @@ class BGSProcessingWidget(QWidget):
         self.frame_slider.blockSignals(True)
         self.frame_slider.setValue(frame_idx)
         self.frame_slider.blockSignals(False)
-        self.frame_info_label.setText(f"Frame {frame_idx + 1} / {len(self.video_frames)}")
+        
+        # Display frame info with FPS
+        fps_str = f" @ {self.current_fps:.1f} fps" if self.current_fps else ""
+        self.frame_info_label.setText(f"Frame {frame_idx + 1} / {len(self.video_frames)}{fps_str}")
 
     def on_frame_slider_moved(self, value: int):
         """Handle frame slider movement"""

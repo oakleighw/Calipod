@@ -408,6 +408,9 @@ class PlaybackTriangulationWidget(QWidget):
         self.filter_end_spin.setMaximumWidth(60)
         self.filter_end_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
+        # Label to display detected video FPS
+        self.video_fps_label = QLabel("Video FPS: --")
+
         self.export_video_mode = False
         self.last_exported_video_path: Optional[Path] = None
         self.interactive_graph_window: Optional[Interactive3DGraphWindow] = None
@@ -447,6 +450,7 @@ class PlaybackTriangulationWidget(QWidget):
 
         filter_row = QHBoxLayout()
         filter_row.addWidget(self.toggle_filtered_button)
+        filter_row.addWidget(self.video_fps_label)
         filter_row.addWidget(QLabel("Proc noise"))
         filter_row.addWidget(self.process_noise_spin)
         filter_row.addWidget(QLabel("Meas noise"))
@@ -1044,6 +1048,9 @@ class PlaybackTriangulationWidget(QWidget):
                         logger.info(f"Project config.toml not found at {project_config_path}. Using default video framerate: {self.video_framerate}")
                 except Exception as e:
                     logger.error(f"Error reading project config.toml for framerate: {e}. Using default video framerate: {self.video_framerate}")
+            
+            # Update the FPS label display
+            self.video_fps_label.setText(f"Video FPS: {self.video_framerate:.1f}")
         else:
             logger.warning("Motion trial path not available, cannot load project-specific config.toml for framerate. Using default.")
 
