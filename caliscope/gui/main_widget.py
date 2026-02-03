@@ -24,6 +24,7 @@ from caliscope.controller import Controller
 from caliscope.gui.camera_management.multiplayback_widget import (
     MultiIntrinsicPlaybackWidget,
 )
+from caliscope.gui.bgs_processing_widget import BGSProcessingWidget
 from caliscope.gui.charuco_widget import CharucoWidget
 from caliscope.gui.log_widget import LogWidget
 from caliscope.gui.post_processing_widget import PostProcessingWidget
@@ -142,6 +143,18 @@ class MainWindow(QMainWindow):
             post_processing_enabled = False
         self.central_tab.addTab(self.post_processing_widget, "Post Processing")
         self.central_tab.setTabEnabled(self.find_tab_index_by_title("Post Processing"), post_processing_enabled)
+
+        logger.info("About to load BGS processing tab")
+        if self.controller.capture_volume_loaded and self.controller.recordings_available():
+            logger.info("Creating BGS processing widget")
+            self.bgs_processing_widget = BGSProcessingWidget(self.controller)
+            bgs_processing_enabled = True
+        else:
+            logger.info("Creating dummy widget")
+            self.bgs_processing_widget = QWidget()
+            bgs_processing_enabled = False
+        self.central_tab.addTab(self.bgs_processing_widget, "BGS Processing")
+        self.central_tab.setTabEnabled(self.find_tab_index_by_title("BGS Processing"), bgs_processing_enabled)
 
     def build_docked_logger(self):
         # create log window which is fixed below main window
