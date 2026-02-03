@@ -1177,7 +1177,16 @@ class PlaybackTriangulationWidget(QWidget):
                 logger.info(msg)
                 print(msg)  # Ensure it shows in console
                 
-                filtered_df = self._compute_filtered_predictions()
+                # Check if hybrid YOLO+BGS mode is enabled
+                use_hybrid = False
+                if hasattr(self, 'use_hybrid_bgs') and self.use_hybrid_bgs:
+                    use_hybrid = self.use_hybrid_bgs.isChecked()
+                    if use_hybrid:
+                        msg = "Using hybrid YOLO+BGS measurement selection during Kalman filtering"
+                        logger.info(msg)
+                        print(msg)
+                
+                filtered_df = self._compute_filtered_predictions(use_hybrid=use_hybrid)
                 
                 if filtered_df is None or filtered_df.empty:
                     err_msg = "Kalman filter computation failed: empty result"
@@ -1242,8 +1251,11 @@ class PlaybackTriangulationWidget(QWidget):
 
         # Note: visualization refresh already happened above for both checked and unchecked cases
 
-    def _compute_filtered_predictions(self) -> Optional[pd.DataFrame]:
+    def _compute_filtered_predictions(self, use_hybrid: bool = False) -> Optional[pd.DataFrame]:
         """Apply a Apply an RTS (Forward-Backward) CV Kalman filter to point_id==0 predictions, filling gaps and smoothing.
+        
+        If use_hybrid=True and BGS predictions available, select best measurement (YOLO or BGS) 
+        at each frame based on which is closest to the Kalman predicted position.
         
         Other point_ids from the original predictions are preserved unchanged.
         Returns a DataFrame with the same schema as predictions:
@@ -1287,6 +1299,28 @@ class PlaybackTriangulationWidget(QWidget):
         P = np.eye(6) * 10.0  # Increased from 1e-3 to allow the gate to find the object
 
         measurements = {int(r.sync_index): np.array([r.x_coord, r.y_coord, r.z_coord]) for r in fly_df.itertuples()}
+        
+        # If hybrid mode enabled, try to load BGS predictions for backup measurements
+        bgs_measurements = {}
+        if use_hybrid:
+            try:
+                # xyz_history_path is like: /path/to/recording/FLY/xyz_FLY_predictions.csv
+                # So parent is: /path/to/recording/FLY
+                # We want: /path/to/recording/FLY/bgs/xyz_FLY_bgs_predictions.csv
+                if hasattr(self, 'xyz_history_path') and self.xyz_history_path:
+                    bgs_path = self.xyz_history_path.parent / "bgs" / "xyz_FLY_bgs_predictions.csv"
+                    if bgs_path.exists():
+                        bgs_df = pd.read_csv(bgs_path, engine="pyarrow")
+                        bgs_fly = bgs_df[bgs_df["point_id"] == 0]
+                        bgs_measurements = {int(r.sync_index): np.array([r.x_coord, r.y_coord, r.z_coord]) 
+                                          for r in bgs_fly.itertuples() if pd.notna(r.x_coord) and pd.notna(r.y_coord) and pd.notna(r.z_coord)}
+                        logger.info(f"Loaded {len(bgs_measurements)} BGS measurements for hybrid selection")
+                    else:
+                        logger.info(f"BGS predictions file not found at: {bgs_path}")
+                else:
+                    logger.info("xyz_history_path not available; cannot load BGS predictions for hybrid mode")
+            except Exception as e:
+                logger.warning(f"Could not load BGS predictions for hybrid mode: {e}")
 
         # Buffers for RTS Backward Pass
         states_pred = []   # x_{k|k-1}
@@ -1315,8 +1349,45 @@ class PlaybackTriangulationWidget(QWidget):
             transitions.append(A.copy())
 
             updated = False
-            if frame in measurements:
-                z = measurements[frame]
+            
+            # Hybrid measurement selection: pick best available measurement (YOLO or BGS) based on distance to prediction
+            z = None
+            z_source = None
+            
+            if use_hybrid:
+                # Collect available measurements for this frame
+                available = []
+                if frame in measurements and pd.notna(measurements[frame][0]):
+                    available.append(('YOLO', measurements[frame]))
+                if frame in bgs_measurements and pd.notna(bgs_measurements[frame][0]):
+                    available.append(('BGS', bgs_measurements[frame]))
+                
+                # If both available, pick the one closest to Kalman prediction
+                if available:
+                    if len(available) == 2:
+                        # Both YOLO and BGS available - pick closest to prediction
+                        yolo_z = available[0][1]
+                        bgs_z = available[1][1]
+                        yolo_dist = np.linalg.norm(yolo_z - H @ state_p)
+                        bgs_dist = np.linalg.norm(bgs_z - H @ state_p)
+                        
+                        if bgs_dist < yolo_dist:
+                            z = bgs_z
+                            z_source = 'BGS'
+                        else:
+                            z = yolo_z
+                            z_source = 'YOLO'
+                    else:
+                        # Only one available
+                        z_source = available[0][0]
+                        z = available[0][1]
+            else:
+                # Normal mode: use YOLO only
+                if frame in measurements:
+                    z = measurements[frame]
+                    z_source = 'YOLO'
+            
+            if z is not None:
                 y_res = z - H @ state_p
                 S = H @ P_p @ H.T + R
                 

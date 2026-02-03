@@ -42,6 +42,7 @@ class BGSProcessingWidget(QWidget):
         self.controller = controller
         self.config = self.controller.config
         self.bgs_processor = None
+        self.supplement_worker = None  # For background triangulation
 
         # Create tree widget for recording and video selection
         self.recording_tree = QTreeWidget()
@@ -55,6 +56,11 @@ class BGSProcessingWidget(QWidget):
         # Create process button
         self.process_btn = QPushButton("&Process")
         self.process_btn.setMaximumHeight(35)
+        
+        # Create supplement button
+        self.supplement_btn = QPushButton("Triangulate BGS Points")
+        self.supplement_btn.setMaximumHeight(35)
+        self.supplement_btn.setEnabled(False)  # Enable only after processing
         
         # Create output display title
         self.output_title = QLabel()
@@ -111,6 +117,7 @@ class BGSProcessingWidget(QWidget):
         left_vbox.addWidget(QLabel("Processing Parameters:"))
         left_vbox.addLayout(self.param_layout)
         left_vbox.addWidget(self.process_btn)
+        left_vbox.addWidget(self.supplement_btn)
         left_vbox.addStretch()
         
         right_vbox = QVBoxLayout()
@@ -260,6 +267,7 @@ class BGSProcessingWidget(QWidget):
         """Connect widget signals to slots"""
         self.recording_tree.itemSelectionChanged.connect(self.on_video_selected)
         self.process_btn.clicked.connect(self.process_selected_video)
+        self.supplement_btn.clicked.connect(self.supplement_yolo_for_roi)
 
     def on_video_selected(self):
         """Handle video selection - load existing processed video if available"""
@@ -286,18 +294,33 @@ class BGSProcessingWidget(QWidget):
             self.play_btn.setVisible(False)
             self.frame_info_label.setVisible(False)
             self.video_display_label.setText("Select a video to process")
+            self.supplement_btn.setEnabled(False)
             return
         
-        # Check for processed video in FLY directory
+        # Check for processed video in FLY/bgs directory
         recording_path = Path(video_path).parent
         video_stem = Path(video_path).stem
-        processed_video_path = recording_path / "FLY" / f"{video_stem}_bgs.mp4"
+        processed_video_path = recording_path / "FLY" / "bgs" / f"{video_stem}_bgs.mp4"
         
         logger.info(f"Checking for processed video: {processed_video_path}")
+        
+        # Also check if BGS labels exist (for triangulation)
+        bgs_labels_exist = False
+        bgs_dir = recording_path / "FLY" / "bgs"
+        if bgs_dir.exists():
+            # Check if any port has labels
+            for port_dir in bgs_dir.glob("port_*"):
+                labels_dir = port_dir / "labels" / "train"
+                if labels_dir.exists() and list(labels_dir.glob("frame_*.txt")):
+                    bgs_labels_exist = True
+                    logger.info(f"Found BGS labels in {port_dir.name}")
+                    break
         
         if processed_video_path.exists():
             logger.info(f"Found existing processed video, loading: {processed_video_path}")
             self.load_video_for_display(str(processed_video_path))
+            # Enable supplement button if labels exist
+            self.supplement_btn.setEnabled(bgs_labels_exist)
         else:
             logger.info(f"No processed video found. Please process this video first.")
             self.video_frames = []
@@ -305,6 +328,7 @@ class BGSProcessingWidget(QWidget):
             self.play_btn.setVisible(False)
             self.frame_info_label.setVisible(False)
             self.video_display_label.setText("No processed video found.\nSelect 'Process' to generate BGS output.")
+            self.supplement_btn.setEnabled(False)
 
     def find_bounding_box_from_annotations(self, video_path: str, region: str):
         """
@@ -651,6 +675,7 @@ class BGSProcessingWidget(QWidget):
         logger.info(f"BGS processing complete! Output saved to: {output_path}")
         QMessageBox.information(self, "Success", f"Processing complete!\n\nOutput saved to:\n{output_path}")
         self.process_btn.setEnabled(True)
+        self.supplement_btn.setEnabled(True)  # Enable triangulation button after processing
         
         # Load and display the output video
         self.load_video_for_display(output_path)
@@ -660,6 +685,99 @@ class BGSProcessingWidget(QWidget):
         logger.error(f"BGS processing error: {error_msg}")
         QMessageBox.critical(self, "Processing Error", f"An error occurred during processing:\n{error_msg}")
         self.process_btn.setEnabled(True)
+
+    def supplement_yolo_for_roi(self):
+        """Triangulate BGS detections to 3D and save for hybrid filtering (runs in background thread)"""
+        try:
+            video_path = self.get_selected_video()
+            if not video_path:
+                QMessageBox.warning(self, "Warning", "Please select a video first")
+                return
+            
+            # Get selected region and bounding box
+            region = self.region_combo.currentData()
+            bbox = None
+            if region != "full":
+                bbox = self.find_bounding_box_from_annotations(video_path, region)
+                if bbox is None:
+                    QMessageBox.warning(
+                        self,
+                        "Bounding Box Not Found",
+                        f"No {region.upper()} bounding box annotations found for triangulation."
+                    )
+                    return
+            
+            # Get recording path and configuration
+            recording_path = Path(video_path).parent
+            # config.toml is in the workspace directory
+            config_path = Path(self.controller.workspace_guide.workspace_dir) / "config.toml"
+            
+            # Path to YOLO predictions (should exist in FLY directory)
+            yolo_xyz_path = recording_path / "FLY" / "xyz_FLY_predictions.csv"
+            
+            if not yolo_xyz_path.exists():
+                QMessageBox.warning(
+                    self,
+                    "Warning",
+                    f"YOLO predictions file not found at:\n{yolo_xyz_path}\n\n"
+                    "Please ensure post-processing has been completed to generate predictions."
+                )
+                return
+            
+            logger.info("Starting BGS triangulation in background thread...")
+            logger.info(f"Recording: {recording_path}")
+            logger.info(f"Region: {region}, Bbox: {bbox}")
+            
+            # Import worker
+            from caliscope.background_subtraction.bgs_supplement_worker import BGSSupplementationWorker
+            
+            # Create and start worker thread
+            self.supplement_worker = BGSSupplementationWorker(
+                recording_path=recording_path,
+                config_path=config_path,
+                yolo_xyz_path=yolo_xyz_path,
+                bbox=bbox,
+                region=region
+            )
+            
+            # Connect signals
+            self.supplement_worker.progress_updated.connect(self.on_supplement_progress)
+            self.supplement_worker.supplementation_complete.connect(self.on_supplement_complete)
+            self.supplement_worker.supplementation_error.connect(self.on_supplement_error)
+            
+            # Disable button and start
+            self.supplement_btn.setEnabled(False)
+            self.supplement_btn.setText("Triangulating...")
+            self.supplement_worker.start()
+            
+        except Exception as e:
+            logger.error(f"Error starting triangulation: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error starting triangulation:\n{str(e)}")
+            self.supplement_btn.setEnabled(True)
+            self.supplement_btn.setText("Triangulate BGS Points")
+    
+    def on_supplement_progress(self, message: str):
+        """Handle triangulation progress updates"""
+        logger.info(f"[Triangulation] {message}")
+    
+    def on_supplement_complete(self, output_path: str):
+        """Handle successful triangulation completion"""
+        logger.info(f"[SUCCESS] Triangulation complete! Output: {output_path}")
+        QMessageBox.information(
+            self,
+            "Success",
+            f"YOLO predictions successfully supplemented with BGS detections!\n\n"
+            f"Saved to:\n{output_path}"
+        )
+        self.supplement_btn.setEnabled(True)
+        self.supplement_btn.setText("Triangulate BGS Points")
+    
+    def on_supplement_error(self, error_msg: str):
+        """Handle triangulation errors"""
+        logger.error(f"[ERROR] Triangulation error: {error_msg}")
+        QMessageBox.critical(self, "Triangulation Error", f"An error occurred during triangulation:\n{error_msg}")
+        self.supplement_btn.setEnabled(True)
+        self.supplement_btn.setText("Triangulate BGS Points")
 
     def populate_recording_tree(self):
         """Populate tree with recordings and their associated camera video files"""

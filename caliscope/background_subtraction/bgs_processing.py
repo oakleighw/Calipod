@@ -138,14 +138,22 @@ class BGSProcessor(QThread):
     def _save_detections_yolo(self, detections: list, frame_w: int, frame_h: int):
         """
         Save detected centroids in YOLO format with true frame numbers.
+        Organizes labels in port-specific directories to avoid conflicts.
         
         Parameters:
             detections: List of (frame_idx, x_pixel, y_pixel) tuples in full frame coordinates
             frame_w, frame_h: Original video dimensions for normalization
         """
         try:
-            # Create output directory structure
-            labels_dir = self.output_dir / "labels" / "train"
+            # Extract port number from video filename (e.g., "port_1.mp4" -> "1")
+            import re
+            video_name = Path(self.video_path).stem
+            match = re.search(r"port_(\d+)", video_name)
+            port_num = match.group(1) if match else "0"
+            
+            # Create port-specific output directory structure
+            # FLY/bgs/port_X/labels/train/
+            labels_dir = self.output_dir / f"port_{port_num}" / "labels" / "train"
             labels_dir.mkdir(parents=True, exist_ok=True)
             
             for frame_idx, det_x, det_y in detections:

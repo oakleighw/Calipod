@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QCheckBox,
 )
 
 import caliscope.logger
@@ -40,6 +41,20 @@ class PostProcessingWidget(QWidget):
         self.update_recording_folders()
 
         self.vis_widget = PlaybackTriangulationWidget(self.controller.camera_array, config=self.config)
+        
+        # Hybrid YOLO+BGS filtering checkbox
+        # When enabled, Kalman filtering will select the best measurement (YOLO or BGS) at each frame
+        # based on which is closest to the Kalman-predicted position. This helps:
+        # - Fill gaps where YOLO has no detection but BGS does
+        # - Replace bad YOLO detections with better BGS detections in ROI regions
+        # - Prevent outliers at ends of track from affecting smoothing via RTS
+        self.use_bgs_supplement_checkbox = QCheckBox("Use Hybrid YOLO+BGS Filtering")
+        self.use_bgs_supplement_checkbox.setEnabled(False)
+        self.use_bgs_supplement_checkbox.setChecked(False)
+        self.use_bgs_supplement_checkbox.setToolTip(
+            "When enabled with Kalman filtering active, selects the best measurement (YOLO or BGS) "
+            "at each frame based on distance to Kalman prediction. BGS triangulations must be pre-computed."
+        )
 
         self.tracker_combo = QComboBox()
         self.vizualizer_title = QLabel()
@@ -52,6 +67,10 @@ class PostProcessingWidget(QWidget):
         self.open_folder_btn = QPushButton("&Open Folder")
         self.process_current_btn = QPushButton("&Process")
         self.generate_metarig_config_btn = QPushButton("Generate Metarig Config")
+        
+        # Pass reference to hybrid mode checkbox to visualizer
+        self.vis_widget.use_hybrid_bgs = self.use_bgs_supplement_checkbox
+        
         self.refresh_visualizer()  # must happen before placement to create vis_widget and vizualizer_title
         self.place_widgets()
         self.connect_widgets()
@@ -98,6 +117,20 @@ class PostProcessingWidget(QWidget):
 
     @property
     def xyz_processed_path(self):
+        # Check if BGS supplementation is enabled and available
+        if self.use_bgs_supplement_checkbox.isChecked():
+            bgs_supplement_path = Path(
+                self.processed_subfolder.parent,  # Go up to FLY folder
+                "bgs",
+                f"xyz_FLY_bgs_predictions.csv"
+            )
+            if bgs_supplement_path.exists():
+                logger.info(f"Using BGS supplemented predictions: {bgs_supplement_path}")
+                return bgs_supplement_path
+            else:
+                logger.warning(f"BGS supplemented predictions not found, using original YOLO: {bgs_supplement_path}")
+        
+        # Use original predictions
         file_name = f"xyz_{self.tracker_combo.currentData().name}.csv"
         result = Path(self.processed_subfolder, file_name)
         return result
@@ -165,6 +198,8 @@ class PostProcessingWidget(QWidget):
         self.button_hbox.addWidget(self.process_current_btn)
         self.button_hbox.addWidget(self.generate_metarig_config_btn)
         self.left_vbox.addLayout(self.button_hbox)
+        self.left_vbox.addWidget(QLabel("Filtering Options:"))
+        self.left_vbox.addWidget(self.use_bgs_supplement_checkbox)
 
         self.layout().addLayout(self.right_vbox, stretch=2)
         self.right_vbox.addWidget(self.vizualizer_title)
@@ -174,12 +209,36 @@ class PostProcessingWidget(QWidget):
         self.recording_folders.currentItemChanged.connect(self.refresh_visualizer)
         self.tracker_combo.currentIndexChanged.connect(self.refresh_visualizer)
         self.vis_widget.slider.valueChanged.connect(self.store_sync_index_cursor)
+        self.use_bgs_supplement_checkbox.stateChanged.connect(self.on_bgs_supplement_toggled)
         self.process_current_btn.clicked.connect(self.process_current)
         self.open_folder_btn.clicked.connect(self.open_folder)
         self.generate_metarig_config_btn.clicked.connect(self.create_metarig_config)
 
         self.controller.post_processing_complete.connect(self.enable_all_inputs)
         self.controller.post_processing_complete.connect(self.refresh_visualizer)
+    
+    def on_bgs_supplement_toggled(self):
+        """Handle hybrid YOLO+BGS filtering toggle"""
+        # Store current filtering state before switching
+        was_filtering_enabled = False
+        if hasattr(self.vis_widget, 'toggle_filtered_button'):
+            was_filtering_enabled = self.vis_widget.toggle_filtered_button.isChecked()
+        
+        if self.use_bgs_supplement_checkbox.isChecked():
+            logger.info("Enabled hybrid YOLO+BGS measurement selection during Kalman filtering")
+        else:
+            logger.info("Disabled hybrid mode - using YOLO predictions only")
+        
+        # Reload the motion trial with the current prediction source
+        self.set_current_xyz()
+        
+        # If filtering was enabled, reapply it to use the new hybrid setting
+        if was_filtering_enabled and hasattr(self.vis_widget, 'toggle_filtered_button'):
+            logger.info("Reapplying Kalman filtering with updated measurement selection...")
+            # Reset the button state first to avoid double-toggle
+            self.vis_widget.toggle_filtered_button.setChecked(False)
+            # Now enable filtering again which will apply it with the new hybrid setting
+            self.vis_widget.toggle_filtered_button.setChecked(True)
 
     def store_sync_index_cursor(self, cursor_value):
         if self.xyz_processed_path.exists():
@@ -227,6 +286,21 @@ class PostProcessingWidget(QWidget):
             presented_camera_array = self.controller.camera_array
 
         self.vis_widget.update_camera_array(presented_camera_array)
+
+        # Check if BGS supplemented predictions exist and enable checkbox if so
+        bgs_supplement_path = Path(
+            self.active_recording_path,
+            "FLY",
+            "bgs",
+            "xyz_FLY_bgs_predictions.csv"
+        )
+        if bgs_supplement_path.exists():
+            self.use_bgs_supplement_checkbox.setEnabled(True)
+            logger.info(f"BGS supplemented predictions available at {bgs_supplement_path}")
+        else:
+            self.use_bgs_supplement_checkbox.setEnabled(False)
+            self.use_bgs_supplement_checkbox.setChecked(False)
+            logger.info("No BGS supplemented predictions available for this recording")
 
         self.set_current_xyz()
         self.vizualizer_title.setText(self.viz_title_html)
