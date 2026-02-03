@@ -320,10 +320,11 @@ class Interactive3DGraphWindow(QWidget):
 
 
 class PlaybackTriangulationWidget(QWidget):
-    def __init__(self, camera_array: CameraArray, xyz_history_path: Path = None):
+    def __init__(self, camera_array: CameraArray, xyz_history_path: Path = None, config=None):
         super(PlaybackTriangulationWidget, self).__init__()
 
         self.camera_array = camera_array
+        self.config = config
         self.visualizer = TriangulationVisualizer(self.camera_array)
         self.slider = QSlider(Qt.Orientation.Horizontal)
 
@@ -344,8 +345,8 @@ class PlaybackTriangulationWidget(QWidget):
         self.toggle_filtered_button = QPushButton("Use Filtered Track")
         self.toggle_filtered_button.setCheckable(True)
 
-        # Defaults for video and filtering
-        self.video_framerate = 60
+        # Defaults for video and filtering - will be set from video when loaded
+        self.video_framerate = 100  # Initial default, updated when video is loaded
         # Tracking/filter params
         self.filtered_predictions_path: Optional[Path] = None
         self.kalman_process_noise_scale = 0.05
@@ -1004,15 +1005,45 @@ class PlaybackTriangulationWidget(QWidget):
 
         if self.xyz_history_path: 
             project_config_path = self.xyz_history_path.parent / "config.toml"
-            try:
-                if project_config_path.exists():
-                    project_config_data = rtoml.load(project_config_path)
-                    self.video_framerate = project_config_data.get("fps_sync_stream_processing", 60) 
-                    logger.info(f"Video export framerate set from project config ({project_config_path}) to: {self.video_framerate}")
-                else:
-                    logger.info(f"Project config.toml not found at {project_config_path}. Using default video framerate: {self.video_framerate}")
-            except Exception as e:
-                logger.error(f"Error reading project config.toml for framerate: {e}. Using default video framerate: {self.video_framerate}")
+            fps_detected = None
+            
+            # Try to detect FPS from actual video files in the recording directory
+            recording_dir = self.xyz_history_path.parent
+            video_files = list(recording_dir.glob("port_*.mp4"))
+            
+            if video_files:
+                try:
+                    cap = cv2.VideoCapture(str(video_files[0]))
+                    fps_detected = cap.get(cv2.CAP_PROP_FPS)
+                    cap.release()
+                    
+                    if fps_detected > 0:
+                        self.video_framerate = fps_detected
+                        # Save the detected FPS to config
+                        try:
+                            if project_config_path.exists():
+                                project_config_data = rtoml.load(project_config_path)
+                                project_config_data['fps_recording'] = int(fps_detected)
+                                rtoml.dump(project_config_data, project_config_path)
+                                logger.info(f"Saved detected video FPS ({fps_detected}) to config.toml")
+                        except Exception as e:
+                            logger.warning(f"Could not save FPS to config: {e}")
+                        logger.info(f"Video framerate detected from video file: {self.video_framerate}")
+                except Exception as e:
+                    logger.warning(f"Could not detect FPS from video file: {e}")
+            
+            # If no video FPS detected, try to read from config
+            if not fps_detected:
+                try:
+                    if project_config_path.exists():
+                        project_config_data = rtoml.load(project_config_path)
+                        # Try fps_recording first, then fall back to fps_sync_stream_processing
+                        self.video_framerate = project_config_data.get("fps_recording") or project_config_data.get("fps_sync_stream_processing", 60)
+                        logger.info(f"Video export framerate set from project config ({project_config_path}) to: {self.video_framerate}")
+                    else:
+                        logger.info(f"Project config.toml not found at {project_config_path}. Using default video framerate: {self.video_framerate}")
+                except Exception as e:
+                    logger.error(f"Error reading project config.toml for framerate: {e}. Using default video framerate: {self.video_framerate}")
         else:
             logger.warning("Motion trial path not available, cannot load project-specific config.toml for framerate. Using default.")
 

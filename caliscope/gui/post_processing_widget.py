@@ -39,7 +39,7 @@ class PostProcessingWidget(QWidget):
         self.recording_folders = QListWidget()
         self.update_recording_folders()
 
-        self.vis_widget = PlaybackTriangulationWidget(self.controller.camera_array)
+        self.vis_widget = PlaybackTriangulationWidget(self.controller.camera_array, config=self.config)
 
         self.tracker_combo = QComboBox()
         self.vizualizer_title = QLabel()
