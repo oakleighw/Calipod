@@ -4,6 +4,7 @@ import re
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -28,22 +29,72 @@ class BGSProcessingWidget(QWidget):
         self.recording_tree.setColumnCount(1)
         self.populate_recording_tree()
 
+        # Create process button
+        self.process_btn = QPushButton("&Process")
+        
+        # Create output display title
+        self.output_title = QLabel()
+        self.update_output_title()
+        
+        # Create output display area (placeholder for signal output)
+        self.output_display = QWidget()
+        self.output_display_layout = QVBoxLayout(self.output_display)
+        self.output_display_layout.addWidget(QLabel("BGS signal output will appear here after processing"))
+        self.output_display.setLayout(self.output_display_layout)
+
         # Set up the layout with tree on left and content on right
         main_layout = QHBoxLayout(self)
         
         left_vbox = QVBoxLayout()
         left_vbox.addWidget(QLabel("Select Recording & Video:"))
         left_vbox.addWidget(self.recording_tree)
-        left_vbox.addStretch()
+        left_vbox.addWidget(self.process_btn)
         
         right_vbox = QVBoxLayout()
-        right_vbox.addWidget(QLabel("Background Subtraction Processing"))
-        right_vbox.addStretch()
+        right_vbox.addWidget(self.output_title)
+        right_vbox.addWidget(self.output_display, stretch=1)
         
         main_layout.addLayout(left_vbox, stretch=1)
         main_layout.addLayout(right_vbox, stretch=2)
         
         self.setLayout(main_layout)
+        
+        # Connect signals
+        self.connect_widgets()
+
+    def connect_widgets(self):
+        """Connect widget signals to slots"""
+        self.recording_tree.itemSelectionChanged.connect(self.update_output_title)
+        self.process_btn.clicked.connect(self.process_selected_video)
+
+    def get_selected_video(self):
+        """Get the currently selected video file path"""
+        selected_items = self.recording_tree.selectedItems()
+        if selected_items:
+            item = selected_items[0]
+            video_path = item.data(0, 32)  # Get stored path
+            if video_path:
+                return video_path
+        return None
+
+    def update_output_title(self):
+        """Update the title based on selected video"""
+        video_path = self.get_selected_video()
+        if video_path:
+            title = f"<div align='center'><b>Processing: {Path(video_path).name}</b></div>"
+        else:
+            title = "<div align='center'><b>Select a video to process</b></div>"
+        self.output_title.setText(title)
+
+    def process_selected_video(self):
+        """Process the currently selected video"""
+        video_path = self.get_selected_video()
+        if video_path:
+            logger.info(f"Beginning BGS processing for {video_path}")
+            # TODO: Implement BGS processing logic here
+            # This would involve calling a processing method and updating the output display
+        else:
+            logger.warning("No video selected for processing")
 
     def populate_recording_tree(self):
         """Populate tree with recordings and their associated camera video files"""
