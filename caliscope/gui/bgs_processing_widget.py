@@ -247,6 +247,13 @@ class BGSProcessingWidget(QWidget):
         gt_layout.addWidget(self.show_gt_checkbox)
         layout.addLayout(gt_layout)
         
+        # Save detections as YOLO format checkbox
+        save_layout = QHBoxLayout()
+        self.save_detections_checkbox = QCheckBox("Save Detections (YOLO format)")
+        self.save_detections_checkbox.setChecked(False)
+        save_layout.addWidget(self.save_detections_checkbox)
+        layout.addLayout(save_layout)
+        
         return layout
 
     def connect_widgets(self):
@@ -424,9 +431,9 @@ class BGSProcessingWidget(QWidget):
         self.process_btn.setEnabled(False)
         
         try:
-            # Determine output directory (FLY folder in recording)
+            # Determine output directory (FLY/bgs folder in recording)
             recording_path = Path(video_path).parent
-            fly_dir = recording_path / "FLY"
+            fly_dir = recording_path / "FLY" / "bgs"
             fly_dir.mkdir(parents=True, exist_ok=True)
             
             logger.info(f"Beginning BGS processing for {video_path}")
@@ -497,7 +504,8 @@ class BGSProcessingWidget(QWidget):
                 warmup_secs=warmup_secs,
                 bounding_box=bbox,
                 show_ground_truth=self.show_gt_checkbox.isChecked(),
-                annotations_dir=self.controller.workspace_guide.annotations_dir
+                annotations_dir=self.controller.workspace_guide.annotations_dir,
+                save_detections=self.save_detections_checkbox.isChecked()
             )
             
             # Connect signals

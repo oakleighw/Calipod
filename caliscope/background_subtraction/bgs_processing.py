@@ -30,7 +30,7 @@ class BGSProcessor(QThread):
     def __init__(self, video_path: str, output_dir: str, alpha: float, n_sigma: float,
                  bright_cutoff: int, replacement: int, start_sec: float, end_sec: float,
                  opening_size: int = 0, warmup_secs: float = 5, bounding_box: tuple = None,
-                 show_ground_truth: bool = False, annotations_dir: Path = None):
+                 show_ground_truth: bool = False, annotations_dir: Path = None, save_detections: bool = False):
         """
         Initialize the BGS processor.
         
@@ -48,11 +48,13 @@ class BGSProcessor(QThread):
             bounding_box: Tuple of (x1, y1, x2, y2) in pixel coordinates, or None for full frame
             show_ground_truth: Whether to overlay ground truth annotations
             annotations_dir: Directory containing YOLO annotation files
+            save_detections: Whether to save detected centroids in YOLO format
         """
         super().__init__()
         self.video_path = video_path
         self.show_ground_truth = show_ground_truth
         self.annotations_dir = annotations_dir
+        self.save_detections = save_detections
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -133,6 +135,41 @@ class BGSProcessor(QThread):
         
         return None
     
+    def _save_detections_yolo(self, detections: list, frame_w: int, frame_h: int):
+        """
+        Save detected centroids in YOLO format with true frame numbers.
+        
+        Parameters:
+            detections: List of (frame_idx, x_pixel, y_pixel) tuples in full frame coordinates
+            frame_w, frame_h: Original video dimensions for normalization
+        """
+        try:
+            # Create output directory structure
+            labels_dir = self.output_dir / "labels" / "train"
+            labels_dir.mkdir(parents=True, exist_ok=True)
+            
+            for frame_idx, det_x, det_y in detections:
+                # Normalize coordinates to 0-1 range
+                norm_x = det_x / frame_w
+                norm_y = det_y / frame_h
+                
+                # Clamp to valid range (in case of edge cases)
+                norm_x = max(0.0, min(1.0, norm_x))
+                norm_y = max(0.0, min(1.0, norm_y))
+                
+                # YOLO format: class_id center_x center_y width height
+                # For point detections, use fixed small width/height
+                label_file = labels_dir / f"frame_{frame_idx:06d}.txt"
+                
+                with open(label_file, 'w') as f:
+                    # class_id=0 for BGS detections, fixed width/height of 0.1
+                    f.write(f"0 {norm_x:.6f} {norm_y:.6f} 0.1 0.1\n")
+            
+            logger.info(f"Saved {len(detections)} detection labels to {labels_dir}")
+            
+        except Exception as e:
+            logger.warning(f"Error saving detections in YOLO format: {e}")
+    
     def run(self):
         """Main processing loop"""
         try:
@@ -197,6 +234,9 @@ class BGSProcessor(QThread):
             frame_idx = warmup_start
             progress_counter = 0
             
+            # Storage for detections (if saving enabled)
+            detections = []  # List of (frame_idx, x_pixel, y_pixel) tuples
+            
             while cap.isOpened() and frame_idx <= end_frame and self._is_running:
                 ret, frame = cap.read()
                 if not ret:
@@ -257,7 +297,16 @@ class BGSProcessor(QThread):
                             target_contour = max(fly_candidates, key=contour_significance)
                             M = cv2.moments(target_contour)
                             if M["m00"] > 5:
-                                det_point = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+                                det_x_roi = int(M["m10"] / M["m00"])
+                                det_y_roi = int(M["m01"] / M["m00"])
+                                det_point = (det_x_roi, det_y_roi)
+                                
+                                # Store detection if saving is enabled (convert ROI to full frame coords)
+                                if self.save_detections:
+                                    x1, y1, x2, y2 = self.bounding_box
+                                    det_x_full = det_x_roi + x1
+                                    det_y_full = det_y_roi + y1
+                                    detections.append((frame_idx, det_x_full, det_y_full))
                 
                 # Create visualization
                 display = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
@@ -292,6 +341,13 @@ class BGSProcessor(QThread):
             
             logger.info(f"Processing complete. Output saved to: {output_path}")
             logger.info(f"Output video contains approximately {frame_idx - warmup_start} frames (from frame {warmup_start} to {frame_idx})")
+            
+            # Save detections in YOLO format if enabled
+            if self.save_detections and detections:
+                self._save_detections_yolo(detections, frame_w, frame_h)
+                logger.info(f"Saved {len(detections)} detections in YOLO format")
+            elif self.save_detections:
+                logger.info("Save detections enabled but no detections found during processing")
             
             # Save metadata file
             metadata_path = output_path.with_name(f"{output_path.stem}_metadata.txt")
