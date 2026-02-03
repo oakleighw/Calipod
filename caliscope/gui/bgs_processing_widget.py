@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QMessageBox,
     QSlider,
+    QCheckBox,
 )
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtCore import Qt, QTimer
@@ -238,6 +239,13 @@ class BGSProcessingWidget(QWidget):
         self.end_unit_combo.addItem("Frames", "frames")
         end_layout.addWidget(self.end_unit_combo)
         layout.addLayout(end_layout)
+        
+        # Ground truth display checkbox
+        gt_layout = QHBoxLayout()
+        self.show_gt_checkbox = QCheckBox("Show Ground Truth")
+        self.show_gt_checkbox.setChecked(False)
+        gt_layout.addWidget(self.show_gt_checkbox)
+        layout.addLayout(gt_layout)
         
         return layout
 
@@ -487,7 +495,9 @@ class BGSProcessingWidget(QWidget):
                 end_sec=end_sec,
                 opening_size=opening_size,
                 warmup_secs=warmup_secs,
-                bounding_box=bbox
+                bounding_box=bbox,
+                show_ground_truth=self.show_gt_checkbox.isChecked(),
+                annotations_dir=self.controller.workspace_guide.annotations_dir
             )
             
             # Connect signals

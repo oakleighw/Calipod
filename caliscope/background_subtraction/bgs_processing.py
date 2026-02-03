@@ -29,7 +29,8 @@ class BGSProcessor(QThread):
     
     def __init__(self, video_path: str, output_dir: str, alpha: float, n_sigma: float,
                  bright_cutoff: int, replacement: int, start_sec: float, end_sec: float,
-                 opening_size: int = 0, warmup_secs: float = 5, bounding_box: tuple = None):
+                 opening_size: int = 0, warmup_secs: float = 5, bounding_box: tuple = None,
+                 show_ground_truth: bool = False, annotations_dir: Path = None):
         """
         Initialize the BGS processor.
         
@@ -45,9 +46,13 @@ class BGSProcessor(QThread):
             opening_size: Morphological kernel size for noise reduction
             warmup_secs: Seconds before analysis window for model initialization
             bounding_box: Tuple of (x1, y1, x2, y2) in pixel coordinates, or None for full frame
+            show_ground_truth: Whether to overlay ground truth annotations
+            annotations_dir: Directory containing YOLO annotation files
         """
         super().__init__()
         self.video_path = video_path
+        self.show_ground_truth = show_ground_truth
+        self.annotations_dir = annotations_dir
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -67,6 +72,66 @@ class BGSProcessor(QThread):
     def stop(self):
         """Signal the processor to stop"""
         self._is_running = False
+    
+    def _get_ground_truth_centroid(self, frame_idx: int, x1: int, y1: int, x2: int, y2: int, target_class: int = 0) -> tuple:
+        """
+        Extract ground truth centroid from YOLO label file for a specific frame.
+        
+        Parameters:
+            frame_idx: Frame index in the video
+            x1, y1, x2, y2: Bounding box in pixel coordinates
+            target_class: YOLO class ID to extract (default 0 for fruit)
+            
+        Returns:
+            Centroid as (x, y) in ROI coordinates, or None if not found
+        """
+        if not self.annotations_dir:
+            return None
+        
+        # Extract port number from video filename
+        import re
+        video_name = Path(self.video_path).stem
+        match = re.search(r"port_(\d+)", video_name)
+        if not match:
+            return None
+        
+        port = match.group(1)
+        
+        # Build label file path
+        label_file = self.annotations_dir / f"port_{port}" / "labels" / "train" / f"frame_{frame_idx:06d}.txt"
+        
+        if not label_file.exists():
+            return None
+        
+        try:
+            # Get frame dimensions
+            cap = cv2.VideoCapture(self.video_path)
+            frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+            
+            with open(label_file, 'r') as f:
+                lines = f.readlines()
+            
+            for line in lines:
+                data = line.split()
+                if not data:
+                    continue
+                
+                class_id = int(data[0])
+                if class_id == target_class:
+                    # YOLO format: class_id center_x center_y width height (normalized 0-1)
+                    gx_px = float(data[1]) * frame_w
+                    gy_px = float(data[2]) * frame_h
+                    
+                    # Check if centroid is within bounding box
+                    if x1 <= gx_px <= x2 and y1 <= gy_px <= y2:
+                        # Return coordinates relative to ROI
+                        return (int(gx_px - x1), int(gy_px - y1))
+        except Exception as e:
+            logger.warning(f"Error extracting ground truth from {label_file}: {e}")
+        
+        return None
     
     def run(self):
         """Main processing loop"""
@@ -200,6 +265,12 @@ class BGSProcessor(QThread):
                 
                 if det_point:
                     cv2.circle(display, det_point, 6, (0, 255, 0), -1)
+                
+                # Draw ground truth if enabled
+                if self.show_ground_truth and self.annotations_dir:
+                    gt_point = self._get_ground_truth_centroid(frame_idx, x1, y1, x2, y2)
+                    if gt_point:
+                        cv2.drawMarker(display, gt_point, (255, 255, 0), cv2.MARKER_CROSS, 15, 2)
                 
                 # Add frame label indicating warmup or analysis phase
                 if frame_idx < analysis_start:
