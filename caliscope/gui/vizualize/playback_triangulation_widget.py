@@ -400,12 +400,12 @@ class PlaybackTriangulationWidget(QWidget):
         # Spinboxes for filter start/end frames
         self.filter_start_spin = QSpinBox()
         self.filter_start_spin.setRange(0, 999999)
-        self.filter_start_spin.setMaximumWidth(60)
+        self.filter_start_spin.setMaximumWidth(100)
         self.filter_start_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
         self.filter_end_spin = QSpinBox()
         self.filter_end_spin.setRange(0, 999999)
-        self.filter_end_spin.setMaximumWidth(60)
+        self.filter_end_spin.setMaximumWidth(100)
         self.filter_end_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
         # Label to display detected video FPS
