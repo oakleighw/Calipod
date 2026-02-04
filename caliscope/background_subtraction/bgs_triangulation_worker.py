@@ -6,20 +6,20 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 import caliscope.logger
-from caliscope.background_subtraction.bgs_supplement import BGSSupplementor
+from caliscope.background_subtraction.bgs_triangulator import BGSTriangulator
 
 logger = caliscope.logger.get(__name__)
 
 
-class BGSSupplementationWorker(QThread):
+class BGSTriangulationWorker(QThread):
     """
     Worker thread for BGS triangulation.
     Triangulates 2D BGS detections to 3D without blocking the UI.
     """
     
     progress_updated = Signal(str)  # Log message
-    supplementation_complete = Signal(str)  # Output file path
-    supplementation_error = Signal(str)  # Error message
+    triangulation_complete = Signal(str)  # Output file path
+    triangulation_error = Signal(str)  # Error message
     
     def __init__(self, recording_path: Path, config_path: Path, yolo_xyz_path: Path, 
                  bbox=None, region: str = "full"):
@@ -47,13 +47,13 @@ class BGSSupplementationWorker(QThread):
             logger.info("Starting BGS triangulation worker")
             
             # Create triangulator
-            supplementor = BGSSupplementor(self.recording_path, self.config_path)
+            triangulator = BGSTriangulator(self.recording_path, self.config_path)
             
             self.progress_updated.emit(f"Processing BGS detections from port-specific labels...")
             logger.info("Triangulating BGS detections from port-specific labels")
             
             # Perform triangulation
-            output_path = supplementor.supplement_predictions(
+            output_path = triangulator.triangulate_bgs_detections_and_save(
                 yolo_xyz_path=self.yolo_xyz_path,
                 bbox=self.bbox,
                 region=self.region
@@ -62,17 +62,17 @@ class BGSSupplementationWorker(QThread):
             if output_path is None or not output_path.exists():
                 self.progress_updated.emit("[ERROR] Triangulation failed - no output generated")
                 logger.error("Triangulation returned None or output does not exist")
-                self.supplementation_error.emit("Triangulation failed - no output generated")
+                self.triangulation_error.emit("Triangulation failed - no output generated")
                 return
             
             self.progress_updated.emit(f"[SUCCESS] Triangulation complete!")
             self.progress_updated.emit(f"Output saved to: {output_path}")
             logger.info(f"Triangulation successful: {output_path}")
             
-            self.supplementation_complete.emit(str(output_path))
+            self.triangulation_complete.emit(str(output_path))
             
         except Exception as e:
             error_msg = f"Error during triangulation: {str(e)}"
             self.progress_updated.emit(f"[ERROR] {error_msg}")
             logger.error(error_msg)
-            self.supplementation_error.emit(error_msg)
+            self.triangulation_error.emit(error_msg)

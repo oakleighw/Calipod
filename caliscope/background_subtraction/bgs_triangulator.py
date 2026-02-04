@@ -22,7 +22,7 @@ from caliscope.triangulate.triangulation import triangulate_from_files
 logger = caliscope.logger.get(__name__)
 
 
-class BGSSupplementor:
+class BGSTriangulator:
     """
     Triangulates BGS 2D detections to 3D points for hybrid YOLO+BGS filtering.
     
@@ -176,7 +176,7 @@ class BGSSupplementor:
             logger.error(f"Error during BGS triangulation: {e}")
             return None
     
-    def supplement_predictions(self, 
+    def triangulate_bgs_detections_and_save(self, 
                               yolo_xyz_path: Path, 
                               bbox: Tuple[int, int, int, int],
                               region: str = "full") -> Optional[Path]:

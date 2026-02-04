@@ -729,10 +729,10 @@ class BGSProcessingWidget(QWidget):
             logger.info(f"Region: {region}, Bbox: {bbox}")
             
             # Import worker
-            from caliscope.background_subtraction.bgs_supplement_worker import BGSSupplementationWorker
+            from caliscope.background_subtraction.bgs_triangulation_worker import BGSTriangulationWorker
             
             # Create and start worker thread
-            self.triangulation_worker = BGSSupplementationWorker(
+            self.triangulation_worker = BGSTriangulationWorker(
                 recording_path=recording_path,
                 config_path=config_path,
                 yolo_xyz_path=yolo_xyz_path,
@@ -742,8 +742,8 @@ class BGSProcessingWidget(QWidget):
             
             # Connect signals
             self.triangulation_worker.progress_updated.connect(self.on_triangulation_progress)
-            self.triangulation_worker.supplementation_complete.connect(self.on_triangulation_complete)
-            self.triangulation_worker.supplementation_error.connect(self.on_triangulation_error)
+            self.triangulation_worker.triangulation_complete.connect(self.on_triangulation_complete)
+            self.triangulation_worker.triangulation_error.connect(self.on_triangulation_error)
             
             # Disable button and start
             self.triangulate_btn.setEnabled(False)
