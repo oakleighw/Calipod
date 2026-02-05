@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QLabel,
     QAbstractSpinBox,
+    QDialog,
+    QTextEdit,
 )
 from PySide6.QtGui import QImage, QColorConstants, QColor, QVector3D
 
@@ -585,11 +587,40 @@ class PlaybackTriangulationWidget(QWidget):
         
         # Compute performance metrics for the filtered predictions
         metrics = {}
+        metrics_by_source = {}
+        
         try:
             if self.motion_trial is not None and not self.motion_trial.is_empty:
                 metrics = self.motion_trial.performance_metrics()
                 # Convert numpy types to native Python types for JSON serialization
                 metrics = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()}
+                
+                # Compute separate metrics for each measurement source
+                if filtered_csv_path.exists():
+                    filtered_df = pd.read_csv(filtered_csv_path, engine="pyarrow")
+                    if 'measurement_source' in filtered_df.columns:
+                        for source in ['YOLO', 'BGS', 'filter_only']:
+                            source_df = filtered_df[filtered_df['measurement_source'] == source]
+                            if not source_df.empty:
+                                # Temporarily swap in source data to compute metrics
+                                orig_pred_df = self.motion_trial.predictions_df
+                                orig_gt_df = self.motion_trial.xyz_df
+                                # Filter both to only point_id == 0 (the tracked fly)
+                                self.motion_trial.predictions_df = source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df
+                                self.motion_trial.xyz_df = orig_gt_df[orig_gt_df['point_id'] == 0] if not orig_gt_df.empty else orig_gt_df
+                                try:
+                                    source_metrics = self.motion_trial.performance_metrics()
+                                    # Convert numpy types to native Python types
+                                    source_metrics = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in source_metrics.items()}
+                                    # Add point and frame counts
+                                    source_metrics['point_count'] = int(len(source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df))
+                                    source_metrics['frame_count'] = int(source_df['sync_index'].nunique())
+                                    metrics_by_source[source] = source_metrics
+                                except:
+                                    pass
+                                finally:
+                                    self.motion_trial.predictions_df = orig_pred_df
+                                    self.motion_trial.xyz_df = orig_gt_df
         except Exception as e:
             logger.debug(f"Could not compute performance metrics for metadata: {e}")
         
@@ -614,6 +645,7 @@ class PlaybackTriangulationWidget(QWidget):
             "filter_start_frame": int(self.filter_start_spin.value()),
             "filter_end_frame": int(self.filter_end_spin.value()),
             "performance_metrics": metrics,
+            "performance_metrics_by_source": metrics_by_source,
             "total_ground_truth_frames": int(total_gt_frames),
             "total_prediction_frames": int(total_pred_frames),
         }
@@ -1302,7 +1334,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.visualizer.update_camera_array(camera_array)
 
     def compute_and_show_metrics(self):
-        """Display metrics from MotionTrial.performance_metrics with basic guards."""
+        """Display metrics from MotionTrial.performance_metrics in a scrollable dialog."""
         if self.motion_trial is None or self.motion_trial.is_empty:
             QMessageBox.warning(self, "No Data", "No motion trial loaded; cannot compute metrics.")
             return
@@ -1320,6 +1352,8 @@ class PlaybackTriangulationWidget(QWidget):
         logger.info(f"Computing metrics with {pred_source} predictions ({len(self.motion_trial.predictions_df)} rows)")
 
         metrics = {}
+        metrics_by_source = {}
+        
         try:
             metrics = self.motion_trial.performance_metrics()
         except Exception as exc:
@@ -1331,15 +1365,93 @@ class PlaybackTriangulationWidget(QWidget):
             QMessageBox.warning(self, "No Matches", "No overlapping (sync_index, point_id) pairs between ground truth and predictions.")
             return
 
+        # Compute per-source metrics by calling performance_metrics on each source subset
+        try:
+            if self.toggle_filtered_button.isChecked() and 'measurement_source' in self.motion_trial.predictions_df.columns:
+                for source in ['YOLO', 'BGS', 'filter_only']:
+                    source_df = self.motion_trial.predictions_df[self.motion_trial.predictions_df['measurement_source'] == source]
+                    if not source_df.empty:
+                        # Temporarily swap in source data to compute metrics
+                        orig_pred_df = self.motion_trial.predictions_df
+                        orig_gt_df = self.motion_trial.xyz_df
+                        # Filter both to only point_id == 0 (the tracked fly)
+                        self.motion_trial.predictions_df = source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df
+                        self.motion_trial.xyz_df = orig_gt_df[orig_gt_df['point_id'] == 0] if not orig_gt_df.empty else orig_gt_df
+                        try:
+                            source_metrics = self.motion_trial.performance_metrics()
+                            # Add point and frame counts
+                            source_metrics['point_count'] = len(source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df)
+                            source_metrics['frame_count'] = source_df['sync_index'].nunique()
+                            metrics_by_source[source] = source_metrics
+                        except:
+                            pass
+                        finally:
+                            self.motion_trial.predictions_df = orig_pred_df
+                            self.motion_trial.xyz_df = orig_gt_df
+        except Exception as e:
+            logger.debug(f"Could not compute per-source metrics for display: {e}")
+
+        # Build metrics text
         lines = []
         lines.append(f"[Using {pred_source.upper()} predictions]")
+        lines.append("")
+        lines.append("=== OVERALL METRICS ===")
+        
+        # Show frame and point counts for both GT and predictions
+        total_gt_frames = self.motion_trial.xyz_df['sync_index'].nunique() if not self.motion_trial.xyz_df.empty else 0
+        # Only count GT points for point_id == 0 (the tracked fly)
+        gt_fly_df = self.motion_trial.xyz_df[self.motion_trial.xyz_df['point_id'] == 0] if not self.motion_trial.xyz_df.empty else pd.DataFrame()
+        total_gt_fly_points = len(gt_fly_df) if not gt_fly_df.empty else 0
+        # Only count pred points for point_id == 0 (the tracked fly)
+        pred_fly_df = self.motion_trial.predictions_df[self.motion_trial.predictions_df['point_id'] == 0] if not self.motion_trial.predictions_df.empty else pd.DataFrame()
+        total_pred_frames = pred_fly_df['sync_index'].nunique() if not pred_fly_df.empty else 0
+        total_pred_fly_points = len(pred_fly_df) if not pred_fly_df.empty else 0
+        lines.append(f"Total GT Frames: {int(total_gt_frames)}")
+        lines.append(f"Total GT Fly Points (point_id=0): {int(total_gt_fly_points)}")
+        lines.append(f"Total Pred Frames: {int(total_pred_frames)}")
+        lines.append(f"Total Pred Fly Points (point_id=0): {int(total_pred_fly_points)}")
+        
+        # Show performance metrics (skip frame/point counts as they're not relevant per-source)
         for key, value in metrics.items():
-            if isinstance(value, float):
-                lines.append(f"{key}: {value:.4f}")
-            else:
-                lines.append(f"{key}: {value}")
+            if 'frame' not in key.lower() and 'point' not in key.lower():
+                if isinstance(value, float):
+                    lines.append(f"{key}: {value:.4f}")
+                else:
+                    lines.append(f"{key}: {value}")
 
-        QMessageBox.information(self, "Performance Metrics", "\n".join(lines))
+        # Add per-source metrics if available
+        if metrics_by_source:
+            lines.append("")
+            lines.append("=== METRICS BY MEASUREMENT SOURCE ===")
+            for source in ['YOLO', 'BGS', 'filter_only']:
+                if source in metrics_by_source:
+                    source_metrics = metrics_by_source[source]
+                    lines.append(f"\n--- {source} ---")
+                    # Display all metrics, skipping duplicates from overall
+                    for key, value in source_metrics.items():
+                        if key not in ['Total_Video_Frames', 'Total_GT_Frames', 'Total_GT_Points']:
+                            if isinstance(value, float):
+                                lines.append(f"  {key}: {value:.4f}")
+                            else:
+                                lines.append(f"  {key}: {value}")
+
+        # Create scrollable dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Performance Metrics")
+        dialog.setGeometry(100, 100, 600, 500)
+        
+        layout = QVBoxLayout()
+        text_edit = QTextEdit()
+        text_edit.setPlainText("\n".join(lines))
+        text_edit.setReadOnly(True)
+        layout.addWidget(text_edit)
+        
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        
+        dialog.setLayout(layout)
+        dialog.exec()
 
     def toggle_filtered_track(self, checked: bool):
         """Toggle use of filtered predictions cached alongside the predictions CSV."""
@@ -1369,78 +1481,98 @@ class PlaybackTriangulationWidget(QWidget):
         if checked:
             self.toggle_filtered_button.setEnabled(False)
             try:
-                # Set spinbox ranges based on actual prediction data
-                pred_df = self.motion_trial.predictions_df
-                if pred_df is not None and not pred_df.empty:
-                    min_frame = int(pred_df['sync_index'].min())
-                    max_frame = int(pred_df['sync_index'].max())
+                # Check if an old filtered CSV exists without the new columns; if so, force recomputation
+                force_recompute = False
+                if filtered_path.exists():
+                    try:
+                        existing_filtered = pd.read_csv(filtered_path, nrows=1, engine="pyarrow")
+                        if 'measurement_source' not in existing_filtered.columns or 'error_mm' not in existing_filtered.columns:
+                            logger.info(f"Existing filtered CSV is missing measurement_source/error_mm columns; forcing recomputation")
+                            force_recompute = True
+                    except:
+                        force_recompute = True
+                else:
+                    force_recompute = True
+                
+                if force_recompute:
+                    # Set spinbox ranges based on actual prediction data
+                    pred_df = self.motion_trial.predictions_df
+                    if pred_df is not None and not pred_df.empty:
+                        min_frame = int(pred_df['sync_index'].min())
+                        max_frame = int(pred_df['sync_index'].max())
+                        
+                        # Allow spinbox range to extend to ground truth end if available (for extend filter logic)
+                        spinbox_max = max_frame
+                        if self.motion_trial is not None and hasattr(self.motion_trial, 'end_index'):
+                            spinbox_max = max(max_frame, self.motion_trial.end_index)
+                        
+                        self.filter_start_spin.setRange(0, spinbox_max)
+                        self.filter_end_spin.setRange(0, spinbox_max)
                     
-                    # Allow spinbox range to extend to ground truth end if available (for extend filter logic)
-                    spinbox_max = max_frame
-                    if self.motion_trial is not None and hasattr(self.motion_trial, 'end_index'):
-                        spinbox_max = max(max_frame, self.motion_trial.end_index)
+                    # Capture UI parameter values
+                    self.kalman_process_noise_scale = float(self.process_noise_spin.value())
+                    self.kalman_measurement_noise_std = float(self.meas_noise_spin.value()) / 1000.0  # mm -> m
+                    self.kalman_fps_override = int(self.fps_spin.value()) if self.fps_spin.value() > 0 else None
+                    self.gap_fill_only = self.gap_fill_only_checkbox.isChecked()
+                    self.extend_filtered_track = self.extend_filtered_track_checkbox.isChecked()
+                    self.gate_distance_sigma = float(self.gate_distance_slider.value()) / 10.0
+                    self.max_distance_threshold = float(self.max_distance_spin.value())  # mm
                     
-                    self.filter_start_spin.setRange(0, spinbox_max)
-                    self.filter_end_spin.setRange(0, spinbox_max)
-                
-                # Capture UI parameter values
-                self.kalman_process_noise_scale = float(self.process_noise_spin.value())
-                self.kalman_measurement_noise_std = float(self.meas_noise_spin.value()) / 1000.0  # mm -> m
-                self.kalman_fps_override = int(self.fps_spin.value()) if self.fps_spin.value() > 0 else None
-                self.gap_fill_only = self.gap_fill_only_checkbox.isChecked()
-                self.extend_filtered_track = self.extend_filtered_track_checkbox.isChecked()
-                self.gate_distance_sigma = float(self.gate_distance_slider.value()) / 10.0
-                self.max_distance_threshold = float(self.max_distance_spin.value())  # mm
-                
-                # Capture BGS-specific parameters
-                self.bgs_kalman_process_noise_scale = float(self.bgs_process_noise_spin.value())
-                self.bgs_kalman_measurement_noise_std = float(self.bgs_meas_noise_spin.value()) / 1000.0  # mm -> m
-                self.bgs_gate_distance_sigma = float(self.bgs_gate_distance_slider.value()) / 10.0
-                self.bgs_max_distance_threshold = float(self.bgs_max_distance_spin.value())  # mm
+                    # Capture BGS-specific parameters
+                    self.bgs_kalman_process_noise_scale = float(self.bgs_process_noise_spin.value())
+                    self.bgs_kalman_measurement_noise_std = float(self.bgs_meas_noise_spin.value()) / 1000.0  # mm -> m
+                    self.bgs_gate_distance_sigma = float(self.bgs_gate_distance_slider.value()) / 10.0
+                    self.bgs_max_distance_threshold = float(self.bgs_max_distance_spin.value())  # mm
 
-                msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, max_dist={self.max_distance_threshold:.1f}mm, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'}, extend_past_pred={'yes' if self.extend_filtered_track else 'no'})"
-                logger.info(msg)
-                print(msg)  # Ensure it shows in console
-                
-                # Check if hybrid YOLO+BGS mode is enabled
-                use_hybrid = False
-                if hasattr(self, 'use_hybrid_bgs') and self.use_hybrid_bgs:
-                    use_hybrid = self.use_hybrid_bgs.isChecked()
-                    if use_hybrid:
-                        msg = "Using hybrid YOLO+BGS measurement selection during Kalman filtering"
-                        logger.info(msg)
-                        print(msg)
-                
-                filtered_df = self._compute_filtered_predictions(use_hybrid=use_hybrid)
-                
-                if filtered_df is None or filtered_df.empty:
-                    err_msg = "Kalman filter computation failed: empty result"
-                    logger.error(err_msg)
-                    print(err_msg)
-                    QMessageBox.warning(self, "Filter Error", "Filtered predictions are empty; keeping raw predictions.")
-                    self.toggle_filtered_button.setChecked(False)
-                    self.toggle_filtered_button.setEnabled(True)
-                    return
-                
-                comp_msg = f"Kalman filter computation complete; generated {len(filtered_df)} frames"
-                logger.info(comp_msg)
-                print(comp_msg)
-                
-                filtered_path.parent.mkdir(parents=True, exist_ok=True)
-                filtered_df.to_csv(filtered_path, index=False)
-                saved_msg = f"Saved filtered predictions to {filtered_path}"
-                logger.info(saved_msg)
-                print(saved_msg)
-                
-                # Save filter metadata
-                self._save_filter_metadata(filtered_path)
+                    msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, max_dist={self.max_distance_threshold:.1f}mm, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'}, extend_past_pred={'yes' if self.extend_filtered_track else 'no'})"
+                    logger.info(msg)
+                    print(msg)  # Ensure it shows in console
+                    
+                    # Check if hybrid YOLO+BGS mode is enabled
+                    use_hybrid = False
+                    if hasattr(self, 'use_hybrid_bgs') and self.use_hybrid_bgs:
+                        use_hybrid = self.use_hybrid_bgs.isChecked()
+                        if use_hybrid:
+                            msg = "Using hybrid YOLO+BGS measurement selection during Kalman filtering"
+                            logger.info(msg)
+                            print(msg)
+                    
+                    filtered_df = self._compute_filtered_predictions(use_hybrid=use_hybrid)
+                    
+                    if filtered_df is None or filtered_df.empty:
+                        err_msg = "Kalman filter computation failed: empty result"
+                        logger.error(err_msg)
+                        print(err_msg)
+                        QMessageBox.warning(self, "Filter Error", "Filtered predictions are empty; keeping raw predictions.")
+                        self.toggle_filtered_button.setChecked(False)
+                        self.toggle_filtered_button.setEnabled(True)
+                        return
+                    
+                    comp_msg = f"Kalman filter computation complete; generated {len(filtered_df)} frames"
+                    logger.info(comp_msg)
+                    print(comp_msg)
+                    
+                    filtered_path.parent.mkdir(parents=True, exist_ok=True)
+                    filtered_df.to_csv(filtered_path, index=False)
+                    saved_msg = f"Saved filtered predictions to {filtered_path}"
+                    logger.info(saved_msg)
+                    print(saved_msg)
+                    
+                    # Save filter metadata
+                    self._save_filter_metadata(filtered_path)
 
-                self.motion_trial.predictions_csv = filtered_path
-                self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
-                self.filtered_predictions_path = filtered_path
-                using_msg = f"Using filtered predictions from {filtered_path}"
-                logger.info(using_msg)
-                print(using_msg)
+                    self.motion_trial.predictions_csv = filtered_path
+                    self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
+                    self.filtered_predictions_path = filtered_path
+                    using_msg = f"Using filtered predictions from {filtered_path}"
+                    logger.info(using_msg)
+                    print(using_msg)
+                else:
+                    # Already have correct filtered CSV, just load it
+                    self.motion_trial.predictions_csv = filtered_path
+                    self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
+                    self.filtered_predictions_path = filtered_path
+                    logger.info(f"Using existing filtered predictions from {filtered_path}")
                 
                 # Refresh display with filtered predictions
                 if hasattr(self.visualizer, "update_motion_trial"):
@@ -1577,6 +1709,7 @@ class PlaybackTriangulationWidget(QWidget):
         states_filt = []   # x_{k|k}
         covs_filt = []     # P_{k|k}
         transitions = []   # A matrices (since dt varies)
+        measurement_sources = []  # Track which source was used for each frame (YOLO, BGS, or filter_only)
 
         # --- FORWARD PASS ---
         prev_frame = frames[0]
@@ -1694,9 +1827,11 @@ class PlaybackTriangulationWidget(QWidget):
 
             if not updated:
                 state, P = state_p, P_p
+                z_source = 'filter_only'  # No measurement was used
 
             states_filt.append(state.copy())
             covs_filt.append(P.copy())
+            measurement_sources.append(z_source)  # Track which source was used
             prev_frame = frame
 
         # --- BACKWARD PASS (RTS Smoothing) ---
@@ -1722,15 +1857,29 @@ class PlaybackTriangulationWidget(QWidget):
         results = []
         for i, frame in enumerate(frames):
             s = smoothed_states[i]
+            z_src = measurement_sources[i]
+            
+            # Compute error against ground truth if available
+            error_mm = np.nan
+            if self.motion_trial and hasattr(self.motion_trial, 'ground_truth') and self.motion_trial.ground_truth is not None:
+                gt_df = self.motion_trial.ground_truth[self.motion_trial.ground_truth['sync_index'] == frame]
+                if not gt_df.empty:
+                    gt_row = gt_df.iloc[0]
+                    gt_pos = np.array([gt_row.x_coord, gt_row.y_coord, gt_row.z_coord])
+                    error_mm = np.linalg.norm(s[:3] - gt_pos) * 1000.0
+            
             # If gap_fill_only is True, we only use smoothed values where measurements were missing
             if self.gap_fill_only and frame in measurements:
                 z = measurements[frame]
-                results.append((frame, 0, z[0], z[1], z[2]))
+                results.append((frame, 0, z[0], z[1], z[2], 'YOLO', error_mm))
             else:
-                results.append((frame, 0, s[0], s[1], s[2]))
+                results.append((frame, 0, s[0], s[1], s[2], z_src, error_mm))
 
-        filtered_fly_df = pd.DataFrame(results, columns=["sync_index", "point_id", "x_coord", "y_coord", "z_coord"])
+        filtered_fly_df = pd.DataFrame(results, columns=["sync_index", "point_id", "x_coord", "y_coord", "z_coord", "measurement_source", "error_mm"])
         other_points_df = pred_df[pred_df["point_id"] != 0].copy()
+        # Add missing columns to other_points_df to match schema
+        other_points_df["measurement_source"] = "other_points"
+        other_points_df["error_mm"] = np.nan
         combined_df = pd.concat([filtered_fly_df, other_points_df], ignore_index=True)
         return combined_df.sort_values(["sync_index", "point_id"]).reset_index(drop=True)
 
