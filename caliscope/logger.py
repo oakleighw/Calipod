@@ -22,6 +22,10 @@ app_dir_file_handler.setFormatter(file_formatter)
 
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
+# Force UTF-8 encoding to handle Unicode characters like Greek letters
+if hasattr(console_handler, 'stream'):
+    import io
+    console_handler.stream = io.TextIOWrapper(console_handler.stream.buffer, encoding='utf-8')
 
 console_log_format = " %(levelname)8s| %(name)30s| %(lineno)3d|  %(message)s"
 console_formatter = logging.Formatter(console_log_format)
