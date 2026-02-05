@@ -1459,13 +1459,19 @@ class PlaybackTriangulationWidget(QWidget):
                     else:
                         consecutive_rejections += 1
                         # Logic: If we miss too many points, the filter is likely anchored to noise.
-                        # Reset the state to the current measurement to "rescue" the track.
+                        # For BGS-only measurements (extended frames), use prediction instead of resetting
                         if consecutive_rejections > 5:
-                            state = np.zeros(6)
-                            state[:3] = z
-                            P = np.eye(6) * 10.0
-                            consecutive_rejections = 0
-                            updated = True 
+                            if z_source == 'BGS' and frame not in measurements:
+                                # For extended BGS frames, just continue with prediction instead of resetting to noisy measurement
+                                logger.debug(f"Frame {frame}: BGS measurement rejected too many times; using filter prediction instead of resetting")
+                                consecutive_rejections = 0
+                            else:
+                                # For YOLO frames, use rescue logic (reset to measurement)
+                                state = np.zeros(6)
+                                state[:3] = z
+                                P = np.eye(6) * 10.0
+                                consecutive_rejections = 0
+                                updated = True 
                 except np.linalg.LinAlgError:
                     pass
 
