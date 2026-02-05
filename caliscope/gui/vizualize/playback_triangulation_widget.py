@@ -352,20 +352,20 @@ class PlaybackTriangulationWidget(QWidget):
         self.video_framerate = 100  # Initial default, updated when video is loaded
         # Tracking/filter params
         self.filtered_predictions_path: Optional[Path] = None
-        self.kalman_process_noise_scale = 0.05
-        self.kalman_measurement_noise_std = 0.002  # meters
+        self.kalman_process_noise_scale = 0.0490
+        self.kalman_measurement_noise_std = 0.00039  # meters (0.390 mm)
         self.kalman_fps_override: Optional[int] = None
         self.gap_fill_only = False  # If True, only interpolate missing frames; if False, smooth all
-        self.gate_distance_sigma = 3.0  # Mahalanobis distance gating threshold in sigma (standard deviations)
+        self.gate_distance_sigma = 3.1  # Mahalanobis distance gating threshold in sigma (standard deviations)
         self.max_distance_threshold = 10.0  # Fixed distance gating threshold in mm (hybrid gating)
         self.filter_start_frame: Optional[int] = None  # Optional start frame for filtering
         self.filter_end_frame: Optional[int] = None  # Optional end frame for filtering
         
         # BGS-specific filter parameters (for extended frames with only BGS measurements)
-        self.bgs_kalman_process_noise_scale = 0.05  # Can be tuned differently than YOLO
-        self.bgs_kalman_measurement_noise_std = 0.003  # meters (slightly higher than YOLO for noisy BGS)
-        self.bgs_gate_distance_sigma = 3.0
-        self.bgs_max_distance_threshold = 10.0
+        self.bgs_kalman_process_noise_scale = 0.2
+        self.bgs_kalman_measurement_noise_std = 0.0002  # meters (0.2 mm)
+        self.bgs_gate_distance_sigma = 9.2
+        self.bgs_max_distance_threshold = 28.0
 
         # UI controls for filter params
         self.process_noise_spin = QDoubleSpinBox()
@@ -578,6 +578,112 @@ class PlaybackTriangulationWidget(QWidget):
         """Update BGS gate distance label when slider changes."""
         sigma = value / 10.0
         self.bgs_gate_distance_label.setText(f"{sigma:.1f}σ")
+
+    def _save_filter_metadata(self, filtered_csv_path: Path):
+        """Save filter parameters as JSON metadata alongside the filtered predictions CSV."""
+        import json
+        
+        # Compute performance metrics for the filtered predictions
+        metrics = {}
+        try:
+            if self.motion_trial is not None and not self.motion_trial.is_empty:
+                metrics = self.motion_trial.performance_metrics()
+                # Convert numpy types to native Python types for JSON serialization
+                metrics = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()}
+        except Exception as e:
+            logger.debug(f"Could not compute performance metrics for metadata: {e}")
+        
+        # Get frame counts
+        total_gt_frames = 0
+        total_pred_frames = 0
+        if self.motion_trial is not None and not self.motion_trial.is_empty:
+            total_gt_frames = self.motion_trial.xyz_df['sync_index'].nunique() if not self.motion_trial.xyz_df.empty else 0
+            total_pred_frames = self.motion_trial.predictions_df['sync_index'].nunique() if not self.motion_trial.predictions_df.empty else 0
+        
+        metadata = {
+            "kalman_process_noise_scale": float(self.kalman_process_noise_scale),
+            "kalman_measurement_noise_std_mm": float(self.kalman_measurement_noise_std * 1000.0),
+            "gate_distance_sigma": float(self.gate_distance_sigma),
+            "max_distance_threshold_mm": float(self.max_distance_threshold),
+            "bgs_kalman_process_noise_scale": float(self.bgs_kalman_process_noise_scale),
+            "bgs_kalman_measurement_noise_std_mm": float(self.bgs_kalman_measurement_noise_std * 1000.0),
+            "bgs_gate_distance_sigma": float(self.bgs_gate_distance_sigma),
+            "bgs_max_distance_threshold_mm": float(self.bgs_max_distance_threshold),
+            "gap_fill_only": bool(self.gap_fill_only),
+            "extend_filtered_track": bool(self.extend_filtered_track),
+            "filter_start_frame": int(self.filter_start_spin.value()),
+            "filter_end_frame": int(self.filter_end_spin.value()),
+            "performance_metrics": metrics,
+            "total_ground_truth_frames": int(total_gt_frames),
+            "total_prediction_frames": int(total_pred_frames),
+        }
+        metadata_path = filtered_csv_path.with_stem(filtered_csv_path.stem + "_metadata")
+        metadata_path = metadata_path.with_suffix(".json")
+        try:
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            logger.info(f"Saved filter metadata to {metadata_path}")
+        except Exception as e:
+            logger.warning(f"Failed to save filter metadata: {e}")
+    
+    def _load_filter_metadata(self):
+        """Load filter metadata from JSON file if available."""
+        import json
+        # Look for metadata file next to the filtered CSV
+        if self.filtered_predictions_path is None:
+            return
+        
+        metadata_path = self.filtered_predictions_path.with_stem(self.filtered_predictions_path.stem + "_metadata")
+        metadata_path = metadata_path.with_suffix(".json")
+        
+        if not metadata_path.exists():
+            logger.debug(f"No filter metadata found at {metadata_path}; using software defaults")
+            return
+        
+        try:
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            
+            # Load YOLO filter parameters
+            self.kalman_process_noise_scale = metadata.get("kalman_process_noise_scale", self.kalman_process_noise_scale)
+            self.kalman_measurement_noise_std = metadata.get("kalman_measurement_noise_std_mm", self.kalman_measurement_noise_std * 1000.0) / 1000.0
+            self.gate_distance_sigma = metadata.get("gate_distance_sigma", self.gate_distance_sigma)
+            self.max_distance_threshold = metadata.get("max_distance_threshold_mm", self.max_distance_threshold)
+            
+            # Load BGS filter parameters
+            self.bgs_kalman_process_noise_scale = metadata.get("bgs_kalman_process_noise_scale", self.bgs_kalman_process_noise_scale)
+            self.bgs_kalman_measurement_noise_std = metadata.get("bgs_kalman_measurement_noise_std_mm", self.bgs_kalman_measurement_noise_std * 1000.0) / 1000.0
+            self.bgs_gate_distance_sigma = metadata.get("bgs_gate_distance_sigma", self.bgs_gate_distance_sigma)
+            self.bgs_max_distance_threshold = metadata.get("bgs_max_distance_threshold_mm", self.bgs_max_distance_threshold)
+            
+            # Load boolean flags
+            self.gap_fill_only = metadata.get("gap_fill_only", self.gap_fill_only)
+            self.extend_filtered_track = metadata.get("extend_filtered_track", self.extend_filtered_track)
+            
+            # Load frame range parameters
+            start_frame = metadata.get("filter_start_frame", 0)
+            end_frame = metadata.get("filter_end_frame", 0)
+            
+            # Update UI controls to reflect loaded values
+            self.process_noise_spin.setValue(self.kalman_process_noise_scale)
+            self.meas_noise_spin.setValue(self.kalman_measurement_noise_std * 1000.0)
+            self.gate_distance_slider.setValue(int(self.gate_distance_sigma * 10))
+            self.max_distance_spin.setValue(self.max_distance_threshold)
+            
+            self.bgs_process_noise_spin.setValue(self.bgs_kalman_process_noise_scale)
+            self.bgs_meas_noise_spin.setValue(self.bgs_kalman_measurement_noise_std * 1000.0)
+            self.bgs_gate_distance_slider.setValue(int(self.bgs_gate_distance_sigma * 10))
+            self.bgs_max_distance_spin.setValue(self.bgs_max_distance_threshold)
+            
+            self.filter_start_spin.setValue(start_frame)
+            self.filter_end_spin.setValue(end_frame)
+            
+            self.gap_fill_only_checkbox.setChecked(self.gap_fill_only)
+            self.extend_filtered_track_checkbox.setChecked(self.extend_filtered_track)
+            
+            logger.info(f"Loaded filter metadata from {metadata_path}")
+        except Exception as e:
+            logger.warning(f"Failed to load filter metadata from {metadata_path}: {e}; using software defaults")
 
     def connect_widgets(self):
         self.slider.valueChanged.connect(self.visualizer.display_points)
@@ -1188,6 +1294,9 @@ class PlaybackTriangulationWidget(QWidget):
             self.slider.setMinimum(self.motion_trial.start_index)
             self.slider.setMaximum(self.motion_trial.end_index)
             self.slider.setValue(self.motion_trial.start_index)
+        
+        # Try to load filter metadata if available (for filtered predictions)
+        self._load_filter_metadata()
 
     def update_camera_array(self, camera_array: CameraArray):
         self.visualizer.update_camera_array(camera_array)
@@ -1322,6 +1431,9 @@ class PlaybackTriangulationWidget(QWidget):
                 saved_msg = f"Saved filtered predictions to {filtered_path}"
                 logger.info(saved_msg)
                 print(saved_msg)
+                
+                # Save filter metadata
+                self._save_filter_metadata(filtered_path)
 
                 self.motion_trial.predictions_csv = filtered_path
                 self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
@@ -1526,7 +1638,16 @@ class PlaybackTriangulationWidget(QWidget):
             
             if z is not None:
                 y_res = z - H @ state_p
-                S = H @ P_p @ H.T + R
+                
+                # Use appropriate measurement noise covariance based on measurement source
+                if z_source == 'BGS' and frame not in measurements:
+                    # BGS-only measurement: use BGS-specific noise covariance
+                    R_meas = np.eye(3) * (self.bgs_kalman_measurement_noise_std ** 2)
+                else:
+                    # YOLO measurement: use standard noise covariance
+                    R_meas = R
+                
+                S = H @ P_p @ H.T + R_meas
                 
                 try:
                     S_inv = np.linalg.inv(S)
