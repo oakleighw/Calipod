@@ -586,7 +586,7 @@ class PlaybackTriangulationWidget(QWidget):
         import json
         
         # Compute performance metrics for the filtered predictions
-        metrics = {}
+        overall_metrics = {}
         metrics_by_source = {}
         
         try:
@@ -594,6 +594,9 @@ class PlaybackTriangulationWidget(QWidget):
                 metrics = self.motion_trial.performance_metrics()
                 # Convert numpy types to native Python types for JSON serialization
                 metrics = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()}
+                # Keep only accuracy metrics (not False_Negatives/False_Positives)
+                accuracy_keys = {'RMSE_mm', 'MOTP_mm', 'MOTA', 'Median_Error_mm'}
+                overall_metrics = {k: v for k, v in metrics.items() if k in accuracy_keys}
                 
                 # Compute separate metrics for each measurement source
                 if filtered_csv_path.exists():
@@ -612,10 +615,12 @@ class PlaybackTriangulationWidget(QWidget):
                                     source_metrics = self.motion_trial.performance_metrics()
                                     # Convert numpy types to native Python types
                                     source_metrics = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in source_metrics.items()}
-                                    # Add point and frame counts
-                                    source_metrics['point_count'] = int(len(source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df))
-                                    source_metrics['frame_count'] = int(source_df['sync_index'].nunique())
-                                    metrics_by_source[source] = source_metrics
+                                    # Keep only accuracy metrics
+                                    source_data = {k: v for k, v in source_metrics.items() if k in accuracy_keys}
+                                    # Add point and frame counts for context
+                                    source_data['point_count'] = int(len(source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df))
+                                    source_data['frame_count'] = int(source_df['sync_index'].nunique())
+                                    metrics_by_source[source] = source_data
                                 except:
                                     pass
                                 finally:
@@ -624,12 +629,19 @@ class PlaybackTriangulationWidget(QWidget):
         except Exception as e:
             logger.debug(f"Could not compute performance metrics for metadata: {e}")
         
-        # Get frame counts
+        # Get frame and point counts
         total_gt_frames = 0
+        total_gt_fly_points = 0
         total_pred_frames = 0
+        total_pred_fly_points = 0
+        
         if self.motion_trial is not None and not self.motion_trial.is_empty:
             total_gt_frames = self.motion_trial.xyz_df['sync_index'].nunique() if not self.motion_trial.xyz_df.empty else 0
-            total_pred_frames = self.motion_trial.predictions_df['sync_index'].nunique() if not self.motion_trial.predictions_df.empty else 0
+            gt_fly_df = self.motion_trial.xyz_df[self.motion_trial.xyz_df['point_id'] == 0] if not self.motion_trial.xyz_df.empty else pd.DataFrame()
+            total_gt_fly_points = len(gt_fly_df) if not gt_fly_df.empty else 0
+            pred_fly_df = self.motion_trial.predictions_df[self.motion_trial.predictions_df['point_id'] == 0] if not self.motion_trial.predictions_df.empty else pd.DataFrame()
+            total_pred_frames = pred_fly_df['sync_index'].nunique() if not pred_fly_df.empty else 0
+            total_pred_fly_points = len(pred_fly_df) if not pred_fly_df.empty else 0
         
         metadata = {
             "kalman_process_noise_scale": float(self.kalman_process_noise_scale),
@@ -644,10 +656,12 @@ class PlaybackTriangulationWidget(QWidget):
             "extend_filtered_track": bool(self.extend_filtered_track),
             "filter_start_frame": int(self.filter_start_spin.value()),
             "filter_end_frame": int(self.filter_end_spin.value()),
-            "performance_metrics": metrics,
-            "performance_metrics_by_source": metrics_by_source,
             "total_ground_truth_frames": int(total_gt_frames),
+            "total_ground_truth_fly_points": int(total_gt_fly_points),
             "total_prediction_frames": int(total_pred_frames),
+            "total_prediction_fly_points": int(total_pred_fly_points),
+            "performance_metrics": overall_metrics,
+            "performance_metrics_by_source": metrics_by_source,
         }
         metadata_path = filtered_csv_path.with_stem(filtered_csv_path.stem + "_metadata")
         metadata_path = metadata_path.with_suffix(".json")
@@ -1411,9 +1425,10 @@ class PlaybackTriangulationWidget(QWidget):
         lines.append(f"Total Pred Frames: {int(total_pred_frames)}")
         lines.append(f"Total Pred Fly Points (point_id=0): {int(total_pred_fly_points)}")
         
-        # Show performance metrics (skip frame/point counts as they're not relevant per-source)
+        # Show performance metrics (skip internal/redundant metrics)
+        skip_overall_keys = {'Total_Video_Frames', 'Total_GT_Points', 'Total_Pred_Points', 'Total_Matched_Points'}
         for key, value in metrics.items():
-            if 'frame' not in key.lower() and 'point' not in key.lower():
+            if key not in skip_overall_keys:
                 if isinstance(value, float):
                     lines.append(f"{key}: {value:.4f}")
                 else:
@@ -1423,13 +1438,24 @@ class PlaybackTriangulationWidget(QWidget):
         if metrics_by_source:
             lines.append("")
             lines.append("=== METRICS BY MEASUREMENT SOURCE ===")
+            total_pred_points = total_pred_fly_points if total_pred_fly_points > 0 else 1  # Avoid division by zero
             for source in ['YOLO', 'BGS', 'filter_only']:
                 if source in metrics_by_source:
                     source_metrics = metrics_by_source[source]
-                    lines.append(f"\n--- {source} ---")
-                    # Display all metrics, skipping duplicates from overall
+                    point_count = source_metrics.get('point_count', 0)
+                    frame_count = source_metrics.get('frame_count', 0)
+                    pct_of_pred = (point_count / total_pred_points * 100) if total_pred_points > 0 else 0
+                    pct_of_frames = (frame_count / total_gt_frames * 100) if total_gt_frames > 0 else 0
+                    lines.append(f"\n--- {source} ({frame_count} frames, {point_count} points = {pct_of_pred:.1f}% of predictions, {pct_of_frames:.1f}% of GT frames) ---")
+                    # Display only accuracy metrics, skip redundant/internal metrics
+                    skip_keys = {
+                        'Total_Video_Frames', 'Total_GT_Frames', 'Total_GT_Points',
+                        'Total_Pred_Points', 'point_count', 'frame_count',
+                        'Num_Frames_With_GT', 'Avg_GT_Per_Frame', 'Total_Matched_Points',
+                        'False_Negatives', 'False_Positives'
+                    }
                     for key, value in source_metrics.items():
-                        if key not in ['Total_Video_Frames', 'Total_GT_Frames', 'Total_GT_Points']:
+                        if key not in skip_keys:
                             if isinstance(value, float):
                                 lines.append(f"  {key}: {value:.4f}")
                             else:

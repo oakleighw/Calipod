@@ -240,12 +240,9 @@ class MotionTrial:
             "Total_Matched_Points": len(merged_df),
             "False_Negatives": total_false_negatives,
             "False_Positives": total_false_positives,
-            "Num_Frames_With_GT": len(all_frames),
-            "Total_Video_Frames": total_video_frames,
-            "Avg_GT_Per_Frame": total_gt_detections / len(all_frames) if len(all_frames) > 0 else 0,
-            "Avg_Matched_Per_Frame": len(merged_df) / len(all_frames) if len(all_frames) > 0 else 0
+            "Total_Video_Frames": total_video_frames
         }
 
-        logger.get(__name__).info(f"MOTA Debug: GT={total_gt_detections}, Matched={len(merged_df)}, FN={total_false_negatives}, FP={total_false_positives}, Frames_With_GT={len(all_frames)}, Total_Video_Frames={total_video_frames}")
+        logger.get(__name__).info(f"MOTA Debug: GT={total_gt_detections}, Matched={len(merged_df)}, FN={total_false_negatives}, FP={total_false_positives}, Total_Video_Frames={total_video_frames}")
         logger.get(__name__).debug(f"Computed performance metrics: {metrics}")
         return metrics
