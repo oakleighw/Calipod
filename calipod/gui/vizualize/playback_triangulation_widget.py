@@ -593,10 +593,7 @@ class PlaybackTriangulationWidget(QWidget):
             if self.motion_trial is not None and not self.motion_trial.is_empty:
                 metrics = self.motion_trial.performance_metrics()
                 # Convert numpy types to native Python types for JSON serialization
-                metrics = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()}
-                # Keep only accuracy metrics (not False_Negatives/False_Positives)
-                accuracy_keys = {'RMSE_mm', 'MOTP_mm', 'MOTA', 'Median_Error_mm'}
-                overall_metrics = {k: v for k, v in metrics.items() if k in accuracy_keys}
+                overall_metrics = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()}
                 
                 # Compute separate metrics for each measurement source
                 if filtered_csv_path.exists():
@@ -614,9 +611,7 @@ class PlaybackTriangulationWidget(QWidget):
                                 try:
                                     source_metrics = self.motion_trial.performance_metrics()
                                     # Convert numpy types to native Python types
-                                    source_metrics = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in source_metrics.items()}
-                                    # Keep only accuracy metrics
-                                    source_data = {k: v for k, v in source_metrics.items() if k in accuracy_keys}
+                                    source_data = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in source_metrics.items()}
                                     # Add point and frame counts for context
                                     source_data['point_count'] = int(len(source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df))
                                     source_data['frame_count'] = int(source_df['sync_index'].nunique())
@@ -1425,14 +1420,12 @@ class PlaybackTriangulationWidget(QWidget):
         lines.append(f"Total Pred Frames: {int(total_pred_frames)}")
         lines.append(f"Total Pred Fly Points (point_id=0): {int(total_pred_fly_points)}")
         
-        # Show performance metrics (skip internal/redundant metrics)
-        skip_overall_keys = {'Total_Video_Frames', 'Total_GT_Points', 'Total_Pred_Points', 'Total_Matched_Points'}
+        # Show performance metrics
         for key, value in metrics.items():
-            if key not in skip_overall_keys:
-                if isinstance(value, float):
-                    lines.append(f"{key}: {value:.4f}")
-                else:
-                    lines.append(f"{key}: {value}")
+            if isinstance(value, float):
+                lines.append(f"{key}: {value:.4f}")
+            else:
+                lines.append(f"{key}: {value}")
 
         # Add per-source metrics if available
         if metrics_by_source:
@@ -1447,13 +1440,8 @@ class PlaybackTriangulationWidget(QWidget):
                     pct_of_pred = (point_count / total_pred_points * 100) if total_pred_points > 0 else 0
                     pct_of_frames = (frame_count / total_gt_frames * 100) if total_gt_frames > 0 else 0
                     lines.append(f"\n--- {source} ({frame_count} frames, {point_count} points = {pct_of_pred:.1f}% of predictions, {pct_of_frames:.1f}% of GT frames) ---")
-                    # Display only accuracy metrics, skip redundant/internal metrics
-                    skip_keys = {
-                        'Total_Video_Frames', 'Total_GT_Frames', 'Total_GT_Points',
-                        'Total_Pred_Points', 'point_count', 'frame_count',
-                        'Num_Frames_With_GT', 'Avg_GT_Per_Frame', 'Total_Matched_Points',
-                        'False_Negatives', 'False_Positives'
-                    }
+                    # Display accuracy metrics, skip context metrics (point_count, frame_count)
+                    skip_keys = {'point_count', 'frame_count'}
                     for key, value in source_metrics.items():
                         if key not in skip_keys:
                             if isinstance(value, float):

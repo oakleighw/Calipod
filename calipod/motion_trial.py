@@ -226,23 +226,13 @@ class MotionTrial:
         rmse_mm = rmse * 1000
         motp_mm = motp * 1000
         median_error_mm = median_error * 1000
-
-        # Total video frames (unique sync_indices across all point_ids in full GT)
-        total_video_frames = self.xyz_df['sync_index'].nunique()
         
         metrics = {
             "RMSE_mm": rmse_mm,
             "MOTP_mm": motp_mm,
             "MOTA": mota,
-            "Median_Error_mm": median_error_mm,
-            "Total_GT_Points": total_gt_detections,
-            "Total_Pred_Points": len(self.predictions_df),
-            "Total_Matched_Points": len(merged_df),
-            "False_Negatives": total_false_negatives,
-            "False_Positives": total_false_positives,
-            "Total_Video_Frames": total_video_frames
+            "Median_Error_mm": median_error_mm
         }
 
-        logger.get(__name__).info(f"MOTA Debug: GT={total_gt_detections}, Matched={len(merged_df)}, FN={total_false_negatives}, FP={total_false_positives}, Total_Video_Frames={total_video_frames}")
-        logger.get(__name__).debug(f"Computed performance metrics: {metrics}")
+        logger.get(__name__).debug(f"Computed performance metrics: RMSE={rmse_mm:.2f}mm, MOTP={motp_mm:.2f}mm, MOTA={mota:.4f}")
         return metrics
