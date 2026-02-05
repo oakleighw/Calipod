@@ -344,6 +344,9 @@ class PlaybackTriangulationWidget(QWidget):
         self.compute_metrics_button = QPushButton("Compute Performance Metrics")
         self.toggle_filtered_button = QPushButton("Use Filtered Track")
         self.toggle_filtered_button.setCheckable(True)
+        
+        # Reference to hybrid checkbox (will be set from post_processing_widget)
+        self.use_hybrid_bgs = None  # Will be assigned the checkbox from post_processing_widget
 
         # Defaults for video and filtering - will be set from video when loaded
         self.video_framerate = 100  # Initial default, updated when video is loaded
@@ -396,6 +399,14 @@ class PlaybackTriangulationWidget(QWidget):
         # Checkbox for gap-fill only mode
         from PySide6.QtWidgets import QCheckBox
         self.gap_fill_only_checkbox = QCheckBox("Gap-fill only (don't smooth existing)")
+        
+        # Checkbox for extending filtered track using available measurements (BGS or continuity)
+        self.extend_filtered_track_checkbox = QCheckBox("Extend filter past predictions (using BGS/continuity)")
+        self.extend_filtered_track_checkbox.setToolTip(
+            "If enabled, extends Kalman filter predictions beyond where YOLO data ends, "
+            "using BGS measurements (if available) or filter continuity to fill remaining ground truth frames."
+        )
+        self.extend_filtered_track = False
 
         # Spinboxes for filter start/end frames
         self.filter_start_spin = QSpinBox()
@@ -462,13 +473,31 @@ class PlaybackTriangulationWidget(QWidget):
         filter_row.addWidget(self.gate_distance_label)
         filter_row.addWidget(QLabel("Max dist"))
         filter_row.addWidget(self.max_distance_spin)
-        filter_row.addWidget(self.gap_fill_only_checkbox)
-        filter_row.addWidget(QLabel("Start frame"))
-        filter_row.addWidget(self.filter_start_spin)
-        filter_row.addWidget(QLabel("End frame"))
-        filter_row.addWidget(self.filter_end_spin)
         filter_row.addStretch()
         self.layout().addLayout(filter_row)
+        
+        # Additional filter options row (gap-fill, frame range, extend, and hybrid mode)
+        filter_options_row = QHBoxLayout()
+        filter_options_row.addWidget(self.gap_fill_only_checkbox)
+        filter_options_row.addWidget(QLabel("Start frame"))
+        filter_options_row.addWidget(self.filter_start_spin)
+        filter_options_row.addWidget(QLabel("End frame"))
+        filter_options_row.addWidget(self.filter_end_spin)
+        filter_options_row.addWidget(self.extend_filtered_track_checkbox)
+        
+        # Add hybrid checkbox if available (will be set from post_processing_widget)
+        if self.use_hybrid_bgs is not None:
+            filter_options_row.addWidget(self.use_hybrid_bgs)
+        
+        filter_options_row.addStretch()
+        self.filter_options_layout = filter_options_row  # Store reference for updating later
+        self.layout().addLayout(filter_options_row)
+
+    def update_filter_options_row(self):
+        """Update filter options row to include hybrid checkbox after it's been assigned."""
+        if self.use_hybrid_bgs is not None and self.filter_options_layout.count() <= 8:
+            # Insert hybrid checkbox before the stretch
+            self.filter_options_layout.insertWidget(self.filter_options_layout.count() - 1, self.use_hybrid_bgs)
 
 
     def _update_gate_label(self, value: int):
@@ -1170,10 +1199,11 @@ class PlaybackTriangulationWidget(QWidget):
                 self.kalman_measurement_noise_std = float(self.meas_noise_spin.value()) / 1000.0  # mm -> m
                 self.kalman_fps_override = int(self.fps_spin.value()) if self.fps_spin.value() > 0 else None
                 self.gap_fill_only = self.gap_fill_only_checkbox.isChecked()
+                self.extend_filtered_track = self.extend_filtered_track_checkbox.isChecked()
                 self.gate_distance_sigma = float(self.gate_distance_slider.value()) / 10.0
                 self.max_distance_threshold = float(self.max_distance_spin.value())  # mm
 
-                msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, max_dist={self.max_distance_threshold:.1f}mm, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'})"
+                msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, max_dist={self.max_distance_threshold:.1f}mm, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'}, extend_past_pred={'yes' if self.extend_filtered_track else 'no'})"
                 logger.info(msg)
                 print(msg)  # Ensure it shows in console
                 
@@ -1252,10 +1282,13 @@ class PlaybackTriangulationWidget(QWidget):
         # Note: visualization refresh already happened above for both checked and unchecked cases
 
     def _compute_filtered_predictions(self, use_hybrid: bool = False) -> Optional[pd.DataFrame]:
-        """Apply a Apply an RTS (Forward-Backward) CV Kalman filter to point_id==0 predictions, filling gaps and smoothing.
+        """Apply an RTS (Forward-Backward) CV Kalman filter to point_id==0 predictions, filling gaps and smoothing.
         
         If use_hybrid=True and BGS predictions available, select best measurement (YOLO or BGS) 
         at each frame based on which is closest to the Kalman predicted position.
+        
+        If self.extend_filtered_track=True, extends filtering beyond the YOLO prediction range
+        using available BGS measurements or filter continuity to reach the ground truth end frame.
         
         Other point_ids from the original predictions are preserved unchanged.
         Returns a DataFrame with the same schema as predictions:
@@ -1271,9 +1304,27 @@ class PlaybackTriangulationWidget(QWidget):
             return None
 
         fly_df = fly_df.sort_values("sync_index")
-        # Use prediction frame range, not ground truth, to prevent filtering past the end of base predictions
+        # Use prediction frame range, potentially extended if option is enabled
         pred_fly_frames = fly_df['sync_index'].unique()
         frames = sorted(pred_fly_frames)
+        
+        # Determine the ground truth end frame from available sources
+        ground_truth_end = None
+        if self._session_end_frame is not None:
+            ground_truth_end = self._session_end_frame
+        elif self.motion_trial is not None and hasattr(self.motion_trial, 'end_index'):
+            ground_truth_end = self.motion_trial.end_index
+        
+        # If extend option enabled, expand frame range to include ground truth frames beyond predictions
+        if self.extend_filtered_track and ground_truth_end is not None:
+            pred_max = frames[-1] if frames else 0
+            if ground_truth_end > pred_max:
+                logger.info(f"Extending filter from prediction end frame {pred_max} to ground truth end frame {ground_truth_end}")
+                frames = list(range(frames[0], ground_truth_end + 1))
+            else:
+                logger.info(f"Ground truth ends at {ground_truth_end}, already within prediction range {pred_max}")
+        elif self.extend_filtered_track:
+            logger.warning("Extend filter option enabled but ground truth end frame not available; using prediction range only")
         
         # Apply optional start/end frame filtering only if explicitly set
         start_frame = self.filter_start_spin.value()

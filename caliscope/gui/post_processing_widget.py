@@ -70,6 +70,7 @@ class PostProcessingWidget(QWidget):
         
         # Pass reference to hybrid mode checkbox to visualizer
         self.vis_widget.use_hybrid_bgs = self.use_hybrid_filtering_checkbox
+        self.vis_widget.update_filter_options_row()  # Rebuild filter options row with hybrid checkbox
         
         self.refresh_visualizer()  # must happen before placement to create vis_widget and vizualizer_title
         self.place_widgets()
@@ -198,8 +199,6 @@ class PostProcessingWidget(QWidget):
         self.button_hbox.addWidget(self.process_current_btn)
         self.button_hbox.addWidget(self.generate_metarig_config_btn)
         self.left_vbox.addLayout(self.button_hbox)
-        self.left_vbox.addWidget(QLabel("Filtering Options:"))
-        self.left_vbox.addWidget(self.use_hybrid_filtering_checkbox)
 
         self.layout().addLayout(self.right_vbox, stretch=2)
         self.right_vbox.addWidget(self.vizualizer_title)
