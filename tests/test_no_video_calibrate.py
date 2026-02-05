@@ -1,6 +1,6 @@
-import caliscope.logger
+import calipod.logger
 
-logger = caliscope.logger.get(__name__)
+logger = calipod.logger.get(__name__)
 
 
 def test_no_video_calibrate():

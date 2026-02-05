@@ -4,16 +4,16 @@ from time import sleep
 
 import numpy as np
 
-import caliscope.logger
-from caliscope import __root__
-from caliscope.calibration.charuco import Charuco
-from caliscope.calibration.intrinsic_calibrator import IntrinsicCalibrator
-from caliscope.cameras.camera_array import CameraData
-from caliscope.helper import copy_contents
-from caliscope.recording.recorded_stream import RecordedStream
-from caliscope.trackers.charuco_tracker import CharucoTracker
+import calipod.logger
+from calipod import __root__
+from calipod.calibration.charuco import Charuco
+from calipod.calibration.intrinsic_calibrator import IntrinsicCalibrator
+from calipod.cameras.camera_array import CameraData
+from calipod.helper import copy_contents
+from calipod.recording.recorded_stream import RecordedStream
+from calipod.trackers.charuco_tracker import CharucoTracker
 
-logger = caliscope.logger.get(__name__)
+logger = calipod.logger.get(__name__)
 
 
 def test_intrinsic_calibrator():

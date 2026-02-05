@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "caliscope"
+name = "calipod"
 version = "0.6.1"
-description = "GUI based multicamera calibration that integrates with 2D landmark tracking to triangulate 3D landmark positions"
-authors = ["Mac Prible <prible@gmail.com>"]
+description = "Calipod - An insect tracking GUI. Developed from Caliscope- a GUI based multicamera calibration that integrates with 2D landmark tracking to triangulate 3D landmark positions"
+authors = ["Oakleigh Weekes <oweekes1@sheffield.ac.uk>", "Mac Prible <prible@gmail.com>"]
 license = "BSD-2-Clause"
 readme = "README.md"
 
@@ -34,13 +34,13 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.urls]
-repository = "https://github.com/mprib/caliscope"
+repository = "https://github.com/oakleighw/Calipod"
 
 [tool.poetry.scripts]
-caliscope = "caliscope.__main__:CLI_parser"
+calipod = "calipod.__main__:CLI_parser"
 
 [tool.setuptools_scm]
-write_to = "caliscope/_version.py"
+write_to = "calipod/_version.py"
 
 
 [tool.ruff]

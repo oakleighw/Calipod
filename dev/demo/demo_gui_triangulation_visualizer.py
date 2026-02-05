@@ -1,9 +1,9 @@
 from PySide6.QtWidgets import QApplication
 import sys
 from pathlib import Path
-from caliscope.controller import Controller
-from caliscope.gui.vizualize.playback_triangulation_widget import PlaybackTriangulationWidget
-from caliscope.trackers.holistic.holistic_tracker import HolisticTracker
+from calipod.controller import Controller
+from calipod.gui.vizualize.playback_triangulation_widget import PlaybackTriangulationWidget
+from calipod.trackers.holistic.holistic_tracker import HolisticTracker
 
 app = QApplication(sys.argv)
 workspace_dir = Path(

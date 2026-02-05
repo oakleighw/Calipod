@@ -3,11 +3,11 @@
 
 # Calipod
 
-*Multicamera Planning, Calibration & Triangulation Gui for Insect Tracking, Derived from Caliscope -  Open Source Motion Capture*
+*Multicamera Planning, Calibration & Triangulation Gui for Insect Tracking, Derived from Caliscope - Open Source Motion Capture*
 
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/caliscope?color=blue)](https://pypi.org/project/caliscope/)
-[![PyPI - License](https://img.shields.io/pypi/l/caliscope?color=blue)](https://opensource.org/license/bsd-2-clause/)
-[![PyPI - Version](https://img.shields.io/pypi/v/caliscope?color=blue)](https://pypi.org/project/caliscope/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/calipod?color=blue)](https://pypi.org/project/calipod/)
+[![PyPI - License](https://img.shields.io/pypi/l/calipod?color=blue)](https://opensource.org/license/bsd-2-clause/)
+[![PyPI - Version](https://img.shields.io/pypi/v/calipod?color=blue)](https://pypi.org/project/calipod/)
 [![GitHub last commit](https://img.shields.io/github/last-commit/mprib/caliscope.svg)](https://github.com/mprib/caliscope/commits)
 [![GitHub stars](https://img.shields.io/github/stars/mprib/caliscope.svg?style=social&label=Star)](https://github.com/mprib/caliscope/stargazers)
 ![pytest](https://github.com/mprib/caliscope/actions/workflows/pytest.yml/badge.svg)

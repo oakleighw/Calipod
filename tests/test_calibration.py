@@ -1,24 +1,24 @@
 from pathlib import Path
 from time import sleep
 
-import caliscope.logger
-from caliscope import __root__
-from caliscope.calibration.capture_volume.capture_volume import CaptureVolume
-from caliscope.calibration.capture_volume.helper_functions.get_point_estimates import (
+import calipod.logger
+from calipod import __root__
+from calipod.calibration.capture_volume.capture_volume import CaptureVolume
+from calipod.calibration.capture_volume.helper_functions.get_point_estimates import (
     get_point_estimates,
 )
-from caliscope.calibration.capture_volume.point_estimates import PointEstimates
-from caliscope.calibration.capture_volume.quality_controller import QualityController
-from caliscope.calibration.stereocalibrator import StereoCalibrator
-from caliscope.cameras.camera_array import CameraArray
-from caliscope.cameras.camera_array_initializer import CameraArrayInitializer
-from caliscope.configurator import Configurator
-from caliscope.controller import FILTERED_FRACTION
-from caliscope.helper import copy_contents
-from caliscope.synchronized_stream_manager import SynchronizedStreamManager
-from caliscope.trackers.charuco_tracker import CharucoTracker
+from calipod.calibration.capture_volume.point_estimates import PointEstimates
+from calipod.calibration.capture_volume.quality_controller import QualityController
+from calipod.calibration.stereocalibrator import StereoCalibrator
+from calipod.cameras.camera_array import CameraArray
+from calipod.cameras.camera_array_initializer import CameraArrayInitializer
+from calipod.configurator import Configurator
+from calipod.controller import FILTERED_FRACTION
+from calipod.helper import copy_contents
+from calipod.synchronized_stream_manager import SynchronizedStreamManager
+from calipod.trackers.charuco_tracker import CharucoTracker
 
-logger = caliscope.logger.get(__name__)
+logger = calipod.logger.get(__name__)
 
 
 def test_xy_charuco_creation():

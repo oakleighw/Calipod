@@ -1,7 +1,7 @@
 # %%
 from plotnine import *
 
-# from caliscope.logger import get
+# from calipod.logger import get
 # logger = get(__name__)
 import polars as pl
 from pathlib import Path

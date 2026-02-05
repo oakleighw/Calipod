@@ -1,17 +1,17 @@
 from PySide6.QtWidgets import QApplication
 import sys
 
-from caliscope.gui.synched_frames_display import SynchedFramesDisplay
-from caliscope.controller import Controller
+from calipod.gui.synched_frames_display import SynchedFramesDisplay
+from calipod.controller import Controller
 
 from pathlib import Path
 
-from caliscope import __root__
-from caliscope.helper import copy_contents
-import caliscope.logger
+from calipod import __root__
+from calipod.helper import copy_contents
+import calipod.logger
 from time import sleep
 
-logger = caliscope.logger.get(__name__)
+logger = calipod.logger.get(__name__)
 app = QApplication(sys.argv)
 # Define the input file path here.
 original_workspace_dir = Path(__root__, "tests", "sessions", "mediapipe_calibration")
