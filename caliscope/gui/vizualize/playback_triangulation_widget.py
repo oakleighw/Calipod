@@ -357,9 +357,15 @@ class PlaybackTriangulationWidget(QWidget):
         self.kalman_fps_override: Optional[int] = None
         self.gap_fill_only = False  # If True, only interpolate missing frames; if False, smooth all
         self.gate_distance_sigma = 3.0  # Mahalanobis distance gating threshold in sigma (standard deviations)
-        self.max_distance_threshold = 500.0  # Fixed distance gating threshold in mm (hybrid gating)
+        self.max_distance_threshold = 10.0  # Fixed distance gating threshold in mm (hybrid gating)
         self.filter_start_frame: Optional[int] = None  # Optional start frame for filtering
         self.filter_end_frame: Optional[int] = None  # Optional end frame for filtering
+        
+        # BGS-specific filter parameters (for extended frames with only BGS measurements)
+        self.bgs_kalman_process_noise_scale = 0.05  # Can be tuned differently than YOLO
+        self.bgs_kalman_measurement_noise_std = 0.003  # meters (slightly higher than YOLO for noisy BGS)
+        self.bgs_gate_distance_sigma = 3.0
+        self.bgs_max_distance_threshold = 10.0
 
         # UI controls for filter params
         self.process_noise_spin = QDoubleSpinBox()
@@ -411,13 +417,50 @@ class PlaybackTriangulationWidget(QWidget):
         # Spinboxes for filter start/end frames
         self.filter_start_spin = QSpinBox()
         self.filter_start_spin.setRange(0, 999999)
-        self.filter_start_spin.setMaximumWidth(100)
+        self.filter_start_spin.setMinimumWidth(80)
+        self.filter_start_spin.setMaximumWidth(150)
         self.filter_start_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
         self.filter_end_spin = QSpinBox()
         self.filter_end_spin.setRange(0, 999999)
-        self.filter_end_spin.setMaximumWidth(100)
+        self.filter_end_spin.setMinimumWidth(80)
+        self.filter_end_spin.setMaximumWidth(150)
         self.filter_end_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+
+        # BGS-specific filter parameter controls (disabled until hybrid mode is enabled)
+        self.bgs_process_noise_spin = QDoubleSpinBox()
+        self.bgs_process_noise_spin.setRange(0.0001, 10.0)
+        self.bgs_process_noise_spin.setSingleStep(0.01)
+        self.bgs_process_noise_spin.setDecimals(4)
+        self.bgs_process_noise_spin.setValue(self.bgs_kalman_process_noise_scale)
+        self.bgs_process_noise_spin.setEnabled(False)
+
+        self.bgs_meas_noise_spin = QDoubleSpinBox()
+        self.bgs_meas_noise_spin.setRange(0.01, 100.0)
+        self.bgs_meas_noise_spin.setSingleStep(0.1)
+        self.bgs_meas_noise_spin.setDecimals(3)
+        self.bgs_meas_noise_spin.setSuffix(" mm")
+        self.bgs_meas_noise_spin.setValue(self.bgs_kalman_measurement_noise_std * 1000.0)
+        self.bgs_meas_noise_spin.setEnabled(False)
+
+        self.bgs_gate_distance_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bgs_gate_distance_slider.setRange(0, 100)  # 0 to 10.0 sigma (divide by 10)
+        self.bgs_gate_distance_slider.setValue(int(self.bgs_gate_distance_sigma * 10))
+        self.bgs_gate_distance_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.bgs_gate_distance_slider.setTickInterval(10)  # Tick every 1.0 sigma
+        self.bgs_gate_distance_slider.setMaximumWidth(150)
+        self.bgs_gate_distance_slider.setEnabled(False)
+        
+        self.bgs_gate_distance_label = QLabel(f"{self.bgs_gate_distance_sigma:.1f}σ")
+        self.bgs_gate_distance_slider.valueChanged.connect(self._update_bgs_gate_label)
+
+        self.bgs_max_distance_spin = QDoubleSpinBox()
+        self.bgs_max_distance_spin.setRange(0.1, 5000.0)
+        self.bgs_max_distance_spin.setSingleStep(10.0)
+        self.bgs_max_distance_spin.setDecimals(1)
+        self.bgs_max_distance_spin.setSuffix(" mm")
+        self.bgs_max_distance_spin.setValue(self.bgs_max_distance_threshold)
+        self.bgs_max_distance_spin.setEnabled(False)
 
         # Label to display detected video FPS
         self.video_fps_label = QLabel("Video FPS: --")
@@ -492,18 +535,49 @@ class PlaybackTriangulationWidget(QWidget):
         filter_options_row.addStretch()
         self.filter_options_layout = filter_options_row  # Store reference for updating later
         self.layout().addLayout(filter_options_row)
+        
+        # BGS-specific filter parameters row (only enabled when hybrid mode is active)
+        bgs_filter_row = QHBoxLayout()
+        bgs_filter_row.addWidget(QLabel("BGS Filter Params (YOLO+BGS only):"))
+        bgs_filter_row.addWidget(QLabel("Proc noise"))
+        bgs_filter_row.addWidget(self.bgs_process_noise_spin)
+        bgs_filter_row.addWidget(QLabel("Meas noise"))
+        bgs_filter_row.addWidget(self.bgs_meas_noise_spin)
+        bgs_filter_row.addWidget(QLabel("Gate (σ)"))
+        bgs_filter_row.addWidget(self.bgs_gate_distance_slider)
+        bgs_filter_row.addWidget(self.bgs_gate_distance_label)
+        bgs_filter_row.addWidget(QLabel("Max dist"))
+        bgs_filter_row.addWidget(self.bgs_max_distance_spin)
+        bgs_filter_row.addStretch()
+        self.bgs_filter_row_layout = bgs_filter_row  # Store reference for enabling/disabling
+        self.layout().addLayout(bgs_filter_row)
 
     def update_filter_options_row(self):
         """Update filter options row to include hybrid checkbox after it's been assigned."""
         if self.use_hybrid_bgs is not None and self.filter_options_layout.count() <= 8:
             # Insert hybrid checkbox before the stretch
             self.filter_options_layout.insertWidget(self.filter_options_layout.count() - 1, self.use_hybrid_bgs)
+            # Connect hybrid checkbox to enable/disable BGS filter row
+            self.use_hybrid_bgs.stateChanged.connect(self._toggle_bgs_filter_row)
+    
+    def _toggle_bgs_filter_row(self):
+        """Enable/disable BGS filter parameter row based on hybrid checkbox state."""
+        is_hybrid_enabled = self.use_hybrid_bgs.isChecked() if self.use_hybrid_bgs is not None else False
+        self.bgs_process_noise_spin.setEnabled(is_hybrid_enabled)
+        self.bgs_meas_noise_spin.setEnabled(is_hybrid_enabled)
+        self.bgs_gate_distance_slider.setEnabled(is_hybrid_enabled)
+        self.bgs_max_distance_spin.setEnabled(is_hybrid_enabled)
 
 
     def _update_gate_label(self, value: int):
         """Update gate distance label when slider changes."""
         sigma = value / 10.0
         self.gate_distance_label.setText(f"{sigma:.1f}σ")
+
+    def _update_bgs_gate_label(self, value: int):
+        """Update BGS gate distance label when slider changes."""
+        sigma = value / 10.0
+        self.bgs_gate_distance_label.setText(f"{sigma:.1f}σ")
 
     def connect_widgets(self):
         self.slider.valueChanged.connect(self.visualizer.display_points)
@@ -1191,8 +1265,14 @@ class PlaybackTriangulationWidget(QWidget):
                 if pred_df is not None and not pred_df.empty:
                     min_frame = int(pred_df['sync_index'].min())
                     max_frame = int(pred_df['sync_index'].max())
-                    self.filter_start_spin.setRange(0, max_frame)
-                    self.filter_end_spin.setRange(0, max_frame)
+                    
+                    # Allow spinbox range to extend to ground truth end if available (for extend filter logic)
+                    spinbox_max = max_frame
+                    if self.motion_trial is not None and hasattr(self.motion_trial, 'end_index'):
+                        spinbox_max = max(max_frame, self.motion_trial.end_index)
+                    
+                    self.filter_start_spin.setRange(0, spinbox_max)
+                    self.filter_end_spin.setRange(0, spinbox_max)
                 
                 # Capture UI parameter values
                 self.kalman_process_noise_scale = float(self.process_noise_spin.value())
@@ -1202,6 +1282,12 @@ class PlaybackTriangulationWidget(QWidget):
                 self.extend_filtered_track = self.extend_filtered_track_checkbox.isChecked()
                 self.gate_distance_sigma = float(self.gate_distance_slider.value()) / 10.0
                 self.max_distance_threshold = float(self.max_distance_spin.value())  # mm
+                
+                # Capture BGS-specific parameters
+                self.bgs_kalman_process_noise_scale = float(self.bgs_process_noise_spin.value())
+                self.bgs_kalman_measurement_noise_std = float(self.bgs_meas_noise_spin.value()) / 1000.0  # mm -> m
+                self.bgs_gate_distance_sigma = float(self.bgs_gate_distance_slider.value()) / 10.0
+                self.bgs_max_distance_threshold = float(self.bgs_max_distance_spin.value())  # mm
 
                 msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, max_dist={self.max_distance_threshold:.1f}mm, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'}, extend_past_pred={'yes' if self.extend_filtered_track else 'no'})"
                 logger.info(msg)
@@ -1447,8 +1533,18 @@ class PlaybackTriangulationWidget(QWidget):
                     mahal_dist = np.sqrt(y_res @ S_inv @ y_res)
                     euclidean_dist_mm = np.linalg.norm(y_res) * 1000.0
                     
-                    mahal_pass = mahal_dist <= self.gate_distance_sigma
-                    dist_pass = euclidean_dist_mm <= self.max_distance_threshold
+                    # Use BGS-specific gating thresholds if this is a BGS-only measurement
+                    if z_source == 'BGS' and frame not in measurements:
+                        # BGS-only frame: use BGS-specific thresholds
+                        mahal_threshold = self.bgs_gate_distance_sigma
+                        dist_threshold = self.bgs_max_distance_threshold
+                    else:
+                        # YOLO frame (or hybrid with YOLO): use standard thresholds
+                        mahal_threshold = self.gate_distance_sigma
+                        dist_threshold = self.max_distance_threshold
+                    
+                    mahal_pass = mahal_dist <= mahal_threshold
+                    dist_pass = euclidean_dist_mm <= dist_threshold
                     
                     if mahal_pass and dist_pass:
                         K = P_p @ H.T @ S_inv
