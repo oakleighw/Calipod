@@ -1403,8 +1403,22 @@ class PlaybackTriangulationWidget(QWidget):
         # Build metrics text
         lines = []
         lines.append(f"[Using {pred_source.upper()} predictions]")
+        
+        # Debug: Show extend and frame range info
+        extend_enabled = getattr(self, 'extend_filtered_track', False)
+        lines.append(f"[Extend filter: {'ON' if extend_enabled else 'OFF'}]")
+        
+        pred_min_frame = self.motion_trial.predictions_df['sync_index'].min() if not self.motion_trial.predictions_df.empty else 0
+        pred_max_frame = self.motion_trial.predictions_df['sync_index'].max() if not self.motion_trial.predictions_df.empty else 0
+        gt_min_frame = self.motion_trial.xyz_df['sync_index'].min() if not self.motion_trial.xyz_df.empty else 0
+        gt_max_frame = self.motion_trial.xyz_df['sync_index'].max() if not self.motion_trial.xyz_df.empty else 0
+        lines.append(f"[Pred frame range: {int(pred_min_frame)}-{int(pred_max_frame)} | GT frame range: {int(gt_min_frame)}-{int(gt_max_frame)}]")
         lines.append("")
         lines.append("=== OVERALL METRICS ===")
+        
+        # Get start/end frame filtering from spinboxes
+        start_frame = self.filter_start_spin.value()
+        end_frame = self.filter_end_spin.value()
         
         # Show frame and point counts for both GT and predictions
         total_gt_frames = self.motion_trial.xyz_df['sync_index'].nunique() if not self.motion_trial.xyz_df.empty else 0
@@ -1415,7 +1429,30 @@ class PlaybackTriangulationWidget(QWidget):
         pred_fly_df = self.motion_trial.predictions_df[self.motion_trial.predictions_df['point_id'] == 0] if not self.motion_trial.predictions_df.empty else pd.DataFrame()
         total_pred_frames = pred_fly_df['sync_index'].nunique() if not pred_fly_df.empty else 0
         total_pred_fly_points = len(pred_fly_df) if not pred_fly_df.empty else 0
-        lines.append(f"Total GT Frames: {int(total_gt_frames)}")
+        
+        # Apply frame range filtering for percentage calculations
+        gt_df_for_range = self.motion_trial.xyz_df
+        if start_frame > 0 or end_frame > 0:
+            if start_frame > 0:
+                gt_df_for_range = gt_df_for_range[gt_df_for_range['sync_index'] >= start_frame]
+            if end_frame > 0:
+                gt_df_for_range = gt_df_for_range[gt_df_for_range['sync_index'] <= end_frame]
+        
+        # Count GT frames that actually have the tracked fly (point_id == 0)
+        gt_fly_df_in_range = gt_df_for_range[gt_df_for_range['point_id'] == 0] if not gt_df_for_range.empty else pd.DataFrame()
+        total_gt_frames_in_range = gt_fly_df_in_range['sync_index'].nunique() if not gt_fly_df_in_range.empty else 0
+        
+        # Display frame ranges
+        if start_frame > 0 or end_frame > 0:
+            range_str = f" (frames {start_frame}" if start_frame > 0 else " (all start"
+            if end_frame > 0:
+                range_str += f" to {end_frame})"
+            else:
+                range_str += " onward)"
+            lines.append(f"Total GT Frames with fly point{range_str}: {int(total_gt_frames_in_range)}")
+        else:
+            lines.append(f"Total GT Frames with fly point: {int(total_gt_frames_in_range)}")
+        
         lines.append(f"Total GT Fly Points (point_id=0): {int(total_gt_fly_points)}")
         lines.append(f"Total Pred Frames: {int(total_pred_frames)}")
         lines.append(f"Total Pred Fly Points (point_id=0): {int(total_pred_fly_points)}")
@@ -1431,6 +1468,11 @@ class PlaybackTriangulationWidget(QWidget):
         if metrics_by_source:
             lines.append("")
             lines.append("=== METRICS BY MEASUREMENT SOURCE ===")
+            # Add clarification about which GT frames are being used for percentages
+            if start_frame > 0 or end_frame > 0:
+                lines.append(f"(% based on GT frames with fly point in range {start_frame}-{end_frame}: {int(total_gt_frames_in_range)} frames)")
+            else:
+                lines.append(f"(% based on GT frames with fly point in entire video: {int(total_gt_frames_in_range)} frames)")
             total_pred_points = total_pred_fly_points if total_pred_fly_points > 0 else 1  # Avoid division by zero
             for source in ['YOLO', 'BGS', 'filter_only']:
                 if source in metrics_by_source:
@@ -1438,7 +1480,7 @@ class PlaybackTriangulationWidget(QWidget):
                     point_count = source_metrics.get('point_count', 0)
                     frame_count = source_metrics.get('frame_count', 0)
                     pct_of_pred = (point_count / total_pred_points * 100) if total_pred_points > 0 else 0
-                    pct_of_frames = (frame_count / total_gt_frames * 100) if total_gt_frames > 0 else 0
+                    pct_of_frames = (frame_count / total_gt_frames_in_range * 100) if total_gt_frames_in_range > 0 else 0
                     lines.append(f"\n--- {source} ({frame_count} frames, {point_count} points = {pct_of_pred:.1f}% of predictions, {pct_of_frames:.1f}% of GT frames) ---")
                     # Display accuracy metrics, skip context metrics (point_count, frame_count)
                     skip_keys = {'point_count', 'frame_count'}
