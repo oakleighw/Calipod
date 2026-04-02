@@ -671,10 +671,28 @@ class PlaybackTriangulationWidget(QWidget):
         """Load filter metadata from JSON file if available."""
         import json
         # Look for metadata file next to the filtered CSV
-        if self.filtered_predictions_path is None:
+        filtered_pred_path = self.filtered_predictions_path
+        
+        # If filtered_predictions_path not set, try to auto-detect it based on motion_trial predictions path
+        if filtered_pred_path is None and self.motion_trial is not None and self.motion_trial.predictions_csv is not None:
+            pred_path = Path(self.motion_trial.predictions_csv)
+            # Try common filtered prediction naming patterns
+            if pred_path.exists():
+                parent = pred_path.parent
+                stem = pred_path.stem
+                # Look for *_filtered pattern
+                if "_predictions" in stem and not "_predictions_filtered" in stem:
+                    filtered_stem = stem.replace("_predictions", "_predictions_filtered")
+                    potential_path = parent / f"{filtered_stem}.csv"
+                    if potential_path.exists():
+                        filtered_pred_path = potential_path
+                        self.filtered_predictions_path = filtered_pred_path
+                        logger.debug(f"Auto-detected filtered predictions path: {filtered_pred_path}")
+        
+        if filtered_pred_path is None:
             return
         
-        metadata_path = self.filtered_predictions_path.with_stem(self.filtered_predictions_path.stem + "_metadata")
+        metadata_path = filtered_pred_path.with_stem(filtered_pred_path.stem + "_metadata")
         metadata_path = metadata_path.with_suffix(".json")
         
         if not metadata_path.exists():
