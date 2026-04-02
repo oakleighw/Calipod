@@ -129,11 +129,15 @@ class MotionTrial:
         else:
             logger.get(__name__).debug(f"Skipping wireframe update for sync index {sync_index}: self.wireframe is None (no tracker or no wireframe for tracker).")
 
-    def performance_metrics(self) -> dict:
+    def performance_metrics(self, start_index: Optional[int] = None, end_index: Optional[int] = None) -> dict:
         """
         Computes performance metrics if predictions are available.
         Returns an empty dictionary if no predictions are loaded.
         Only single object class & instance capability implemented for now.
+        
+        Args:
+            start_index: Optional start frame index (inclusive). If None, starts from first frame.
+            end_index: Optional end frame index (inclusive). If None, ends at last frame.
         
         Metrics:
         - RMSE: Root Mean Square Error - squares errors so penalizes large errors more (mm)
@@ -145,19 +149,34 @@ class MotionTrial:
             logger.get(__name__).debug("No predictions loaded; returning empty performance metrics.")
             return {}
 
+        # Filter data to frame range if specified
+        xyz_df_filtered = self.xyz_df
+        pred_df_filtered = self.predictions_df
+        
+        if start_index is not None or end_index is not None:
+            if start_index is not None and end_index is not None:
+                xyz_df_filtered = self.xyz_df[(self.xyz_df['sync_index'] >= start_index) & (self.xyz_df['sync_index'] <= end_index)]
+                pred_df_filtered = self.predictions_df[(self.predictions_df['sync_index'] >= start_index) & (self.predictions_df['sync_index'] <= end_index)]
+            elif start_index is not None:
+                xyz_df_filtered = self.xyz_df[self.xyz_df['sync_index'] >= start_index]
+                pred_df_filtered = self.predictions_df[self.predictions_df['sync_index'] >= start_index]
+            else:  # end_index is not None
+                xyz_df_filtered = self.xyz_df[self.xyz_df['sync_index'] <= end_index]
+                pred_df_filtered = self.predictions_df[self.predictions_df['sync_index'] <= end_index]
+
         # Debug: Check data structure
-        logger.get(__name__).info(f"xyz_df shape: {self.xyz_df.shape}, columns: {list(self.xyz_df.columns)[:5]}")
-        logger.get(__name__).info(f"predictions_df shape: {self.predictions_df.shape}, columns: {list(self.predictions_df.columns)[:5]}")
-        if 'point_id' in self.xyz_df.columns:
-            logger.get(__name__).info(f"GT unique point_ids: {sorted(self.xyz_df['point_id'].unique())}")
-        if 'point_id' in self.predictions_df.columns:
-            logger.get(__name__).info(f"Pred unique point_ids: {sorted(self.predictions_df['point_id'].unique())}")
+        logger.get(__name__).info(f"xyz_df shape: {xyz_df_filtered.shape}, columns: {list(xyz_df_filtered.columns)[:5]}")
+        logger.get(__name__).info(f"predictions_df shape: {pred_df_filtered.shape}, columns: {list(pred_df_filtered.columns)[:5]}")
+        if 'point_id' in xyz_df_filtered.columns:
+            logger.get(__name__).info(f"GT unique point_ids: {sorted(xyz_df_filtered['point_id'].unique())}")
+        if 'point_id' in pred_df_filtered.columns:
+            logger.get(__name__).info(f"Pred unique point_ids: {sorted(pred_df_filtered['point_id'].unique())}")
 
         # Merge ground truth and predictions on sync_index and point_id
         # Filters to only those points present in both ground truth and predictions (does not include false positives/negatives)
         merged_df = pd.merge(
-            self.xyz_df,
-            self.predictions_df,
+            xyz_df_filtered,
+            pred_df_filtered,
             on=["sync_index", "point_id"],
             suffixes=('_gt', '_pred')
         )
@@ -188,14 +207,14 @@ class MotionTrial:
         # MOTA measures detection accuracy, not distance accuracy
         # Filter GT to only point_ids that exist in predictions (to compare apples-to-apples)
         # Example: if predictions only track point_id 0, don't count missing point_ids 1-10 as false negatives
-        relevant_point_ids = self.predictions_df['point_id'].unique()
-        gt_filtered = self.xyz_df[self.xyz_df['point_id'].isin(relevant_point_ids)]
+        relevant_point_ids = pred_df_filtered['point_id'].unique()
+        gt_filtered = xyz_df_filtered[xyz_df_filtered['point_id'].isin(relevant_point_ids)]
         
-        logger.get(__name__).info(f"Filtered GT from {len(self.xyz_df)} to {len(gt_filtered)} rows (only point_ids: {sorted(relevant_point_ids)})")
+        logger.get(__name__).info(f"Filtered GT from {len(xyz_df_filtered)} to {len(gt_filtered)} rows (only point_ids: {sorted(relevant_point_ids)})")
         
         # Count detections per frame (only for relevant point_ids)
         gt_counts_per_frame = gt_filtered.groupby('sync_index').size()
-        pred_counts_per_frame = self.predictions_df.groupby('sync_index').size()
+        pred_counts_per_frame = pred_df_filtered.groupby('sync_index').size()
         matched_counts_per_frame = merged_df.groupby('sync_index').size()
         
         # Get all unique frame indices
