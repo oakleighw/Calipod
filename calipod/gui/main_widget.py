@@ -4,6 +4,7 @@ import sys
 from enum import Enum
 from pathlib import Path
 
+from calipod.gui.arena_sim_widget import ArenaSimWidget
 import rtoml
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QIcon
@@ -101,6 +102,10 @@ class MainWindow(QMainWindow):
             self.workspace_summary.calibrate_btn.setEnabled(True)
         else:
             self.workspace_summary.calibrate_btn.setEnabled(False)
+
+        logger.info("Building arena sim widget")
+        self.arena_sim_widget = ArenaSimWidget(self.controller)
+        self.central_tab.addTab(self.arena_sim_widget, "Arena Sim")
 
         logger.info("Building Charuco widget")
         self.charuco_widget = CharucoWidget(self.controller)
