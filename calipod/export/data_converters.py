@@ -1,3 +1,5 @@
+"""Convert XYZ tracking data to various output formats (TRC, wide-format CSV, etc.)."""
+
 import csv
 from pathlib import Path
 
@@ -11,11 +13,18 @@ logger = calipod.logger.get(__name__)
 
 def xyz_to_wide_labelled(xyz: pd.DataFrame, tracker: Tracker) -> pd.DataFrame:
     """
-    Will save a csv file in the same directory as the long xyz point data
-    Column headings will be based on the point_id names in the Tracker
+    Convert long-format XYZ data to wide-format with named point columns.
+    
+    Column headings will be based on the point_id names in the Tracker.
+    
+    Args:
+        xyz: Long-format DataFrame with columns: sync_index, point_id, x_coord, y_coord, z_coord
+        tracker: Tracker instance with get_point_name() method
+        
+    Returns:
+        Wide-format DataFrame with multi-level columns for x, y, z per point
     """
-
-    # save out named data in a tabular format
+    # Rename coordinates to short names
     xyz = xyz.rename(
         {
             "x_coord": "x",
@@ -27,40 +36,45 @@ def xyz_to_wide_labelled(xyz: pd.DataFrame, tracker: Tracker) -> pd.DataFrame:
     xyz = xyz[["sync_index", "point_id", "x", "y", "z"]]
 
     xyz["point_name"] = xyz["point_id"].map(tracker.get_point_name)
-    # pivot the DataFrame wider
+    # Pivot the DataFrame wider
     df_wide = xyz.pivot_table(index=["sync_index"], columns="point_name", values=["x", "y", "z"])
-    # flatten the column names
+    # Flatten the column names
     df_wide.columns = ["{}_{}".format(y, x) for x, y in df_wide.columns]
-    # reset the index
+    # Reset the index
     df_wide = df_wide.reset_index()
-    # merge the rows with the same sync_index
+    # Merge rows with the same sync_index
     df_merged = df_wide.groupby("sync_index").agg("first")
-    # sort the dataframe
+    # Sort the dataframe
     df_merged = df_merged.sort_index(axis=1, ascending=True)
     return df_merged
 
 
 def xyz_to_trc(xyz: pd.DataFrame, tracker: Tracker, time_history_path: Path, target_path: Path):
     """
-    Will save a .trc file in the same folder as the long xyz data
-    relies on xyz_to_wide_csv for input data
+    Convert XYZ tracking data to OpenSim TRC format.
+    
+    Saves a .trc file in the same folder as target_path.
+    Relies on xyz_to_wide_labelled for intermediate format.
+    
+    Args:
+        xyz: Long-format DataFrame with XYZ coordinates
+        tracker: Tracker instance with get_point_name() method
+        time_history_path: Path to frame_time_history.csv with sync_index and frame_time columns
+        target_path: Path to save TRC file (uses stem for output filename)
     """
-    # create xyz_labelled file to provide input for trc creation
+    # Create xyz_labelled file to provide input for trc creation
     xyz_labelled = xyz_to_wide_labelled(xyz, tracker)
 
-    # from here I need to get a .trc file format. For part of that I also need to know the framerate.
-    # time_history_path = Path(target_path.parent, "frame_time_history.csv")
+    # Load time history to get frame rate
     time_history = pd.read_csv(time_history_path)
 
-    # get the mean time by sync index
-    # Group by 'sync_index' and calculate mean 'frame_time'
+    # Get the mean time by sync index
     sync_time = time_history.groupby("sync_index")["frame_time"].mean()
 
     # Shift times so that it starts at zero
     min_time = sync_time.min()
     sync_time = round(sync_time - min_time, 3)
     xyz_labelled.insert(1, "mean_frame_time", sync_time)
-    # %%
 
     # Calculate time differences between consecutive frames
     xyz_labelled.sort_values(by="mean_frame_time", inplace=True)
@@ -73,45 +87,37 @@ def xyz_to_trc(xyz: pd.DataFrame, tracker: Tracker, time_history_path: Path, tar
     mean_frame_rate = xyz_labelled["frame_rate"].dropna().mean()
 
     # Rename 'sync_index' to 'Frame' and 'mean_frame_time' to 'Time'
-    xyz_labelled = xyz_labelled.reset_index()  # need sync_index to be just a regular column
+    xyz_labelled = xyz_labelled.reset_index()
     xyz_labelled.rename(columns={"sync_index": "Frame", "mean_frame_time": "Time"}, inplace=True)
-    xyz_labelled.drop(columns=["time_diff", "frame_rate"], inplace=True)  # no longer needed
+    xyz_labelled.drop(columns=["time_diff", "frame_rate"], inplace=True)
 
-    # Make sure all following fields are in alphabetical order
-    # First, get the columns to be sorted, i.e., all columns excluding 'Frame' and 'Time'
+    # Sort columns alphabetically (except 'Frame', 'Time', and face-related columns)
     cols_to_sort = xyz_labelled.columns.tolist()[2:]
     cols_to_sort = [col for col in cols_to_sort if not col.startswith("face")]
-
-    # Now, sort these columns
     cols_to_sort.sort()
-    # Now, create the final column order and rearrange the DataFrame
     final_col_order = ["Frame", "Time"] + cols_to_sort
     xyz_labelled = xyz_labelled[final_col_order]
 
-    # trying a fix...
+    # Convert Frame to int
     xyz_labelled["Frame"] = xyz_labelled["Frame"].astype(int)
 
-    # Get column names from dataframe
+    # Get column names to extract tracked points
     columns = xyz_labelled.columns
-
-    # Remove '_x', '_y', and '_z' suffixes and get unique names
     tracked_points = list(set([col.rsplit("_", 1)[0] for col in columns if col.endswith(("_x", "_y", "_z"))]))
     tracked_points.sort()
 
     num_markers = len(tracked_points)
     data_rate = int(mean_frame_rate)
     units = "m"
-    # original_data_rate = int(mean_frame_rate)
     orig_data_start_frame = 0
     num_frames = len(xyz_labelled) - 1
 
     trc_path = Path(target_path.parent, f"{target_path.stem}.trc")
-    trc_filename = str(trc_path)
 
-    # this will create the formatted .trc file
+    # Write TRC file
     with open(trc_path, "wt", newline="", encoding="utf-8") as out_file:
         tsv_writer = csv.writer(out_file, delimiter="\t")
-        tsv_writer.writerow(["PathFileType", "4", "(X/Y/Z)", trc_filename])
+        tsv_writer.writerow(["PathFileType", "4", "(X/Y/Z)", str(trc_path)])
         tsv_writer.writerow(
             [
                 "DataRate",
@@ -137,7 +143,7 @@ def xyz_to_trc(xyz: pd.DataFrame, tracker: Tracker, time_history_path: Path, tar
             ]
         )
 
-        # create names of trajectories, skipping two columns (top of table)
+        # Create names of trajectories, skipping two columns (top of table)
         header_names = ["Frame#", "Time"]
         for trajectory in tracked_points:
             header_names.append(trajectory)
@@ -146,7 +152,7 @@ def xyz_to_trc(xyz: pd.DataFrame, tracker: Tracker, time_history_path: Path, tar
 
         tsv_writer.writerow(header_names)
 
-        # create labels for x,y,z axes (below landmark names in header)
+        # Create labels for x, y, z axes (below landmark names in header)
         header_names = ["", ""]
         for i in range(1, len(tracked_points) + 1):
             header_names.append("X" + str(i))
@@ -155,14 +161,10 @@ def xyz_to_trc(xyz: pd.DataFrame, tracker: Tracker, time_history_path: Path, tar
 
         tsv_writer.writerow(header_names)
 
-        # the .trc fileformat expects a blank fourth line
+        # TRC format expects a blank fourth line
         tsv_writer.writerow("")
 
-        # this is here primarily for testing purposes right now..
-        # filLs None with zeros.
-        # df_xyz_labelled.fillna(0,inplace=True)
-
-        # and finally actually write the trajectories
+        # Write the trajectories
         for row in range(0, len(xyz_labelled)):
             row_data = xyz_labelled.iloc[row].tolist()
 
@@ -171,3 +173,5 @@ def xyz_to_trc(xyz: pd.DataFrame, tracker: Tracker, time_history_path: Path, tar
             row_data[frame_index] = int(row_data[frame_index])
 
             tsv_writer.writerow(row_data)
+    
+    logger.info(f"TRC file saved to {trc_path}")

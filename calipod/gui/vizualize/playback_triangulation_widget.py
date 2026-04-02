@@ -7,7 +7,7 @@ import os
 import numpy as np
 import pyqtgraph.opengl as gl
 import pyqtgraph as pg 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
     QSlider,
     QVBoxLayout,
@@ -30,8 +30,10 @@ from PySide6.QtGui import QImage, QColorConstants, QColor, QVector3D
 import calipod.logger
 from calipod.cameras.camera_array import CameraArray
 from calipod.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
+from calipod.gui.vizualize.interactive_3d_graph_window import Interactive3DGraphWindow
 from calipod.motion_trial import MotionTrial
 from calipod.trackers.motion_models import ConstantVelocity3DModel
+from calipod.export import VideoExporter, FrameCompositor, FilterMetadataManager, VideoExportWorker, CompareVideoExportWorker, GenericWorker
 
 import cv2
 import rtoml
@@ -41,284 +43,6 @@ from typing import Optional
 
 
 logger = calipod.logger.get(__name__)
-
-
-class Interactive3DGraphWindow(QWidget):
-    """An interactive matplotlib 3D graph visualization in a separate window."""
-    
-    def __init__(self, motion_trial: MotionTrial, camera_array: CameraArray, xyz_history_path: Path = None, is_filtered: bool = False, parent=None):
-        super().__init__(parent)
-        self.motion_trial = motion_trial
-        self.camera_array = camera_array
-        self.xyz_history_path = xyz_history_path
-        self.is_filtered = is_filtered
-        self.setWindowTitle("3D Trajectory Graph (Interactive)" + (" - Filtered" if is_filtered else ""))
-        self.setGeometry(100, 100, 1200, 900)
-        
-        try:
-            import matplotlib.pyplot as plt
-            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-            from matplotlib.figure import Figure
-            from mpl_toolkits.mplot3d import Axes3D
-            from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-        except ImportError:
-            logger.error("Matplotlib not available; cannot create interactive graph.")
-            return
-        
-        self.plt = plt
-        self.FigureCanvas = FigureCanvas
-        self.Poly3DCollection = Poly3DCollection
-        
-        layout = QVBoxLayout()
-        
-        # Create matplotlib figure
-        self.fig = Figure(figsize=(12, 9), dpi=100)
-        self.ax = self.fig.add_subplot(111, projection='3d')
-        self.canvas = FigureCanvas(self.fig)
-        layout.addWidget(self.canvas)
-        
-        # Button row
-        button_row = QHBoxLayout()
-        export_button = QPushButton("Export Current View as PNG")
-        export_button.clicked.connect(self.export_view_as_png)
-        button_row.addWidget(export_button)
-        layout.addLayout(button_row)
-        
-        self.setLayout(layout)
-        self.plot_3d_graph()
-    
-    def plot_3d_graph(self):
-        """Plot the 3D graph with all objects."""
-        MM_PER_M = 1000
-        
-        # Clear previous plot
-        self.ax.clear()
-        
-        # Collect all fly xyz data (point_id 0)
-        all_xyz = []
-        if hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
-            fly_mask = self.motion_trial.xyz_df['point_id'] == 0
-            fly_data = self.motion_trial.xyz_df[fly_mask].sort_values('sync_index')
-            
-            if not fly_data.empty:
-                x = fly_data['x_coord'].values * MM_PER_M
-                y = fly_data['y_coord'].values * MM_PER_M
-                z = fly_data['z_coord'].values * MM_PER_M
-                all_xyz = list(zip(x, y, z))
-
-        # Plot arena (corner points: 1-8)
-        arena_points = {i: None for i in range(1, 9)}
-        if hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
-            for pid in range(1, 9):
-                mask = self.motion_trial.xyz_df['point_id'] == pid
-                if mask.any():
-                    data = self.motion_trial.xyz_df[mask]
-                    x_mean = data['x_coord'].mean() * MM_PER_M
-                    y_mean = data['y_coord'].mean() * MM_PER_M
-                    z_mean = data['z_coord'].mean() * MM_PER_M
-                    arena_points[pid] = np.array([x_mean, y_mean, z_mean])
-
-        # Draw arena wireframe edges
-        if all(arena_points[i] is not None for i in range(1, 9)):
-            edge_pairs = [
-                (1, 3), (2, 4), (5, 8), (6, 7),  # Vertical
-                (1, 2), (1, 5), (2, 6), (5, 6),  # Top
-                (3, 4), (3, 8), (4, 7), (8, 7),  # Bottom
-            ]
-            for i, j in edge_pairs:
-                if arena_points[i] is not None and arena_points[j] is not None:
-                    x = [arena_points[i][0], arena_points[j][0]]
-                    y = [arena_points[i][1], arena_points[j][1]]
-                    z = [arena_points[i][2], arena_points[j][2]]
-                    self.ax.plot(x, y, z, 'k-', alpha=0.3, linewidth=1)
-            
-            # Draw arena floor as filled polygon (bottom 4 corners)
-            if all(arena_points[i] is not None for i in [3, 4, 7, 8]):
-                floor_verts = [
-                    [arena_points[3], arena_points[4], arena_points[7]],
-                    [arena_points[3], arena_points[7], arena_points[8]]
-                ]
-                floor_collection = self.Poly3DCollection(floor_verts, alpha=0.2, facecolor='gray', edgecolor='black')
-                self.ax.add_collection3d(floor_collection)
-
-        # Plot leaves as filled square (point_id 10 center + corners 10000-10003)
-        leaves_center = None
-        leaves_corners = [None] * 4
-        if hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
-            center_mask = self.motion_trial.xyz_df['point_id'] == 10
-            if center_mask.any():
-                center_data = self.motion_trial.xyz_df[center_mask]
-                leaves_center = np.array([
-                    center_data['x_coord'].mean() * MM_PER_M,
-                    center_data['y_coord'].mean() * MM_PER_M,
-                    center_data['z_coord'].mean() * MM_PER_M
-                ])
-            
-            for i, corner_id in enumerate([10000, 10001, 10002, 10003]):
-                corner_mask = self.motion_trial.xyz_df['point_id'] == corner_id
-                if corner_mask.any():
-                    corner_data = self.motion_trial.xyz_df[corner_mask]
-                    leaves_corners[i] = np.array([
-                        corner_data['x_coord'].mean() * MM_PER_M,
-                        corner_data['y_coord'].mean() * MM_PER_M,
-                        corner_data['z_coord'].mean() * MM_PER_M
-                    ])
-        
-        if leaves_center is not None and all(c is not None for c in leaves_corners):
-            leaves_verts = [
-                [leaves_corners[0], leaves_corners[1], leaves_corners[2]],
-                [leaves_corners[0], leaves_corners[2], leaves_corners[3]]
-            ]
-            leaves_collection = self.Poly3DCollection(
-                leaves_verts,
-                alpha=0.35,
-                facecolor='green',
-                edgecolor='darkgreen',
-                linewidth=1.5,
-                zorder=1,
-            )
-            self.ax.add_collection3d(leaves_collection)
-
-        # Plot strawberry as hemisphere (point_id 9 center + corners)
-        fruit_center = None
-        fruit_corners = [None] * 4
-        if hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
-            center_mask = self.motion_trial.xyz_df['point_id'] == 9
-            if center_mask.any():
-                center_data = self.motion_trial.xyz_df[center_mask]
-                fruit_center = np.array([
-                    center_data['x_coord'].mean() * MM_PER_M,
-                    center_data['y_coord'].mean() * MM_PER_M,
-                    center_data['z_coord'].mean() * MM_PER_M
-                ])
-            
-            for i, corner_id in enumerate([9000, 9001, 9002, 9003]):
-                corner_mask = self.motion_trial.xyz_df['point_id'] == corner_id
-                if corner_mask.any():
-                    corner_data = self.motion_trial.xyz_df[corner_mask]
-                    fruit_corners[i] = np.array([
-                        corner_data['x_coord'].mean() * MM_PER_M,
-                        corner_data['y_coord'].mean() * MM_PER_M,
-                        corner_data['z_coord'].mean() * MM_PER_M
-                    ])
-        
-        if fruit_center is not None and all(c is not None for c in fruit_corners):
-            # Create oriented hemisphere from corners using SVD plane
-            corners_array = np.array(fruit_corners)
-            
-            # Order corners by angle on their plane
-            centroid = corners_array.mean(axis=0)
-            centered = corners_array - centroid
-            _, _, vh = np.linalg.svd(centered)
-            plane_normal = vh[2]
-            axis_x = vh[0]
-            axis_y = np.cross(plane_normal, axis_x)
-            
-            # Calculate radius from bounding box
-            width_3d = np.linalg.norm(corners_array[1] - corners_array[0])
-            height_3d = np.linalg.norm(corners_array[3] - corners_array[0])
-            radius = min(width_3d, height_3d) * 0.5 * 1.05
-            
-            # Generate hemisphere vertices oriented along plane normal
-            u = np.linspace(0, 2 * np.pi, 16)
-            v = np.linspace(0, np.pi / 2, 8)
-            
-            fruit_verts = []
-            for i in range(len(u) - 1):
-                for j in range(len(v) - 1):
-                    # Generate vertices for this quad
-                    for (ui, vi) in [(u[i], v[j]), (u[i+1], v[j]), (u[i], v[j+1])]:
-                        height = radius * np.cos(vi)
-                        ring_r = radius * np.sin(vi)
-                        offset = axis_x * (ring_r * np.cos(ui)) + axis_y * (ring_r * np.sin(ui))
-                        vertex = fruit_center + plane_normal * height + offset
-                        fruit_verts.append(vertex)
-            
-            # Reshape verts for Poly3DCollection (triangles)
-            fruit_tris = [fruit_verts[i*3:(i+1)*3] for i in range(len(fruit_verts) // 3)]
-            fruit_collection = self.Poly3DCollection(
-                fruit_tris,
-                alpha=0.9,
-                facecolor='red',
-                edgecolor='darkred',
-                linewidth=0.5,
-                zorder=3,
-            )
-            self.ax.add_collection3d(fruit_collection)
-
-        # Plot camera origin points
-        if self.camera_array and hasattr(self.camera_array, 'cameras'):
-            for port, cam in self.camera_array.cameras.items():
-                if hasattr(cam, 'extrinsic_matrix') and cam.extrinsic_matrix is not None:
-                    ext = cam.extrinsic_matrix
-                    cam_pos = -ext[:3, :3].T @ ext[:3, 3]
-                    self.ax.scatter([cam_pos[0] * MM_PER_M], [cam_pos[1] * MM_PER_M], [cam_pos[2] * MM_PER_M], 
-                                  s=100, marker='*', label=f'Camera {port}')
-
-        # Plot fly track last so it renders on top of arena and objects
-        if all_xyz:
-            x_fly, y_fly, z_fly = zip(*all_xyz)
-            self.ax.plot(x_fly, y_fly, z_fly, 'b-', linewidth=2, alpha=0.6, label='Fly Track (Ground Truth)')
-            self.ax.scatter([x_fly[0]], [y_fly[0]], [z_fly[0]], color='green', s=10, marker='o', label='Start')
-            self.ax.scatter([x_fly[-1]], [y_fly[-1]], [z_fly[-1]], color='black', s=10, marker='s', label='End')
-
-        # Plot predictions if available
-        if hasattr(self.motion_trial, 'predictions_df') and not self.motion_trial.predictions_df.empty:
-            pred_mask = self.motion_trial.predictions_df['point_id'] == 0
-            pred_data = self.motion_trial.predictions_df[pred_mask].sort_values('sync_index')
-            
-            if not pred_data.empty:
-                x_pred = pred_data['x_coord'].values * MM_PER_M
-                y_pred = pred_data['y_coord'].values * MM_PER_M
-                z_pred = pred_data['z_coord'].values * MM_PER_M
-                self.ax.plot(x_pred, y_pred, z_pred, color='orange', linestyle='-', linewidth=2, alpha=0.9, label='Fly Track (Predictions)')
-                self.ax.scatter([x_pred[0]], [y_pred[0]], [z_pred[0]], color='lightsalmon', s=10, marker='o', label='Pred Start')
-                self.ax.scatter([x_pred[-1]], [y_pred[-1]], [z_pred[-1]], color='darkorange', s=10, marker='s', label='Pred End')
-
-        self.ax.set_xlabel('X (mm)')
-        self.ax.set_ylabel('Y (mm)')
-        self.ax.set_zlabel('Z (mm)')
-        title = '3D Trajectory with Arena, Leaves, and Strawberry'
-        if self.is_filtered:
-            title += ' (Filtered Track)'
-        self.ax.set_title(title)
-        self.ax.legend()
-        
-        # Set camera view: elevation 20°, azimuth -60° (front-facing, looking slightly down)
-        self.ax.view_init(elev=20, azim=-60)
-        
-        # Set equal aspect ratio for all axes to prevent distortion
-        self.ax.set_box_aspect([1, 1, 1])
-        
-        if all_xyz:
-            all_points = np.array(all_xyz + [p for p in arena_points.values() if p is not None])
-        else:
-            all_points = np.array([p for p in arena_points.values() if p is not None])
-        
-        if len(all_points) > 0:
-            max_range = np.array([all_points[:, 0].max() - all_points[:, 0].min(),
-                                  all_points[:, 1].max() - all_points[:, 1].min(),
-                                  all_points[:, 2].max() - all_points[:, 2].min()]).max() / 2.0
-            mid_x = (all_points[:, 0].max() + all_points[:, 0].min()) * 0.5
-            mid_y = (all_points[:, 1].max() + all_points[:, 1].min()) * 0.5
-            mid_z = (all_points[:, 2].max() + all_points[:, 2].min()) * 0.5
-            self.ax.set_xlim(mid_x - max_range, mid_x + max_range)
-            self.ax.set_ylim(mid_y - max_range, mid_y + max_range)
-            self.ax.set_zlim(mid_z - max_range, mid_z + max_range)
-        
-        self.canvas.draw()
-    
-    def export_view_as_png(self):
-        """Export the current view as PNG."""
-        file_dialog = QFileDialog()
-        file_path, _ = file_dialog.getSaveFileName(self, "Save Graph As", "", "PNG Images (*.png)")
-        
-        if file_path:
-            try:
-                self.fig.savefig(file_path, dpi=150, bbox_inches='tight')
-                logger.info(f"Graph exported to: {file_path}")
-            except Exception as e:
-                logger.error(f"Failed to export graph: {e}")
 
 
 class PlaybackTriangulationWidget(QWidget):
@@ -470,6 +194,14 @@ class PlaybackTriangulationWidget(QWidget):
         self.export_video_mode = False
         self.last_exported_video_path: Optional[Path] = None
         self.interactive_graph_window: Optional[Interactive3DGraphWindow] = None
+        self.export_thread: Optional[QThread] = None
+        self.export_worker: Optional[VideoExportWorker] = None
+        self.compare_export_thread: Optional[QThread] = None
+        self.compare_export_worker: Optional[CompareVideoExportWorker] = None
+        self.metrics_thread: Optional[QThread] = None
+        self.metrics_worker: Optional[GenericWorker] = None
+        self.graph_thread: Optional[QThread] = None
+        self.graph_worker: Optional[GenericWorker] = None
 
         self._session_start_frame: Optional[int] = None
         self._session_end_frame: Optional[int] = None
@@ -762,6 +494,7 @@ class PlaybackTriangulationWidget(QWidget):
 
         if checked:
             self.last_exported_video_path = None
+            # Capture viewport size at export start to prevent frame size changes during export
             self.last_exported_video_path = self._export_motion_video()
         else:
             logger.info("Video export mode disabled.")
@@ -781,11 +514,25 @@ class PlaybackTriangulationWidget(QWidget):
 
     def _export_motion_video(self) -> Optional[Path]:
         """Render the 3D visualization to a video file and return its path."""
-        self.visualizer.set_export_mode(True)
-        self.visualizer.clear_collected_frames()
-        self.export_button.setEnabled(False)
-        logger.info("Starting video export process (collecting frames in memory)...")
-
+        export_video_path, _, _ = self._derive_export_paths()
+        
+        # Ensure output directory exists
+        export_video_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # CRITICAL: Capture viewport dimensions at export start to ensure consistent frame sizes
+        # User might resize the window during export, which would cause frames to have different dimensions
+        # Lock the viewport to prevent this
+        viewport_width = self.visualizer.scene.width()
+        viewport_height = self.visualizer.scene.height()
+        logger.info(f"Export starting with locked viewport dimensions: {viewport_width}x{viewport_height}")
+        
+        # Store locked dimensions in visualizer to enforce consistent frame sizes
+        self.visualizer.locked_export_width = viewport_width
+        self.visualizer.locked_export_height = viewport_height
+        
+        # Use VideoExporter module to handle video rendering
+        exporter = VideoExporter(self.video_framerate)
+        
         export_start_frame = 0
         export_end_frame = 0 
         
@@ -801,110 +548,36 @@ class PlaybackTriangulationWidget(QWidget):
             export_start_frame = self.motion_trial.start_index
             export_end_frame = self.motion_trial.end_index
             logger.info(f"Exporting video based on loaded motion trial range: {export_start_frame} to {export_end_frame}.")
+            # CRITICAL: Set visualizer's motion_trial to the actual data so display_points can access it
+            self.visualizer.motion_trial = self.motion_trial
         
         else:
             export_start_frame = 0
             export_end_frame = self.video_framerate * 3 
             logger.warning(f"No valid motion trial or session range available. Exporting {export_end_frame - export_start_frame + 1} frames of empty scene.")
             if self.visualizer.motion_trial is None: 
-                self.visualizer.motion_trial = MotionTrial() 
-
-        reconnect_needed = False
+                self.visualizer.motion_trial = MotionTrial()
+        
+        # Disable export button during process
+        self.export_button.setEnabled(False)
+        
         try:
-            self.slider.valueChanged.disconnect(self.visualizer.display_points)
-            self.slider.valueChanged.disconnect(self.visualizer.update_segment_lines)
-            reconnect_needed = True
-        except TypeError:
-            pass 
-
-        exported_path: Optional[Path] = None
-        export_video_path: Optional[Path] = None
-
-        try:
-            for i in range(export_start_frame, export_end_frame + 1):
-                self.slider.blockSignals(True) 
-                self.slider.setValue(i)
-                self.slider.blockSignals(False) 
-
-                self.visualizer.display_points(i) 
-                self.visualizer.update_segment_lines(i) 
-
-                QApplication.processEvents() 
-
-            export_video_path, _, _ = self._derive_export_paths()
-            collected_frames = self.visualizer.get_collected_frames()
-
-            if collected_frames:
-                try:
-                    first_frame = collected_frames[0]
-                    height, width, _ = first_frame.shape
-                    size = (width, height)
-
-                    # Use FFmpeg for compressed output
-                    ffmpeg_cmd = [
-                        "ffmpeg",
-                        "-f", "rawvideo",
-                        "-pix_fmt", "bgr24",
-                        "-s", f"{width}x{height}",
-                        "-r", str(self.video_framerate),
-                        "-i", "-",
-                        "-c:v", "libx264",
-                        "-b:v", "8000k",  # 8 Mbps bitrate
-                        "-preset", "medium",
-                        "-pix_fmt", "yuv420p",  # Ensure compatibility
-                        "-movflags", "+faststart",  # Make mp4 streamable
-                        "-y",
-                        str(export_video_path)
-                    ]
-
-                    try:
-                        proc = subprocess.Popen(
-                            ffmpeg_cmd,
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE
-                        )
-                    except FileNotFoundError:
-                        logger.error("FFmpeg not found. Install FFmpeg or add it to PATH.")
-                        raise IOError("FFmpeg is required for video encoding but was not found.")
-
-                    logger.info(f"Writing {len(collected_frames)} frames to video: {export_video_path}")
-                    for frame in collected_frames:
-                        try:
-                            proc.stdin.write(frame.tobytes())
-                        except BrokenPipeError:
-                            logger.error("FFmpeg pipe closed unexpectedly")
-                            break
-
-                    proc.stdin.close()
-                    QApplication.processEvents()
-                    
-                    stdout, stderr = proc.communicate(timeout=300)
-                    if proc.returncode == 0:
-                        exported_path = export_video_path
-                        logger.info(f"Video saved to: {export_video_path}")
-                    else:
-                        logger.error(f"FFmpeg encoding failed: {stderr.decode() if stderr else 'Unknown error'}")
-                except Exception as e:
-                    logger.error(f"Failed to create video from collected frames: {e}")
-                    try:
-                        proc.stdin.close()
-                        proc.terminate()
-                    except:
-                        pass
-            else:
-                logger.warning("No frames were collected to combine into video.")
-
+            exported_path = exporter.export_motion_video(
+                self.visualizer,
+                self.slider,
+                self.motion_trial,
+                export_start_frame,
+                export_end_frame,
+                export_video_path,
+            )
+            self.last_exported_video_path = exported_path
             return exported_path
         finally:
-            if reconnect_needed:
-                self.slider.valueChanged.connect(self.visualizer.display_points)
-                self.slider.valueChanged.connect(self.visualizer.update_segment_lines)
-
-            self.visualizer.set_export_mode(False)
+            # Clear locked dimensions
+            self.visualizer.locked_export_width = None
+            self.visualizer.locked_export_height = None
             self.export_button.setEnabled(True)
-            self.export_button.setChecked(False) 
-            self.last_exported_video_path = exported_path or (export_video_path if export_video_path else None)
+            self.export_button.setChecked(False)
 
     def _collect_port_videos(self, recording_dir: Path, expected_count: int = 3):
         port_videos = []
@@ -1168,8 +841,9 @@ class PlaybackTriangulationWidget(QWidget):
 
                 frame_count += 1
                 
-                # Keep UI responsive during long video processing
-                if frame_count % 30 == 0:
+                # Keep UI responsive during long video processing - call on every frame for compare export
+                # (compare export runs on main thread, so processEvents is essential)
+                if frame_count % 5 == 0:
                     QApplication.processEvents()
 
             # Close FFmpeg pipe
@@ -1237,29 +911,45 @@ class PlaybackTriangulationWidget(QWidget):
 
         self.export_compare_button.setEnabled(False)
 
-        try:
-            # Determine frame range
+        # Determine frame range
+        export_start_frame = 0
+        export_end_frame = 0 
+        
+        if self._session_start_frame is not None and self._session_end_frame is not None:
+            export_start_frame = self._session_start_frame
+            export_end_frame = self._session_end_frame
+            logger.info(f"Compare export using session frame range: {export_start_frame} to {export_end_frame}")
+        elif self.motion_trial and not self.motion_trial.is_empty:
+            export_start_frame = self.motion_trial.start_index
+            export_end_frame = self.motion_trial.end_index
+            logger.info(f"Compare export using motion trial range: {export_start_frame} to {export_end_frame}")
+        else:
             export_start_frame = 0
-            export_end_frame = 0 
-            
-            if self._session_start_frame is not None and self._session_end_frame is not None:
-                export_start_frame = self._session_start_frame
-                export_end_frame = self._session_end_frame
-                logger.info(f"Compare export using session frame range: {export_start_frame} to {export_end_frame}")
-            elif self.motion_trial and not self.motion_trial.is_empty:
-                export_start_frame = self.motion_trial.start_index
-                export_end_frame = self.motion_trial.end_index
-                logger.info(f"Compare export using motion trial range: {export_start_frame} to {export_end_frame}")
-            else:
-                export_start_frame = 0
-                export_end_frame = self.video_framerate * 3 
-                logger.warning(f"Compare export using default 3-second range: {export_start_frame} to {export_end_frame}")
+            export_end_frame = self.video_framerate * 3 
+            logger.warning(f"Compare export using default 3-second range: {export_start_frame} to {export_end_frame}")
 
-            # Create quad-split by rendering sim frames on-demand
+        try:
+            # CRITICAL: Capture viewport dimensions at export start to ensure consistent frame sizes
+            # User might resize the window during export, which would cause frames to have different dimensions
+            viewport_width = self.visualizer.scene.width()
+            viewport_height = self.visualizer.scene.height()
+            logger.info(f"Compare export starting with locked viewport dimensions: {viewport_width}x{viewport_height}")
+            
+            # Store locked dimensions in visualizer to enforce consistent frame sizes
+            self.visualizer.locked_export_width = viewport_width
+            self.visualizer.locked_export_height = viewport_height
+
+            logger.info("Starting compare video export (rendering on main thread with frequent UI responsiveness)...")
+            # NOTE: Must run on main thread because it needs Qt/GL context
+            # We use frequent QApplication.processEvents() to keep UI responsive
             self.create_quad_split_video_streaming(port_videos[:3], export_start_frame, export_end_frame, compare_video_path)
+            logger.info("Compare video export completed successfully")
         except Exception as exc:
             logger.error(f"Failed to export real video compare: {exc}")
         finally:
+            # Clear locked dimensions and re-enable button
+            self.visualizer.locked_export_width = None
+            self.visualizer.locked_export_height = None
             self.export_compare_button.setEnabled(True)
 
 
@@ -1374,52 +1064,111 @@ class PlaybackTriangulationWidget(QWidget):
             QMessageBox.warning(self, "No Ground Truth", "Ground-truth xyz data are empty; cannot compute metrics.")
             return
 
+        # Disable button during computation
+        self.compute_metrics_button.setEnabled(False)
+        
         # Log which predictions are active
         pred_source = "filtered" if self.toggle_filtered_button.isChecked() else "raw"
-        logger.info(f"Computing metrics with {pred_source} predictions ({len(self.motion_trial.predictions_df)} rows)")
-
+        logger.info(f"Computing metrics with {pred_source} predictions (background thread)...")
+        
+        # Clean up old thread if it exists
+        if self.metrics_thread is not None and self.metrics_thread.isRunning():
+            logger.warning("Previous metrics computation still running")
+            self.metrics_thread.quit()
+            self.metrics_thread.wait()
+        
+        # Create worker to compute metrics in background
+        self.metrics_worker = GenericWorker(
+            self._compute_metrics_internal,
+            self.motion_trial,
+            self.toggle_filtered_button.isChecked()
+        )
+        
+        self.metrics_thread = QThread()
+        self.metrics_worker.moveToThread(self.metrics_thread)
+        
+        # Connect signals
+        self.metrics_thread.started.connect(self.metrics_worker.run)
+        self.metrics_worker.finished.connect(self.metrics_thread.quit)
+        self.metrics_worker.result.connect(self._on_metrics_computed)
+        self.metrics_worker.error.connect(self._on_metrics_error)
+        
+        # Start thread
+        self.metrics_thread.start()
+    
+    def _compute_metrics_internal(self, motion_trial, use_filtered: bool):
+        """Compute metrics in background thread (no UI operations here)."""
         metrics = {}
         metrics_by_source = {}
         
         try:
-            metrics = self.motion_trial.performance_metrics()
+            metrics = motion_trial.performance_metrics()
         except Exception as exc:
             logger.error(f"Error computing performance metrics: {exc}", exc_info=True)
-            QMessageBox.critical(self, "Metrics Error", f"Failed to compute metrics:\n{exc}")
-            return
-
+            raise
+        
         if not metrics:
-            QMessageBox.warning(self, "No Matches", "No overlapping (sync_index, point_id) pairs between ground truth and predictions.")
-            return
-
-        # Compute per-source metrics by calling performance_metrics on each source subset
+            raise ValueError("No overlapping (sync_index, point_id) pairs between ground truth and predictions.")
+        
+        # Compute per-source metrics
         try:
-            if self.toggle_filtered_button.isChecked() and 'measurement_source' in self.motion_trial.predictions_df.columns:
+            if use_filtered and 'measurement_source' in motion_trial.predictions_df.columns:
                 for source in ['YOLO', 'BGS', 'filter_only']:
-                    source_df = self.motion_trial.predictions_df[self.motion_trial.predictions_df['measurement_source'] == source]
+                    source_df = motion_trial.predictions_df[motion_trial.predictions_df['measurement_source'] == source]
                     if not source_df.empty:
                         # Temporarily swap in source data to compute metrics
-                        orig_pred_df = self.motion_trial.predictions_df
-                        orig_gt_df = self.motion_trial.xyz_df
+                        orig_pred_df = motion_trial.predictions_df
+                        orig_gt_df = motion_trial.xyz_df
                         # Filter both to only point_id == 0 (the tracked fly)
-                        self.motion_trial.predictions_df = source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df
-                        self.motion_trial.xyz_df = orig_gt_df[orig_gt_df['point_id'] == 0] if not orig_gt_df.empty else orig_gt_df
+                        motion_trial.predictions_df = source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df
+                        motion_trial.xyz_df = orig_gt_df[orig_gt_df['point_id'] == 0] if not orig_gt_df.empty else orig_gt_df
                         try:
-                            source_metrics = self.motion_trial.performance_metrics()
+                            source_metrics = motion_trial.performance_metrics()
                             # Add point and frame counts
                             source_metrics['point_count'] = len(source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df)
                             source_metrics['frame_count'] = source_df['sync_index'].nunique()
                             metrics_by_source[source] = source_metrics
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.warning(f"Could not compute metrics for source {source}: {e}")
                         finally:
-                            self.motion_trial.predictions_df = orig_pred_df
-                            self.motion_trial.xyz_df = orig_gt_df
+                            motion_trial.predictions_df = orig_pred_df
+                            motion_trial.xyz_df = orig_gt_df
         except Exception as e:
-            logger.debug(f"Could not compute per-source metrics for display: {e}")
-
+            logger.warning(f"Could not compute per-source metrics: {e}")
+        
+        return {"overall": metrics, "by_source": metrics_by_source}
+    
+    def _on_metrics_computed(self, result: dict):
+        """Called when metrics computation finishes."""
+        metrics = result.get("overall", {})
+        metrics_by_source = result.get("by_source", {})
+        
+        # Now display in main thread
+        self._display_metrics_dialog(metrics, metrics_by_source)
+        self.compute_metrics_button.setEnabled(True)
+        if self.metrics_thread:
+            self.metrics_thread.quit()
+            self.metrics_thread.wait()
+    
+    def _on_metrics_error(self, error_msg: str):
+        """Called when metrics computation fails."""
+        logger.error(f"Metrics computation error: {error_msg}")
+        QMessageBox.critical(self, "Metrics Error", f"Failed to compute metrics:\n{error_msg}")
+        self.compute_metrics_button.setEnabled(True)
+        if self.metrics_thread:
+            self.metrics_thread.quit()
+            self.metrics_thread.wait()
+    
+    def _display_metrics_dialog(self, metrics: dict, metrics_by_source: dict):
+        """Display computed metrics in a dialog (runs in main thread)."""
+        if not metrics:
+            QMessageBox.warning(self, "No Metrics", "No metrics were computed.")
+            return
+        
         # Build metrics text
         lines = []
+        
+        pred_source = "filtered" if self.toggle_filtered_button.isChecked() else "raw"
         lines.append(f"[Using {pred_source.upper()} predictions]")
         
         # Debug: Show extend and frame range info
@@ -1995,7 +1744,11 @@ class TriangulationVisualizer:
         self.build_scene()
         self.export_video_mode = False
         self.collected_frames = [] 
-        self.motion_trial: Optional[MotionTrial] = None 
+        self.motion_trial: Optional[MotionTrial] = None
+        
+        # Locked viewport dimensions during export to prevent frame size variation
+        self.locked_export_width: Optional[int] = None
+        self.locked_export_height: Optional[int] = None 
 
         self.grid_labels = []
         self.axis_labels = []
@@ -2482,6 +2235,14 @@ class TriangulationVisualizer:
                 else:
                     cv2_frame = self.qimage_to_cv2(image)
                     if cv2_frame is not None and cv2_frame.size > 0:
+                        # Enforce consistent frame dimensions if locked (prevents resizing during export)
+                        if self.locked_export_width is not None and self.locked_export_height is not None:
+                            current_height, current_width = cv2_frame.shape[:2]
+                            if current_width != self.locked_export_width or current_height != self.locked_export_height:
+                                logger.debug(f"Frame {sync_index} size mismatch: {current_width}x{current_height}, expected {self.locked_export_width}x{self.locked_export_height}. Resizing...")
+                                import cv2
+                                cv2_frame = cv2.resize(cv2_frame, (self.locked_export_width, self.locked_export_height))
+                        
                         self.collected_frames.append(cv2_frame)
                         logger.debug(f"Successfully collected frame {sync_index} to memory. Total frames: {len(self.collected_frames)}")
                     else:
