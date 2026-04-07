@@ -579,144 +579,6 @@ class PlaybackTriangulationWidget(QWidget):
             self.export_button.setEnabled(True)
             self.export_button.setChecked(False)
 
-    def _collect_port_videos(self, recording_dir: Path, expected_count: int = 3):
-        port_videos = []
-
-        for video_file in recording_dir.glob("port_*.mp4"):
-            try:
-                port_number = int(video_file.stem.split("_")[1])
-            except (IndexError, ValueError):
-                logger.warning(f"Skipping unexpected video file name: {video_file}")
-                continue
-
-            port_videos.append((port_number, video_file))
-
-        port_videos = [path for _, path in sorted(port_videos, key=lambda x: x[0])]
-
-        if len(port_videos) < expected_count:
-            logger.error(
-                f"Found {len(port_videos)} camera videos at {recording_dir}, but {expected_count} are required for compare export."
-            )
-            return []
-
-        return port_videos[:expected_count]
-
-    def _resize_and_center_crop(self, frame: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
-        """Resize with aspect preservation and center-crop/pad to target size."""
-        h, w = frame.shape[:2]
-        if w == 0 or h == 0 or target_w == 0 or target_h == 0:
-            return frame
-
-        target_aspect = target_w / target_h
-        src_aspect = w / h
-
-        if src_aspect > target_aspect:
-            # crop width
-            new_w = int(h * target_aspect)
-            x0 = max((w - new_w) // 2, 0)
-            frame = frame[:, x0:x0 + new_w]
-        elif src_aspect < target_aspect:
-            # crop height
-            new_h = int(w / target_aspect)
-            y0 = max((h - new_h) // 2, 0)
-            frame = frame[y0:y0 + new_h, :]
-
-        return cv2.resize(frame, (target_w, target_h))
-
-    def create_quad_split_video(self, video_paths: list[Path], output_path: Path):
-        if len(video_paths) != 4:
-            raise ValueError("Please provide exactly 4 video paths.")
-
-        caps = []
-        opened_meta = []
-        for video_path in video_paths:
-            cap = cv2.VideoCapture(str(video_path))
-            if not cap.isOpened():
-                for c in caps:
-                    c.release()
-                raise IOError(f"Failed to open video: {video_path}")
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            opened_meta.append((video_path, width, height, fps))
-            caps.append(cap)
-
-        # Choose a base size from the real videos to keep aspect consistent
-        valid_sizes = [(w, h) for (_, w, h, _) in opened_meta if w > 0 and h > 0]
-        if valid_sizes:
-            quad_width, quad_height = min(valid_sizes, key=lambda wh: wh[0] * wh[1])
-        else:
-            quad_width, quad_height = 640, 480  # fallback
-
-        output_resolution = (quad_width * 2, quad_height * 2)
-        if output_resolution[0] <= 0 or output_resolution[1] <= 0:
-            for cap in caps:
-                cap.release()
-            raise IOError(f"Invalid output resolution derived for {output_path}: {output_resolution}")
-
-        target_fps = int(opened_meta[0][3]) if opened_meta and opened_meta[0][3] > 0 else (self.video_framerate or 30)
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        fourcc = cv2.VideoWriter_fourcc(*"H264")
-        out = cv2.VideoWriter(str(output_path), fourcc, target_fps, output_resolution)
-        if not out.isOpened():
-            for cap in caps:
-                cap.release()
-            raise IOError(f"Failed to open video writer for {output_path}")
-
-        frame_count = 0
-        while True:
-            frames = []
-            for cap in caps:
-                ret, frame = cap.read()
-                if not ret:
-                    frames = []
-                    break
-                frames.append(frame)
-
-            if len(frames) < 4:
-                break
-
-            # Resize first 3 frames (real videos) with simple resize, crop only the 4th (sim)
-            resized_frames = [
-                cv2.resize(frames[i], (quad_width, quad_height)) if i < 3 
-                else self._resize_and_center_crop(frames[i], quad_width, quad_height) 
-                for i in range(4)
-            ]
-            top_row = np.hstack((resized_frames[0], resized_frames[1]))
-            bottom_row = np.hstack((resized_frames[2], resized_frames[3]))
-            combined_frame = np.vstack((top_row, bottom_row))
-
-            out.write(combined_frame)
-            frame_count += 1
-            
-            # Keep UI responsive during long video processing
-            if frame_count % 30 == 0:
-                QApplication.processEvents()
-
-        logger.info(f"Finished processing {frame_count} frames, finalizing video file...")
-        QApplication.processEvents()
-        
-        for cap in caps:
-            cap.release()
-        out.release()
-        
-        QApplication.processEvents()
-
-        if frame_count == 0:
-            logger.error(f"No frames written to combined video: {output_path}")
-            if output_path.exists():
-                try:
-                    output_path.unlink()
-                except OSError:
-                    pass
-            return
-
-        logger.info(
-            f"Combined video saved to: {output_path} ({frame_count} frames at {target_fps} fps, base quad {quad_width}x{quad_height})"
-        )
-
     def create_quad_split_video_streaming(self, port_video_paths: list[Path], start_frame: int, end_frame: int, output_path: Path):
         """Create quad-split video using port videos and on-demand sim frame rendering (no memory pre-collection)."""
         if len(port_video_paths) != 3:
@@ -823,10 +685,10 @@ class PlaybackTriangulationWidget(QWidget):
                 # Stitch: resize real videos without crop, crop only sim
                 resized_frames = [
                     cv2.resize(port_frames[i], (quad_width, quad_height)) if i < 3 
-                    else self._resize_and_center_crop(sim_frame, quad_width, quad_height) 
+                    else FrameCompositor.resize_and_center_crop(sim_frame, quad_width, quad_height) 
                     for i in range(3)
                 ]
-                resized_frames.append(self._resize_and_center_crop(sim_frame, quad_width, quad_height))
+                resized_frames.append(FrameCompositor.resize_and_center_crop(sim_frame, quad_width, quad_height))
                 
                 top_row = np.hstack((resized_frames[0], resized_frames[1]))
                 bottom_row = np.hstack((resized_frames[2], resized_frames[3]))
@@ -905,7 +767,7 @@ class PlaybackTriangulationWidget(QWidget):
             logger.error("Cannot export compare video without a valid recording directory.")
             return
 
-        port_videos = self._collect_port_videos(recording_dir)
+        port_videos = FrameCompositor.collect_port_videos(recording_dir, expected_count=3)
         if len(port_videos) < 3:
             return
 
