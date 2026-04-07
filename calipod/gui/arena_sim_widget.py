@@ -59,14 +59,10 @@ class ArenaSimWidget(QWidget):
         self.left_vbox = QVBoxLayout()
         self.right_vbox = QVBoxLayout()
 
-        # Simulation parameters
-        self.parameter_title = self._create_section_title("Simulation Parameters")
-        self.camera_count_label = QLabel(f"Camera count: {self.cameras}")
+        # Simulation Parameters
+        self.simulation_parameters_widget()
 
-
-        self.left_vbox.addWidget(self.parameter_title)
-        self.left_vbox.addWidget(self.camera_count_label)
-
+        # Lens Parameters
         self.lens_widget(self.cameras)
 
         # Pixel-To-Animal Calculation
@@ -90,6 +86,18 @@ class ArenaSimWidget(QWidget):
         self.layout().addLayout(self.left_vbox, stretch=1)
         self.layout().addLayout(self.right_vbox, stretch=2)
 
+    # Widgets for simulation parameters
+    def simulation_parameters_widget(self):
+
+        self.parameter_title = self._create_section_title("Simulation Parameters")
+
+        # Camera count entry
+        self.camera_count_label = QLabel(f"Camera count: {self.cameras}")
+
+        self.left_vbox.addWidget(self.parameter_title)
+        self.left_vbox.addWidget(self.camera_count_label)
+
+    # Widgets for lens parameters
     def lens_widget(self, cam_num):
 
          # Lens angles entry
