@@ -3,7 +3,6 @@ import re
 import cv2
 import numpy as np
 
-
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -18,6 +17,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSlider,
     QCheckBox,
+    QRadioButton,
+    QButtonGroup,
 )
 from PySide6.QtGui import QImage, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer
@@ -77,8 +78,9 @@ class ArenaSimWidget(QWidget):
         self.pixel_to_animal_title = self._create_section_title("Pixel-To-Animal Calculation")
         self.pixel_to_animal = QListWidget()
 
-        self.left_vbox.addWidget(self.pixel_to_animal_title)
-        self.left_vbox.addWidget(self.pixel_to_animal)
+        self.left_vbox.addWidget(self.pixel_to_animal_title, stretch=0)
+        self.left_vbox.addWidget(self.pixel_to_animal, stretch=0)
+        self.left_vbox.addStretch()
 
         # Simulation visualizer
         self.right_vbox.addWidget(self.visualizer.scene, stretch=2)
@@ -102,8 +104,30 @@ class ArenaSimWidget(QWidget):
         # Camera count entry
         self.camera_count_label = QLabel(f"Camera count: {self.cameras}")
 
+        # Overlap visualisation toggle
+        self.overlap_visualization_layout = QVBoxLayout()
+        self.overlap_visualization_group = QButtonGroup()
+        
+        overlap_min = QRadioButton("Min Coverage (2 cameras)")
+        overlap_max = QRadioButton("Max Coverage (All cameras)")
+        self.overlap_visualization_group.addButton(overlap_min, 0)
+        self.overlap_visualization_group.addButton(overlap_max, 1)
+        
+        self.overlap_visualization_layout.addWidget(overlap_min)
+        self.overlap_visualization_layout.addWidget(overlap_max)
+        self.overlap_visualization_layout.addStretch()
+
+
         self.left_vbox.addWidget(self.parameter_title)
         self.left_vbox.addWidget(self.camera_count_label)
+                # Arena scale
+        create_labeled_spinbox_row(self.left_vbox, "Arena Scale/ Depth (cm):", 0.1, 10000.0, decimals=1)
+
+        # Visualised frustum depth (How far the frustum extends in the visualizer - does not affect calculations)
+        create_labeled_spinbox_row(self.left_vbox, "Visualised Frustum Depth:", 0.1, 10000.0, decimals=2)
+
+        # Overlap visualisation toggle
+        self.left_vbox.addLayout(self.overlap_visualization_layout)
 
     # Widgets for lens parameters
     def lens_widget(self, cam_num):
