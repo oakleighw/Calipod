@@ -42,20 +42,39 @@ class ArenaSimWidget(QWidget):
         self.place_widgets()
 
     def place_widgets(self):
-        self.setLayout(QVBoxLayout())
+        self.setLayout(QHBoxLayout())
         self.left_vbox = QVBoxLayout()
         self.right_vbox = QVBoxLayout()
 
-        self.sim_parameters = QListWidget()
+        # Simulation parameters
         self.parameter_title = QLabel("Simulation Parameters")
+        self.sim_parameters = QListWidget()
 
         self.left_vbox.addWidget(self.parameter_title)
         self.left_vbox.addWidget(self.sim_parameters)
 
+        # Lens angles entry
+        self.lens_angles_title = QLabel("Lens Angles")
+        self.lens_angles = QListWidget()
 
+        self.left_vbox.addWidget(self.lens_angles_title)
+        self.left_vbox.addWidget(self.lens_angles)
+
+        # Pixel-To-Animal Calculation
+        self.pixel_to_animal_title = QLabel("Pixel-To-Animal Calculation")
+        self.pixel_to_animal = QListWidget()
+
+        self.left_vbox.addWidget(self.pixel_to_animal_title)
+        self.left_vbox.addWidget(self.pixel_to_animal)
+
+        # Add left and right vboxes to main layout
+        self.layout().addLayout(self.left_vbox, stretch=1)
         self.layout().addLayout(self.right_vbox, stretch=2)
-        self.layout().addLayout(self.left_vbox, stretch=2)
 
+        # Simulation visualizer
         self.right_vbox.addWidget(self.visualizer.scene, stretch=2)
+
+
+
 
         
