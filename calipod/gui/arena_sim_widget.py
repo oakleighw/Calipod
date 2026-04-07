@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QRadioButton,
     QButtonGroup,
+    QListWidgetItem,
+    QDoubleSpinBox,
 )
 from PySide6.QtGui import QImage, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer
@@ -86,11 +88,8 @@ class ArenaSimWidget(QWidget):
         self.right_vbox.addWidget(self.visualizer.scene, stretch=2)
 
         # Camera Movement Controls
-        self.cam_controls = self._create_section_title("Camera Placement Controls")
-        self.cam_placement = QListWidget()
+        self.cam_controls_widget()
 
-        self.right_vbox.addWidget(self.cam_controls, stretch=0)
-        self.right_vbox.addWidget(self.cam_placement, stretch=1)
 
         # Add left and right vboxes to main layout
         self.layout().addLayout(self.left_vbox, stretch=1)
@@ -145,6 +144,49 @@ class ArenaSimWidget(QWidget):
             create_labeled_spinbox_row(self.left_vbox, "Horizontal Angle (deg):", 1, 360.00)
             create_labeled_spinbox_row(self.left_vbox, "Vertical Angle (deg):", 1, 360.00)
 
+
+    def cam_controls_widget(self):
+        self.cam_controls = self._create_section_title("Camera Placement Controls")
+        self.cam_placement = QListWidget()
+
+        # For each camera, create control sliders to adjust position and orientation, displayed left to right with scrollbar
+        for i in range(self.cameras):
+            cam_label = self._create_subsection_title(f"Camera {i+1}")
+            item = QListWidgetItem()
+            self.cam_placement.addItem(item)
+            self.cam_placement.setItemWidget(item, cam_label)
+
+            # Create sliders for X, Y, Z position and Pan, Tilt, Roll orientation
+            for param in ["X Position (mm)", "Y Position (mm)", "Z Position (mm)", "Pan (deg)", "Tilt (deg)", "Roll (deg)"]:
+                slider_layout = QHBoxLayout()
+                slider_label = QLabel(param)
+                
+                # Spinbox to display/edit the value
+                value_spinbox = QDoubleSpinBox()
+                value_spinbox.setMinimum(-1000)
+                value_spinbox.setMaximum(1000)
+                value_spinbox.setValue(0)
+                value_spinbox.setMaximumWidth(80)
+                value_spinbox.setMinimumHeight(24)
+                
+                slider = QSlider(Qt.Orientation.Horizontal)
+                slider.setMinimum(-1000)
+                slider.setMaximum(1000)
+                slider.setValue(0)
+                
+                # Sync spinbox and slider
+                value_spinbox.valueChanged.connect(slider.setValue)
+                slider.valueChanged.connect(value_spinbox.setValue)
+                
+                slider_layout.addWidget(slider_label)
+                slider_layout.addWidget(value_spinbox)
+                slider_layout.addWidget(slider)
+                self.cam_placement.addItem(QListWidgetItem())
+                self.cam_placement.setItemWidget(self.cam_placement.item(self.cam_placement.count()-1), QWidget())
+                self.cam_placement.itemWidget(self.cam_placement.item(self.cam_placement.count()-1)).setLayout(slider_layout)
+
+        self.right_vbox.addWidget(self.cam_controls, stretch=0)
+        self.right_vbox.addWidget(self.cam_placement, stretch=1)
 
 
 
