@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QListWidgetItem,
     QDoubleSpinBox,
+    QGroupBox,
 )
 from PySide6.QtGui import QImage, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer
@@ -46,24 +47,37 @@ class ArenaSimWidget(QWidget):
         self.place_widgets()
 
     # Helper function to create section titles
+    def _create_section_font(self, point_size: int = 11) -> QFont:
+        """Create a styled font for section headers."""
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(point_size)
+        return font
+
     def _create_section_title(self, text: str) -> QLabel:
         """Create a styled section title label."""
         title = QLabel(text)
-        font = QFont()
-        font.setBold(True)
-        font.setPointSize(11)
-        title.setFont(font)
+        title.setFont(self._create_section_font(11))
         return title
     
     # Helper function to create subsection titles
     def _create_subsection_title(self, text: str) -> QLabel:
         """Create a styled subsection title label."""
         title = QLabel(text)
-        font = QFont()
-        font.setBold(True)
-        font.setPointSize(10)
-        title.setFont(font)
+        title.setFont(self._create_section_font(10))
         return title
+
+    def _create_styled_groupbox(self, title: str) -> tuple[QGroupBox, QVBoxLayout]:
+        """Create a QGroupBox with styled section title (returns group and layout)."""
+        group = QGroupBox()
+        layout = QVBoxLayout()
+        
+        # Add styled title as a label, not as QGroupBox title
+        title_label = self._create_section_title(title)
+        layout.addWidget(title_label)
+        
+        group.setLayout(layout)
+        return group, layout
 
     def place_widgets(self):
         self.setLayout(QHBoxLayout())
@@ -77,11 +91,8 @@ class ArenaSimWidget(QWidget):
         self.lens_widget(self.cameras)
 
         # Pixel-To-Animal Calculation
-        self.pixel_to_animal_title = self._create_section_title("Pixel-To-Animal Calculation")
-        self.pixel_to_animal = QListWidget()
+        self.pixel_to_animal_widget()
 
-        self.left_vbox.addWidget(self.pixel_to_animal_title, stretch=0)
-        self.left_vbox.addWidget(self.pixel_to_animal, stretch=0)
         self.left_vbox.addStretch()
 
         # Simulation visualizer
@@ -90,15 +101,13 @@ class ArenaSimWidget(QWidget):
         # Camera Movement Controls
         self.cam_controls_widget()
 
-
         # Add left and right vboxes to main layout
         self.layout().addLayout(self.left_vbox, stretch=1)
         self.layout().addLayout(self.right_vbox, stretch=2)
 
     # Widgets for simulation parameters
     def simulation_parameters_widget(self):
-
-        self.parameter_title = self._create_section_title("Simulation Parameters")
+        params_group, params_layout = self._create_styled_groupbox("Simulation Parameters")
 
         # Camera count entry
         self.camera_count_label = QLabel(f"Camera count: {self.cameras}")
@@ -116,35 +125,44 @@ class ArenaSimWidget(QWidget):
         self.overlap_visualization_layout.addWidget(overlap_max)
         self.overlap_visualization_layout.addStretch()
 
-
-        self.left_vbox.addWidget(self.parameter_title)
-        self.left_vbox.addWidget(self.camera_count_label)
-                # Arena scale
-        create_labeled_spinbox_row(self.left_vbox, "Arena Scale/ Depth (cm):", 0.1, 10000.0, decimals=1)
-
-        # Visualised frustum depth (How far the frustum extends in the visualizer - does not affect calculations)
-        create_labeled_spinbox_row(self.left_vbox, "Visualised Frustum Depth:", 0.1, 10000.0, decimals=2)
-
-        # Overlap visualisation toggle
-        self.left_vbox.addLayout(self.overlap_visualization_layout)
+        params_layout.addWidget(self.camera_count_label)
+        create_labeled_spinbox_row(params_layout, "Arena Scale/ Depth (cm):", 0.1, 10000.0, decimals=1)
+        create_labeled_spinbox_row(params_layout, "Visualised Frustum Depth:", 0.1, 10000.0, decimals=2)
+        params_layout.addLayout(self.overlap_visualization_layout)
+        params_layout.addStretch()
+        
+        self.left_vbox.addWidget(params_group)
 
     # Widgets for lens parameters
     def lens_widget(self, cam_num):
-
-         # Lens angles entry
-        self.lens_angles_title = self._create_section_title("Lens Angles")
-
-        self.left_vbox.addWidget(self.lens_angles_title)
+        lens_group, lens_layout = self._create_styled_groupbox("Lens Angles")
 
         # Create lens angle entries based on camera count
         for i in range(cam_num):
             cam_label = self._create_subsection_title(f"Camera {i+1}")
-            self.left_vbox.addWidget(cam_label)
-            create_labeled_spinbox_row(self.left_vbox, "Min Working Distance (mm):", 1, 100000.00)
-            create_labeled_spinbox_row(self.left_vbox, "Horizontal Angle (deg):", 1, 360.00)
-            create_labeled_spinbox_row(self.left_vbox, "Vertical Angle (deg):", 1, 360.00)
+            lens_layout.addWidget(cam_label)
+            create_labeled_spinbox_row(lens_layout, "Min Working Distance (mm):", 1, 100000.00)
+            create_labeled_spinbox_row(lens_layout, "Horizontal Angle (deg):", 1, 360.00)
+            create_labeled_spinbox_row(lens_layout, "Vertical Angle (deg):", 1, 360.00)
+        
+        lens_layout.addStretch()
+        self.left_vbox.addWidget(lens_group)
+
+    def pixel_to_animal_widget(self):
+        # Widgets for pixel to animal calculation parameters
+        pixel_group, pixel_layout = self._create_styled_groupbox("Pixel-To-Animal Calculation")
+        
+        create_labeled_spinbox_row(pixel_layout, "Min Insect Size (mm):", 0.1, 1000.0)
+        create_labeled_spinbox_row(pixel_layout, "Pixel Size on Sensor (μm):", 0.001, 10.0)
+        create_labeled_spinbox_row(pixel_layout, "Furthest Distance (mm):", 0.1, 10000.0)
+        create_labeled_spinbox_row(pixel_layout, "Focal Length (mm):", 0.1, 1000.0)
+        pixel_layout.addStretch()
+        
+        self.left_vbox.addWidget(pixel_group)
 
 
+
+    # Camera placement controls - sliders to adjust camera position and orientation within the visualizer, with the option to sync these to the extrinsic calibration values for each camera once calibrated.
     def cam_controls_widget(self):
         self.cam_controls = self._create_section_title("Camera Placement Controls")
         self.cam_placement = QListWidget()
