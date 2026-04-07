@@ -67,13 +67,19 @@ class ArenaSimWidget(QWidget):
         self.left_vbox.addWidget(self.pixel_to_animal_title)
         self.left_vbox.addWidget(self.pixel_to_animal)
 
-        # Add left and right vboxes to main layout
-        self.layout().addLayout(self.left_vbox, stretch=1)
-        self.layout().addLayout(self.right_vbox, stretch=2)
-
         # Simulation visualizer
         self.right_vbox.addWidget(self.visualizer.scene, stretch=2)
 
+        # Camera Movement Controls
+        self.cam_controls = QLabel("Camera Placement Controls")
+        self.cam_placement = QListWidget()
+
+        self.right_vbox.addWidget(self.cam_controls)
+        self.right_vbox.addWidget(self.cam_placement)
+
+        # Add left and right vboxes to main layout
+        self.layout().addLayout(self.left_vbox, stretch=1)
+        self.layout().addLayout(self.right_vbox, stretch=2)
 
 
 
