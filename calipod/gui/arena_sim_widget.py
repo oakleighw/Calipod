@@ -8,8 +8,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSpinBox,
-    QDoubleSpinBox,
     QComboBox,
     QTreeWidget,
     QListWidget,
@@ -20,12 +18,11 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSlider,
     QCheckBox,
-    QAbstractSpinBox,
 )
 from PySide6.QtGui import QImage, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer
 
-from calipod.gui.utils.spinbox_utils import setup_spinbox_sizing
+from calipod.gui.utils.spinbox_utils import create_labeled_spinbox_row
 from calipod.gui.vizualize.calibration.capture_volume_visualizer import CaptureVolumeVisualizer
 import calipod.logger
 from calipod.controller import Controller
@@ -45,12 +42,23 @@ class ArenaSimWidget(QWidget):
         # self.visualizer.scene.show()
         self.place_widgets()
 
+    # Helper function to create section titles
     def _create_section_title(self, text: str) -> QLabel:
         """Create a styled section title label."""
         title = QLabel(text)
         font = QFont()
         font.setBold(True)
         font.setPointSize(11)
+        title.setFont(font)
+        return title
+    
+    # Helper function to create subsection titles
+    def _create_subsection_title(self, text: str) -> QLabel:
+        """Create a styled subsection title label."""
+        title = QLabel(text)
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(10)
         title.setFont(font)
         return title
 
@@ -107,31 +115,12 @@ class ArenaSimWidget(QWidget):
 
         # Create lens angle entries based on camera count
         for i in range(cam_num):
-            # Horizontal lens angle
-            h_hbox = QHBoxLayout()
-            item_hlabel = QLabel(f"Camera {i+1} Horizontal:")
-            item_hangle_spinbox = QDoubleSpinBox()
-            item_hangle_spinbox.setDecimals(2)
-            item_hangle_spinbox.setButtonSymbols(QAbstractSpinBox.NoButtons)
-            setup_spinbox_sizing(item_hangle_spinbox, min_value=1, max_value=360.00)
-            item_hangle_spinbox.setMaximumWidth(130)
-            h_hbox.addWidget(item_hlabel, stretch=1)
-            h_hbox.addWidget(item_hangle_spinbox, stretch=1)
-            h_hbox.addStretch()
-            self.left_vbox.addLayout(h_hbox)
-            
-            # Vertical lens angle
-            v_hbox = QHBoxLayout()
-            item_vlabel = QLabel(f"Camera {i+1} Vertical:")
-            item_vlabel_spinbox = QDoubleSpinBox()
-            item_vlabel_spinbox.setDecimals(2)
-            item_vlabel_spinbox.setButtonSymbols(QAbstractSpinBox.NoButtons)
-            setup_spinbox_sizing(item_vlabel_spinbox, min_value=1, max_value=360.00)
-            item_vlabel_spinbox.setMaximumWidth(130)
-            v_hbox.addWidget(item_vlabel, stretch=1)
-            v_hbox.addWidget(item_vlabel_spinbox, stretch=1)
-            v_hbox.addStretch()
-            self.left_vbox.addLayout(v_hbox)
+            cam_label = self._create_subsection_title(f"Camera {i+1}")
+            self.left_vbox.addWidget(cam_label)
+            create_labeled_spinbox_row(self.left_vbox, "Min Working Distance (mm):", 1, 100000.00)
+            create_labeled_spinbox_row(self.left_vbox, "Horizontal Angle (deg):", 1, 360.00)
+            create_labeled_spinbox_row(self.left_vbox, "Vertical Angle (deg):", 1, 360.00)
+
 
 
 
