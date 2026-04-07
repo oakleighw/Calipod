@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtCore import Qt, QTimer
 
+from calipod.gui.vizualize.calibration.capture_volume_visualizer import CaptureVolumeVisualizer
 import calipod.logger
 from calipod.controller import Controller
 
@@ -33,3 +34,14 @@ class ArenaSimWidget(QWidget):
     def __init__(self, controller: Controller):
         super(ArenaSimWidget, self).__init__()
         self.controller = controller
+
+        #arena designer window placeholder (capture volume vizualiser for now)
+        self.visualizer = CaptureVolumeVisualizer(self.controller.capture_volume)
+        # self.visualizer.scene.show()
+        self.place_widgets()
+
+    def place_widgets(self):
+        self.setLayout(QVBoxLayout())
+        self.layout().addWidget(self.visualizer.scene, stretch=2)
+
+        
