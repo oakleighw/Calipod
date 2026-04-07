@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QComboBox,
     QTreeWidget,
+    QListWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -42,6 +43,19 @@ class ArenaSimWidget(QWidget):
 
     def place_widgets(self):
         self.setLayout(QVBoxLayout())
-        self.layout().addWidget(self.visualizer.scene, stretch=2)
+        self.left_vbox = QVBoxLayout()
+        self.right_vbox = QVBoxLayout()
+
+        self.sim_parameters = QListWidget()
+        self.parameter_title = QLabel("Simulation Parameters")
+
+        self.left_vbox.addWidget(self.parameter_title)
+        self.left_vbox.addWidget(self.sim_parameters)
+
+
+        self.layout().addLayout(self.right_vbox, stretch=2)
+        self.layout().addLayout(self.left_vbox, stretch=2)
+
+        self.right_vbox.addWidget(self.visualizer.scene, stretch=2)
 
         
