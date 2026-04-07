@@ -31,6 +31,7 @@ import calipod.logger
 from calipod.cameras.camera_array import CameraArray
 from calipod.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
 from calipod.gui.vizualize.interactive_3d_graph_window import Interactive3DGraphWindow
+from calipod.gui.vizualize.filter_parameter_manager import FilterParameterManager
 from calipod.motion_trial import MotionTrial
 from calipod.trackers.motion_models import ConstantVelocity3DModel
 from calipod.export import VideoExporter, FrameCompositor, FilterMetadataManager, VideoExportWorker, CompareVideoExportWorker, GenericWorker
@@ -93,6 +94,20 @@ class PlaybackTriangulationWidget(QWidget):
         self.bgs_gate_distance_sigma = 9.2
         self.bgs_max_distance_threshold = 28.0
 
+        # Create filter parameter manager early (before UI widget signal connections)
+        self.filter_manager = FilterParameterManager(
+            kalman_process_noise_scale=self.kalman_process_noise_scale,
+            kalman_measurement_noise_std=self.kalman_measurement_noise_std,
+            gate_distance_sigma=self.gate_distance_sigma,
+            max_distance_threshold=self.max_distance_threshold,
+            bgs_kalman_process_noise_scale=self.bgs_kalman_process_noise_scale,
+            bgs_kalman_measurement_noise_std=self.bgs_kalman_measurement_noise_std,
+            bgs_gate_distance_sigma=self.bgs_gate_distance_sigma,
+            bgs_max_distance_threshold=self.bgs_max_distance_threshold,
+            gap_fill_only=self.gap_fill_only,
+            extend_filtered_track=False,
+        )
+
         # UI controls for filter params
         self.process_noise_spin = QDoubleSpinBox()
         self.process_noise_spin.setRange(0.0001, 10.0)
@@ -119,7 +134,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.gate_distance_slider.setMaximumWidth(150)
         
         self.gate_distance_label = QLabel(f"{self.gate_distance_sigma:.1f}σ")
-        self.gate_distance_slider.valueChanged.connect(self._update_gate_label)
+        self.gate_distance_slider.valueChanged.connect(self.filter_manager.update_gate_label)
 
         self.max_distance_spin = QDoubleSpinBox()
         self.max_distance_spin.setRange(0.1, 5000.0)
@@ -178,7 +193,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.bgs_gate_distance_slider.setEnabled(False)
         
         self.bgs_gate_distance_label = QLabel(f"{self.bgs_gate_distance_sigma:.1f}σ")
-        self.bgs_gate_distance_slider.valueChanged.connect(self._update_bgs_gate_label)
+        self.bgs_gate_distance_slider.valueChanged.connect(self.filter_manager.update_bgs_gate_label)
 
         self.bgs_max_distance_spin = QDoubleSpinBox()
         self.bgs_max_distance_spin.setRange(0.1, 5000.0)
@@ -194,6 +209,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.export_video_mode = False
         self.last_exported_video_path: Optional[Path] = None
         self.interactive_graph_window: Optional[Interactive3DGraphWindow] = None
+        # Export and processing threads
         self.export_thread: Optional[QThread] = None
         self.export_worker: Optional[VideoExportWorker] = None
         self.compare_export_thread: Optional[QThread] = None
@@ -208,6 +224,25 @@ class PlaybackTriangulationWidget(QWidget):
         self.xyz_history_path: Optional[Path] = None 
 
         self.setMinimumSize(500, 500)
+
+        # Set up filter manager's UI widget references (for enabling/disabling BGS controls)
+        self.filter_manager.set_ui_widgets(
+            gate_distance_label=self.gate_distance_label,
+            bgs_gate_distance_label=self.bgs_gate_distance_label,
+            use_hybrid_bgs=self.use_hybrid_bgs,
+            bgs_process_noise_spin=self.bgs_process_noise_spin,
+            bgs_meas_noise_spin=self.bgs_meas_noise_spin,
+            bgs_gate_distance_slider=self.bgs_gate_distance_slider,
+            bgs_max_distance_spin=self.bgs_max_distance_spin,
+            process_noise_spin=self.process_noise_spin,
+            meas_noise_spin=self.meas_noise_spin,
+            gate_distance_slider=self.gate_distance_slider,
+            max_distance_spin=self.max_distance_spin,
+            filter_start_spin=self.filter_start_spin,
+            filter_end_spin=self.filter_end_spin,
+            gap_fill_only_checkbox=self.gap_fill_only_checkbox,
+            extend_filtered_track_checkbox=self.extend_filtered_track_checkbox,
+        )
 
         self.place_widgets()
         self.connect_widgets()
@@ -291,190 +326,12 @@ class PlaybackTriangulationWidget(QWidget):
         if self.use_hybrid_bgs is not None and self.filter_options_layout.count() <= 8:
             # Insert hybrid checkbox before the stretch
             self.filter_options_layout.insertWidget(self.filter_options_layout.count() - 1, self.use_hybrid_bgs)
-            # Connect hybrid checkbox to enable/disable BGS filter row
-            self.use_hybrid_bgs.stateChanged.connect(self._toggle_bgs_filter_row)
-    
-    def _toggle_bgs_filter_row(self):
-        """Enable/disable BGS filter parameter row based on hybrid checkbox state."""
-        is_hybrid_enabled = self.use_hybrid_bgs.isChecked() if self.use_hybrid_bgs is not None else False
-        self.bgs_process_noise_spin.setEnabled(is_hybrid_enabled)
-        self.bgs_meas_noise_spin.setEnabled(is_hybrid_enabled)
-        self.bgs_gate_distance_slider.setEnabled(is_hybrid_enabled)
-        self.bgs_max_distance_spin.setEnabled(is_hybrid_enabled)
-
-
-    def _update_gate_label(self, value: int):
-        """Update gate distance label when slider changes."""
-        sigma = value / 10.0
-        self.gate_distance_label.setText(f"{sigma:.1f}σ")
-
-    def _update_bgs_gate_label(self, value: int):
-        """Update BGS gate distance label when slider changes."""
-        sigma = value / 10.0
-        self.bgs_gate_distance_label.setText(f"{sigma:.1f}σ")
-
-    def _save_filter_metadata(self, filtered_csv_path: Path):
-        """Save filter parameters as JSON metadata alongside the filtered predictions CSV."""
-        import json
-        
-        # Compute performance metrics for the filtered predictions
-        overall_metrics = {}
-        metrics_by_source = {}
-        
-        try:
-            if self.motion_trial is not None and not self.motion_trial.is_empty:
-                metrics = self.motion_trial.performance_metrics()
-                # Convert numpy types to native Python types for JSON serialization
-                overall_metrics = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()}
-                
-                # Compute separate metrics for each measurement source
-                if filtered_csv_path.exists():
-                    filtered_df = pd.read_csv(filtered_csv_path, engine="pyarrow")
-                    if 'measurement_source' in filtered_df.columns:
-                        for source in ['YOLO', 'BGS', 'filter_only']:
-                            source_df = filtered_df[filtered_df['measurement_source'] == source]
-                            if not source_df.empty:
-                                # Temporarily swap in source data to compute metrics
-                                orig_pred_df = self.motion_trial.predictions_df
-                                orig_gt_df = self.motion_trial.xyz_df
-                                # Filter both to only point_id == 0 (the tracked fly)
-                                self.motion_trial.predictions_df = source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df
-                                self.motion_trial.xyz_df = orig_gt_df[orig_gt_df['point_id'] == 0] if not orig_gt_df.empty else orig_gt_df
-                                try:
-                                    source_metrics = self.motion_trial.performance_metrics()
-                                    # Convert numpy types to native Python types
-                                    source_data = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in source_metrics.items()}
-                                    # Add point and frame counts for context
-                                    source_data['point_count'] = int(len(source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df))
-                                    source_data['frame_count'] = int(source_df['sync_index'].nunique())
-                                    metrics_by_source[source] = source_data
-                                except:
-                                    pass
-                                finally:
-                                    self.motion_trial.predictions_df = orig_pred_df
-                                    self.motion_trial.xyz_df = orig_gt_df
-        except Exception as e:
-            logger.debug(f"Could not compute performance metrics for metadata: {e}")
-        
-        # Get frame and point counts
-        total_gt_frames = 0
-        total_gt_fly_points = 0
-        total_pred_frames = 0
-        total_pred_fly_points = 0
-        
-        if self.motion_trial is not None and not self.motion_trial.is_empty:
-            total_gt_frames = self.motion_trial.xyz_df['sync_index'].nunique() if not self.motion_trial.xyz_df.empty else 0
-            gt_fly_df = self.motion_trial.xyz_df[self.motion_trial.xyz_df['point_id'] == 0] if not self.motion_trial.xyz_df.empty else pd.DataFrame()
-            total_gt_fly_points = len(gt_fly_df) if not gt_fly_df.empty else 0
-            pred_fly_df = self.motion_trial.predictions_df[self.motion_trial.predictions_df['point_id'] == 0] if not self.motion_trial.predictions_df.empty else pd.DataFrame()
-            total_pred_frames = pred_fly_df['sync_index'].nunique() if not pred_fly_df.empty else 0
-            total_pred_fly_points = len(pred_fly_df) if not pred_fly_df.empty else 0
-        
-        metadata = {
-            "kalman_process_noise_scale": float(self.kalman_process_noise_scale),
-            "kalman_measurement_noise_std_mm": float(self.kalman_measurement_noise_std * 1000.0),
-            "gate_distance_sigma": float(self.gate_distance_sigma),
-            "max_distance_threshold_mm": float(self.max_distance_threshold),
-            "bgs_kalman_process_noise_scale": float(self.bgs_kalman_process_noise_scale),
-            "bgs_kalman_measurement_noise_std_mm": float(self.bgs_kalman_measurement_noise_std * 1000.0),
-            "bgs_gate_distance_sigma": float(self.bgs_gate_distance_sigma),
-            "bgs_max_distance_threshold_mm": float(self.bgs_max_distance_threshold),
-            "gap_fill_only": bool(self.gap_fill_only),
-            "extend_filtered_track": bool(self.extend_filtered_track),
-            "filter_start_frame": int(self.filter_start_spin.value()),
-            "filter_end_frame": int(self.filter_end_spin.value()),
-            "total_ground_truth_frames": int(total_gt_frames),
-            "total_ground_truth_fly_points": int(total_gt_fly_points),
-            "total_prediction_frames": int(total_pred_frames),
-            "total_prediction_fly_points": int(total_pred_fly_points),
-            "performance_metrics": overall_metrics,
-            "performance_metrics_by_source": metrics_by_source,
-        }
-        metadata_path = filtered_csv_path.with_stem(filtered_csv_path.stem + "_metadata")
-        metadata_path = metadata_path.with_suffix(".json")
-        try:
-            with open(metadata_path, 'w') as f:
-                json.dump(metadata, f, indent=2)
-            logger.info(f"Saved filter metadata to {metadata_path}")
-        except Exception as e:
-            logger.warning(f"Failed to save filter metadata: {e}")
-    
-    def _load_filter_metadata(self):
-        """Load filter metadata from JSON file if available."""
-        import json
-        # Look for metadata file next to the filtered CSV
-        filtered_pred_path = self.filtered_predictions_path
-        
-        # If filtered_predictions_path not set, try to auto-detect it based on motion_trial predictions path
-        if filtered_pred_path is None and self.motion_trial is not None and self.motion_trial.predictions_csv is not None:
-            pred_path = Path(self.motion_trial.predictions_csv)
-            # Try common filtered prediction naming patterns
-            if pred_path.exists():
-                parent = pred_path.parent
-                stem = pred_path.stem
-                # Look for *_filtered pattern
-                if "_predictions" in stem and not "_predictions_filtered" in stem:
-                    filtered_stem = stem.replace("_predictions", "_predictions_filtered")
-                    potential_path = parent / f"{filtered_stem}.csv"
-                    if potential_path.exists():
-                        filtered_pred_path = potential_path
-                        self.filtered_predictions_path = filtered_pred_path
-                        logger.debug(f"Auto-detected filtered predictions path: {filtered_pred_path}")
-        
-        if filtered_pred_path is None:
-            return
-        
-        metadata_path = filtered_pred_path.with_stem(filtered_pred_path.stem + "_metadata")
-        metadata_path = metadata_path.with_suffix(".json")
-        
-        if not metadata_path.exists():
-            logger.debug(f"No filter metadata found at {metadata_path}; using software defaults")
-            return
-        
-        try:
-            with open(metadata_path, 'r') as f:
-                metadata = json.load(f)
-            
-            # Load YOLO filter parameters
-            self.kalman_process_noise_scale = metadata.get("kalman_process_noise_scale", self.kalman_process_noise_scale)
-            self.kalman_measurement_noise_std = metadata.get("kalman_measurement_noise_std_mm", self.kalman_measurement_noise_std * 1000.0) / 1000.0
-            self.gate_distance_sigma = metadata.get("gate_distance_sigma", self.gate_distance_sigma)
-            self.max_distance_threshold = metadata.get("max_distance_threshold_mm", self.max_distance_threshold)
-            
-            # Load BGS filter parameters
-            self.bgs_kalman_process_noise_scale = metadata.get("bgs_kalman_process_noise_scale", self.bgs_kalman_process_noise_scale)
-            self.bgs_kalman_measurement_noise_std = metadata.get("bgs_kalman_measurement_noise_std_mm", self.bgs_kalman_measurement_noise_std * 1000.0) / 1000.0
-            self.bgs_gate_distance_sigma = metadata.get("bgs_gate_distance_sigma", self.bgs_gate_distance_sigma)
-            self.bgs_max_distance_threshold = metadata.get("bgs_max_distance_threshold_mm", self.bgs_max_distance_threshold)
-            
-            # Load boolean flags
-            self.gap_fill_only = metadata.get("gap_fill_only", self.gap_fill_only)
-            self.extend_filtered_track = metadata.get("extend_filtered_track", self.extend_filtered_track)
-            
-            # Load frame range parameters
-            start_frame = metadata.get("filter_start_frame", 0)
-            end_frame = metadata.get("filter_end_frame", 0)
-            
-            # Update UI controls to reflect loaded values
-            self.process_noise_spin.setValue(self.kalman_process_noise_scale)
-            self.meas_noise_spin.setValue(self.kalman_measurement_noise_std * 1000.0)
-            self.gate_distance_slider.setValue(int(self.gate_distance_sigma * 10))
-            self.max_distance_spin.setValue(self.max_distance_threshold)
-            
-            self.bgs_process_noise_spin.setValue(self.bgs_kalman_process_noise_scale)
-            self.bgs_meas_noise_spin.setValue(self.bgs_kalman_measurement_noise_std * 1000.0)
-            self.bgs_gate_distance_slider.setValue(int(self.bgs_gate_distance_sigma * 10))
-            self.bgs_max_distance_spin.setValue(self.bgs_max_distance_threshold)
-            
-            self.filter_start_spin.setValue(start_frame)
-            self.filter_end_spin.setValue(end_frame)
-            
-            self.gap_fill_only_checkbox.setChecked(self.gap_fill_only)
-            self.extend_filtered_track_checkbox.setChecked(self.extend_filtered_track)
-            
-            logger.info(f"Loaded filter metadata from {metadata_path}")
-        except Exception as e:
-            logger.warning(f"Failed to load filter metadata from {metadata_path}: {e}; using software defaults")
+            # Connect hybrid checkbox to toggle BGS filter row via filter manager
+            self.use_hybrid_bgs.stateChanged.connect(self.filter_manager.toggle_bgs_filter_row)
+            # Update filter manager's reference to use_hybrid_bgs now that it's been assigned
+            self.filter_manager.set_ui_widgets(use_hybrid_bgs=self.use_hybrid_bgs)
+            # Apply the hybrid state (in case it was already checked)
+            self.filter_manager.toggle_bgs_filter_row()
 
     def connect_widgets(self):
         self.slider.valueChanged.connect(self.visualizer.display_points)
@@ -906,8 +763,9 @@ class PlaybackTriangulationWidget(QWidget):
             self.slider.setMaximum(self.motion_trial.end_index)
             self.slider.setValue(self.motion_trial.start_index)
         
-        # Try to load filter metadata if available (for filtered predictions)
-        self._load_filter_metadata()
+        # Try to load filter metadata if available
+        # MotionTrial auto-detects and prefers filtered predictions if they exist
+        self.filter_manager.load_metadata(Path(self.motion_trial.predictions_csv) if self.motion_trial.predictions_csv else None)
 
     def update_camera_array(self, camera_array: CameraArray):
         self.visualizer.update_camera_array(camera_array)
@@ -1244,7 +1102,7 @@ class PlaybackTriangulationWidget(QWidget):
                     print(saved_msg)
                     
                     # Save filter metadata
-                    self._save_filter_metadata(filtered_path)
+                    self.filter_manager.save_metadata(filtered_path, self.motion_trial)
 
                     self.motion_trial.predictions_csv = filtered_path
                     self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
@@ -1761,9 +1619,13 @@ class TriangulationVisualizer:
     def display_points(self, sync_index: int):
         logger.debug(f"display_points called for sync_index: {sync_index}")
 
-        # Clear previous custom meshes
+        # Clear previous custom meshes (safely handle items that may not be in scene)
         for mesh_item in self.custom_mesh_items:
-            self.scene.removeItem(mesh_item)
+            try:
+                if mesh_item in self.scene.items:
+                    self.scene.removeItem(mesh_item)
+            except Exception as e:
+                logger.debug(f"Could not remove mesh item: {e}")
         self.custom_mesh_items = []
 
         if self.motion_trial is None or self.motion_trial.is_empty:

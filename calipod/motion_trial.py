@@ -55,10 +55,17 @@ class MotionTrial:
         if self.predictions_csv is None:
             # Try to find predictions CSV in the same directory as ground truth
             tracker_name = self.xyz_csv.stem[4:]  # peel off "xyz_"
-            auto_pred_path = self.xyz_csv.parent / f"xyz_{tracker_name}_predictions.csv"
-            if auto_pred_path.exists():
-                self.predictions_csv = auto_pred_path
-                logger.get(__name__).debug(f"Auto-detected predictions CSV at {auto_pred_path}")
+            
+            # Prefer filtered predictions if they exist, otherwise fall back to original
+            filtered_pred_path = self.xyz_csv.parent / f"xyz_{tracker_name}_predictions_filtered.csv"
+            original_pred_path = self.xyz_csv.parent / f"xyz_{tracker_name}_predictions.csv"
+            
+            if filtered_pred_path.exists():
+                self.predictions_csv = filtered_pred_path
+                logger.get(__name__).debug(f"Auto-detected filtered predictions CSV at {filtered_pred_path}")
+            elif original_pred_path.exists():
+                self.predictions_csv = original_pred_path
+                logger.get(__name__).debug(f"Auto-detected original predictions CSV at {original_pred_path}")
         
         # Load predictions if provided or auto-detected
         if self.predictions_csv is not None and self.predictions_csv.exists():
