@@ -20,10 +20,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSlider,
     QCheckBox,
+    QAbstractSpinBox,
 )
 from PySide6.QtGui import QImage, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer
 
+from calipod.gui.utils.spinbox_utils import setup_spinbox_sizing
 from calipod.gui.vizualize.calibration.capture_volume_visualizer import CaptureVolumeVisualizer
 import calipod.logger
 from calipod.controller import Controller
@@ -65,22 +67,7 @@ class ArenaSimWidget(QWidget):
         self.left_vbox.addWidget(self.parameter_title)
         self.left_vbox.addWidget(self.camera_count_label)
 
-        # Lens angles entry
-        self.lens_angles_title = self._create_section_title("Lens Angles")
-
-        self.left_vbox.addWidget(self.lens_angles_title)
-
-        # Create lens angle entries based on camera count
-        for i in range(self.cameras):
-            item_hlabel = QLabel(f"Camera {i+1} Horizontal Lens Angle:")
-            item_hangle_spinbox = QSpinBox()
-            item_vlabel = QLabel(f"Camera {i+1} Vertical Lens Angle:")
-            item_vlabel_spinbox = QSpinBox()
-
-            self.left_vbox.addWidget(item_hlabel)
-            self.left_vbox.addWidget(item_hangle_spinbox)
-            self.left_vbox.addWidget(item_vlabel)
-            self.left_vbox.addWidget(item_vlabel_spinbox)
+        self.lens_widget(self.cameras)
 
         # Pixel-To-Animal Calculation
         self.pixel_to_animal_title = self._create_section_title("Pixel-To-Animal Calculation")
@@ -102,6 +89,41 @@ class ArenaSimWidget(QWidget):
         # Add left and right vboxes to main layout
         self.layout().addLayout(self.left_vbox, stretch=1)
         self.layout().addLayout(self.right_vbox, stretch=2)
+
+    def lens_widget(self, cam_num):
+
+         # Lens angles entry
+        self.lens_angles_title = self._create_section_title("Lens Angles")
+
+        self.left_vbox.addWidget(self.lens_angles_title)
+
+        # Create lens angle entries based on camera count
+        for i in range(cam_num):
+            # Horizontal lens angle
+            h_hbox = QHBoxLayout()
+            item_hlabel = QLabel(f"Camera {i+1} Horizontal:")
+            item_hangle_spinbox = QDoubleSpinBox()
+            item_hangle_spinbox.setDecimals(2)
+            item_hangle_spinbox.setButtonSymbols(QAbstractSpinBox.NoButtons)
+            setup_spinbox_sizing(item_hangle_spinbox, min_value=1, max_value=360.00)
+            item_hangle_spinbox.setMaximumWidth(130)
+            h_hbox.addWidget(item_hlabel, stretch=1)
+            h_hbox.addWidget(item_hangle_spinbox, stretch=1)
+            h_hbox.addStretch()
+            self.left_vbox.addLayout(h_hbox)
+            
+            # Vertical lens angle
+            v_hbox = QHBoxLayout()
+            item_vlabel = QLabel(f"Camera {i+1} Vertical:")
+            item_vlabel_spinbox = QDoubleSpinBox()
+            item_vlabel_spinbox.setDecimals(2)
+            item_vlabel_spinbox.setButtonSymbols(QAbstractSpinBox.NoButtons)
+            setup_spinbox_sizing(item_vlabel_spinbox, min_value=1, max_value=360.00)
+            item_vlabel_spinbox.setMaximumWidth(130)
+            v_hbox.addWidget(item_vlabel, stretch=1)
+            v_hbox.addWidget(item_vlabel_spinbox, stretch=1)
+            v_hbox.addStretch()
+            self.left_vbox.addLayout(v_hbox)
 
 
 
