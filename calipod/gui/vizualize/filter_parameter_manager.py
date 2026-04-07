@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 import calipod.logger
+from calipod.gui.vizualize.metrics_computer import MetricsComputer
 
 logger = calipod.logger.get(__name__)
 
@@ -92,7 +93,8 @@ class FilterParameterManager:
         
         try:
             if motion_trial is not None and not motion_trial.is_empty:
-                metrics = motion_trial.performance_metrics()
+                computer = MetricsComputer(None)
+                metrics = computer._compute_metrics_from_dataframes(motion_trial.predictions_df, motion_trial.xyz_df)
                 # Convert numpy types to native Python types for JSON serialization
                 overall_metrics = {
                     k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)
@@ -121,7 +123,7 @@ class FilterParameterManager:
                                     else orig_gt_df
                                 )
                                 try:
-                                    source_metrics = motion_trial.performance_metrics()
+                                    source_metrics = computer._compute_metrics_from_dataframes(motion_trial.predictions_df, motion_trial.xyz_df)
                                     # Convert numpy types to native Python types
                                     source_data = {
                                         k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)

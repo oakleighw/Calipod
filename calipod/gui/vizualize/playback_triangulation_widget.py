@@ -21,8 +21,6 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QLabel,
     QAbstractSpinBox,
-    QDialog,
-    QTextEdit,
 )
 from PySide6.QtGui import QImage, QColorConstants, QColor, QVector3D
 
@@ -32,6 +30,7 @@ from calipod.cameras.camera_array import CameraArray
 from calipod.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
 from calipod.gui.vizualize.interactive_3d_graph_window import Interactive3DGraphWindow
 from calipod.gui.vizualize.filter_parameter_manager import FilterParameterManager
+from calipod.gui.vizualize.metrics_computer import MetricsComputer
 from calipod.motion_trial import MotionTrial
 from calipod.trackers.motion_models import ConstantVelocity3DModel
 from calipod.export import VideoExporter, FrameCompositor, FilterMetadataManager, VideoExportWorker, CompareVideoExportWorker, GenericWorker
@@ -107,6 +106,9 @@ class PlaybackTriangulationWidget(QWidget):
             gap_fill_only=self.gap_fill_only,
             extend_filtered_track=False,
         )
+        
+        # Create metrics computer for handling metrics computation and display
+        self.metrics_computer = MetricsComputer(self)
 
         # UI controls for filter params
         self.process_noise_spin = QDoubleSpinBox()
@@ -214,8 +216,6 @@ class PlaybackTriangulationWidget(QWidget):
         self.export_worker: Optional[VideoExportWorker] = None
         self.compare_export_thread: Optional[QThread] = None
         self.compare_export_worker: Optional[CompareVideoExportWorker] = None
-        self.metrics_thread: Optional[QThread] = None
-        self.metrics_worker: Optional[GenericWorker] = None
         self.graph_thread: Optional[QThread] = None
         self.graph_worker: Optional[GenericWorker] = None
 
@@ -772,229 +772,10 @@ class PlaybackTriangulationWidget(QWidget):
 
     def compute_and_show_metrics(self):
         """Display metrics from MotionTrial.performance_metrics in a scrollable dialog."""
-        if self.motion_trial is None or self.motion_trial.is_empty:
-            QMessageBox.warning(self, "No Data", "No motion trial loaded; cannot compute metrics.")
+        if self.motion_trial is None:
             return
-
-        if not hasattr(self.motion_trial, "predictions_df") or self.motion_trial.predictions_df.empty:
-            QMessageBox.warning(self, "No Predictions", "Predictions are empty; load predictions before computing metrics.")
-            return
-
-        if not hasattr(self.motion_trial, "xyz_df") or self.motion_trial.xyz_df.empty:
-            QMessageBox.warning(self, "No Ground Truth", "Ground-truth xyz data are empty; cannot compute metrics.")
-            return
-
-        # Disable button during computation
-        self.compute_metrics_button.setEnabled(False)
-        
-        # Log which predictions are active
-        pred_source = "filtered" if self.toggle_filtered_button.isChecked() else "raw"
-        logger.info(f"Computing metrics with {pred_source} predictions (background thread)...")
-        
-        # Clean up old thread if it exists
-        if self.metrics_thread is not None and self.metrics_thread.isRunning():
-            logger.warning("Previous metrics computation still running")
-            self.metrics_thread.quit()
-            self.metrics_thread.wait()
-        
-        # Create worker to compute metrics in background
-        self.metrics_worker = GenericWorker(
-            self._compute_metrics_internal,
-            self.motion_trial,
-            self.toggle_filtered_button.isChecked()
-        )
-        
-        self.metrics_thread = QThread()
-        self.metrics_worker.moveToThread(self.metrics_thread)
-        
-        # Connect signals
-        self.metrics_thread.started.connect(self.metrics_worker.run)
-        self.metrics_worker.finished.connect(self.metrics_thread.quit)
-        self.metrics_worker.result.connect(self._on_metrics_computed)
-        self.metrics_worker.error.connect(self._on_metrics_error)
-        
-        # Start thread
-        self.metrics_thread.start()
-    
-    def _compute_metrics_internal(self, motion_trial, use_filtered: bool):
-        """Compute metrics in background thread (no UI operations here)."""
-        metrics = {}
-        metrics_by_source = {}
-        
-        try:
-            metrics = motion_trial.performance_metrics()
-        except Exception as exc:
-            logger.error(f"Error computing performance metrics: {exc}", exc_info=True)
-            raise
-        
-        if not metrics:
-            raise ValueError("No overlapping (sync_index, point_id) pairs between ground truth and predictions.")
-        
-        # Compute per-source metrics
-        try:
-            if use_filtered and 'measurement_source' in motion_trial.predictions_df.columns:
-                for source in ['YOLO', 'BGS', 'filter_only']:
-                    source_df = motion_trial.predictions_df[motion_trial.predictions_df['measurement_source'] == source]
-                    if not source_df.empty:
-                        # Temporarily swap in source data to compute metrics
-                        orig_pred_df = motion_trial.predictions_df
-                        orig_gt_df = motion_trial.xyz_df
-                        # Filter both to only point_id == 0 (the tracked fly)
-                        motion_trial.predictions_df = source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df
-                        motion_trial.xyz_df = orig_gt_df[orig_gt_df['point_id'] == 0] if not orig_gt_df.empty else orig_gt_df
-                        try:
-                            source_metrics = motion_trial.performance_metrics()
-                            # Add point and frame counts
-                            source_metrics['point_count'] = len(source_df[source_df['point_id'] == 0] if 'point_id' in source_df.columns else source_df)
-                            source_metrics['frame_count'] = source_df['sync_index'].nunique()
-                            metrics_by_source[source] = source_metrics
-                        except Exception as e:
-                            logger.warning(f"Could not compute metrics for source {source}: {e}")
-                        finally:
-                            motion_trial.predictions_df = orig_pred_df
-                            motion_trial.xyz_df = orig_gt_df
-        except Exception as e:
-            logger.warning(f"Could not compute per-source metrics: {e}")
-        
-        return {"overall": metrics, "by_source": metrics_by_source}
-    
-    def _on_metrics_computed(self, result: dict):
-        """Called when metrics computation finishes."""
-        metrics = result.get("overall", {})
-        metrics_by_source = result.get("by_source", {})
-        
-        # Now display in main thread
-        self._display_metrics_dialog(metrics, metrics_by_source)
-        self.compute_metrics_button.setEnabled(True)
-        if self.metrics_thread:
-            self.metrics_thread.quit()
-            self.metrics_thread.wait()
-    
-    def _on_metrics_error(self, error_msg: str):
-        """Called when metrics computation fails."""
-        logger.error(f"Metrics computation error: {error_msg}")
-        QMessageBox.critical(self, "Metrics Error", f"Failed to compute metrics:\n{error_msg}")
-        self.compute_metrics_button.setEnabled(True)
-        if self.metrics_thread:
-            self.metrics_thread.quit()
-            self.metrics_thread.wait()
-    
-    def _display_metrics_dialog(self, metrics: dict, metrics_by_source: dict):
-        """Display computed metrics in a dialog (runs in main thread)."""
-        if not metrics:
-            QMessageBox.warning(self, "No Metrics", "No metrics were computed.")
-            return
-        
-        # Build metrics text
-        lines = []
-        
-        pred_source = "filtered" if self.toggle_filtered_button.isChecked() else "raw"
-        lines.append(f"[Using {pred_source.upper()} predictions]")
-        
-        # Debug: Show extend and frame range info
-        extend_enabled = getattr(self, 'extend_filtered_track', False)
-        lines.append(f"[Extend filter: {'ON' if extend_enabled else 'OFF'}]")
-        
-        pred_min_frame = self.motion_trial.predictions_df['sync_index'].min() if not self.motion_trial.predictions_df.empty else 0
-        pred_max_frame = self.motion_trial.predictions_df['sync_index'].max() if not self.motion_trial.predictions_df.empty else 0
-        gt_min_frame = self.motion_trial.xyz_df['sync_index'].min() if not self.motion_trial.xyz_df.empty else 0
-        gt_max_frame = self.motion_trial.xyz_df['sync_index'].max() if not self.motion_trial.xyz_df.empty else 0
-        lines.append(f"[Pred frame range: {int(pred_min_frame)}-{int(pred_max_frame)} | GT frame range: {int(gt_min_frame)}-{int(gt_max_frame)}]")
-        lines.append("")
-        lines.append("=== OVERALL METRICS ===")
-        
-        # Get start/end frame filtering from spinboxes
-        start_frame = self.filter_start_spin.value()
-        end_frame = self.filter_end_spin.value()
-        
-        # Show frame and point counts for both GT and predictions
-        total_gt_frames = self.motion_trial.xyz_df['sync_index'].nunique() if not self.motion_trial.xyz_df.empty else 0
-        # Only count GT points for point_id == 0 (the tracked fly)
-        gt_fly_df = self.motion_trial.xyz_df[self.motion_trial.xyz_df['point_id'] == 0] if not self.motion_trial.xyz_df.empty else pd.DataFrame()
-        total_gt_fly_points = len(gt_fly_df) if not gt_fly_df.empty else 0
-        # Only count pred points for point_id == 0 (the tracked fly)
-        pred_fly_df = self.motion_trial.predictions_df[self.motion_trial.predictions_df['point_id'] == 0] if not self.motion_trial.predictions_df.empty else pd.DataFrame()
-        total_pred_frames = pred_fly_df['sync_index'].nunique() if not pred_fly_df.empty else 0
-        total_pred_fly_points = len(pred_fly_df) if not pred_fly_df.empty else 0
-        
-        # Apply frame range filtering for percentage calculations
-        gt_df_for_range = self.motion_trial.xyz_df
-        if start_frame > 0 or end_frame > 0:
-            if start_frame > 0:
-                gt_df_for_range = gt_df_for_range[gt_df_for_range['sync_index'] >= start_frame]
-            if end_frame > 0:
-                gt_df_for_range = gt_df_for_range[gt_df_for_range['sync_index'] <= end_frame]
-        
-        # Count GT frames that actually have the tracked fly (point_id == 0)
-        gt_fly_df_in_range = gt_df_for_range[gt_df_for_range['point_id'] == 0] if not gt_df_for_range.empty else pd.DataFrame()
-        total_gt_frames_in_range = gt_fly_df_in_range['sync_index'].nunique() if not gt_fly_df_in_range.empty else 0
-        
-        # Display frame ranges
-        if start_frame > 0 or end_frame > 0:
-            range_str = f" (frames {start_frame}" if start_frame > 0 else " (all start"
-            if end_frame > 0:
-                range_str += f" to {end_frame})"
-            else:
-                range_str += " onward)"
-            lines.append(f"Total GT Frames with fly point{range_str}: {int(total_gt_frames_in_range)}")
-        else:
-            lines.append(f"Total GT Frames with fly point: {int(total_gt_frames_in_range)}")
-        
-        lines.append(f"Total GT Fly Points (point_id=0): {int(total_gt_fly_points)}")
-        lines.append(f"Total Pred Frames: {int(total_pred_frames)}")
-        lines.append(f"Total Pred Fly Points (point_id=0): {int(total_pred_fly_points)}")
-        
-        # Show performance metrics
-        for key, value in metrics.items():
-            if isinstance(value, float):
-                lines.append(f"{key}: {value:.4f}")
-            else:
-                lines.append(f"{key}: {value}")
-
-        # Add per-source metrics if available
-        if metrics_by_source:
-            lines.append("")
-            lines.append("=== METRICS BY MEASUREMENT SOURCE ===")
-            # Add clarification about which GT frames are being used for percentages
-            if start_frame > 0 or end_frame > 0:
-                lines.append(f"(% based on GT frames with fly point in range {start_frame}-{end_frame}: {int(total_gt_frames_in_range)} frames)")
-            else:
-                lines.append(f"(% based on GT frames with fly point in entire video: {int(total_gt_frames_in_range)} frames)")
-            total_pred_points = total_pred_fly_points if total_pred_fly_points > 0 else 1  # Avoid division by zero
-            for source in ['YOLO', 'BGS', 'filter_only']:
-                if source in metrics_by_source:
-                    source_metrics = metrics_by_source[source]
-                    point_count = source_metrics.get('point_count', 0)
-                    frame_count = source_metrics.get('frame_count', 0)
-                    pct_of_pred = (point_count / total_pred_points * 100) if total_pred_points > 0 else 0
-                    pct_of_frames = (frame_count / total_gt_frames_in_range * 100) if total_gt_frames_in_range > 0 else 0
-                    lines.append(f"\n--- {source} ({frame_count} frames, {point_count} points = {pct_of_pred:.1f}% of predictions, {pct_of_frames:.1f}% of GT frames) ---")
-                    # Display accuracy metrics, skip context metrics (point_count, frame_count)
-                    skip_keys = {'point_count', 'frame_count'}
-                    for key, value in source_metrics.items():
-                        if key not in skip_keys:
-                            if isinstance(value, float):
-                                lines.append(f"  {key}: {value:.4f}")
-                            else:
-                                lines.append(f"  {key}: {value}")
-
-        # Create scrollable dialog
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Performance Metrics")
-        dialog.setGeometry(100, 100, 600, 500)
-        
-        layout = QVBoxLayout()
-        text_edit = QTextEdit()
-        text_edit.setPlainText("\n".join(lines))
-        text_edit.setReadOnly(True)
-        layout.addWidget(text_edit)
-        
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(dialog.accept)
-        layout.addWidget(close_btn)
-        
-        dialog.setLayout(layout)
-        dialog.exec()
+        use_filtered = self.toggle_filtered_button.isChecked()
+        self.metrics_computer.compute_and_display(self.motion_trial, use_filtered)
 
     def toggle_filtered_track(self, checked: bool):
         """Toggle use of filtered predictions cached alongside the predictions CSV."""
