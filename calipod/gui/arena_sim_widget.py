@@ -29,6 +29,7 @@ from PySide6.QtCore import Qt, QTimer
 from calipod.gui.utils.spinbox_utils import create_labeled_spinbox_row
 from calipod.arena_simulation.arena_designer import ArenaDesignerVisualizer
 from calipod.arena_simulation.arena_config_manager import ArenaConfigManager
+from calipod.arena_simulation.arena_matplotlib_graph import ArenaMatplotlibGraphWindow
 import calipod.logger
 from calipod.controller import Controller
 
@@ -110,7 +111,11 @@ class ArenaSimWidget(QWidget):
         self.right_vbox.addWidget(self.visualizer.scene, stretch=2)
 
         self.save_arena_config_button = QPushButton("Save Arena Config")
-        self.right_vbox.addWidget(self.save_arena_config_button, stretch=0)
+        self.generate_matplotl_graph_button = QPushButton("Generate Matplotlib Graph")
+        button_row = QHBoxLayout()
+        button_row.addWidget(self.save_arena_config_button)
+        button_row.addWidget(self.generate_matplotl_graph_button)
+        self.right_vbox.addLayout(button_row, stretch=0)
 
         # Camera Movement Controls
         self.cam_controls_widget()
@@ -320,6 +325,7 @@ class ArenaSimWidget(QWidget):
         self.visualised_frustum_depth.valueChanged.connect(self._update_frustum_depth)
         self.overlap_visualization_group.idToggled.connect(self._update_overlap_mode)
         self.save_arena_config_button.clicked.connect(self.save_arena_config)
+        self.generate_matplotl_graph_button.clicked.connect(self.generate_matplotl_graph)
         self._update_arena_scale(self.arena_scale_depth_cm.value())
         self._update_frustum_depth(self.visualised_frustum_depth.value())
         self._update_overlap_mode(self.overlap_visualization_group.checkedId(), True)
@@ -390,6 +396,35 @@ class ArenaSimWidget(QWidget):
     def save_arena_config(self):
         """Persist current arena simulation controls to workspace metadata."""
         self.arena_config_manager.save(self._get_arena_config_payload())
+
+    def generate_matplotl_graph(self):
+        """Open a matplotlib popup rendering the current arena simulation geometry."""
+        if hasattr(self, "arena_graph_window") and self.arena_graph_window is not None:
+            try:
+                self.arena_graph_window.close()
+            except Exception:
+                pass
+
+        camera_colors = {
+            i: self.visualizer.get_camera_color(i)
+            for i in range(self.cameras)
+        }
+        arena_state = {
+            "camera_count": self.cameras,
+            "overlap_mode": "max_all" if self.overlap_max_radio.isChecked() else "min_two",
+            "camera_frustum_angles_deg": dict(self.visualizer.camera_frustum_angles_deg),
+            "camera_translations_mm": dict(self.visualizer.camera_translations_mm),
+            "camera_rotations_deg": dict(self.visualizer.camera_rotations_deg),
+            "visualised_frustum_depth_cm": float(self.visualizer.visualised_frustum_depth_cm),
+            "mm_to_scene_scale": float(self.visualizer.mm_to_scene_scale),
+            "camera_colors": camera_colors,
+        }
+        self.arena_graph_window = ArenaMatplotlibGraphWindow(
+            arena_state=arena_state,
+            arena_sim_dir=self.controller.workspace_guide.arena_sim_dir,
+            parent=None,
+        )
+        self.arena_graph_window.show()
 
     def load_arena_config(self):
         """Load previously saved arena simulation controls from workspace metadata."""
