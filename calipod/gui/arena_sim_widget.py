@@ -41,8 +41,8 @@ class ArenaSimWidget(QWidget):
         self.cameras = self.controller.get_camera_count()
 
 
-        # Arena designer starts from an empty scene; controls can populate it later.
-        self.visualizer = ArenaDesignerVisualizer()
+        # Arena designer starts with camera cubes and can be updated by controls later.
+        self.visualizer = ArenaDesignerVisualizer(camera_count=self.cameras)
         
         #calculated pixel-to-animal values
         self.furthest_distance_mm = None

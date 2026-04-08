@@ -10,6 +10,61 @@ from calipod.cameras.camera_array import CameraData
 logger = calipod.logger.get(__name__)
 
 
+def build_camera_origin_cube_geometry():
+    """Return cube vertices/faces used for camera origin markers."""
+    cube_verts = np.array(
+        [
+            [-0.5, -0.5, -0.5],
+            [0.5, -0.5, -0.5],
+            [0.5, 0.5, -0.5],
+            [-0.5, 0.5, -0.5],
+            [-0.5, -0.5, 0.5],
+            [0.5, -0.5, 0.5],
+            [0.5, 0.5, 0.5],
+            [-0.5, 0.5, 0.5],
+        ]
+    )
+
+    cube_faces = np.array(
+        [
+            [0, 1, 2],
+            [0, 2, 3],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+            [2, 3, 7],
+            [2, 7, 6],
+            [1, 2, 6],
+            [1, 6, 5],
+            [0, 3, 7],
+            [0, 7, 4],
+        ]
+    )
+
+    return cube_verts, cube_faces
+
+
+def build_camera_origin_cube_item(
+    color=(1, 1, 1, 1),
+    scale=0.05,
+    edge_color=(0, 0, 1, 1),
+):
+    """Create a GLMeshItem cube matching camera origin marker geometry."""
+    cube_verts, cube_faces = build_camera_origin_cube_geometry()
+    face_colors = np.tile(np.array(color), (cube_faces.shape[0], 1))
+    cube = gl.GLMeshItem(
+        vertexes=cube_verts * scale,
+        faces=cube_faces,
+        faceColors=face_colors,
+        smooth=False,
+        drawEdges=True,
+        edgeColor=edge_color,
+    )
+    cube.setGLOptions("opaque")
+    return cube
+
+
 class CameraMesh:
     """Build a camera mesh object that is looking up from the origin"""
 
@@ -91,27 +146,7 @@ class CameraMesh:
         self.colors = np.array(self.colors)
 
     def build_camera_origin_mesh(self): #new camera mesh (square)
-        CUBE_VERTS = np.array([
-            [-0.5, -0.5, -0.5], # 0
-            [ 0.5, -0.5, -0.5], # 1
-            [ 0.5,  0.5, -0.5], # 2
-            [-0.5,  0.5, -0.5], # 3
-            [-0.5, -0.5,  0.5], # 4
-            [ 0.5, -0.5,  0.5], # 5
-            [ 0.5,  0.5,  0.5], # 6
-            [-0.5,  0.5,  0.5], # 7
-        ])
-
-        CUBE_FACES = np.array([
-            [0, 1, 2], [0, 2, 3],  # Bottom face
-            [4, 5, 6], [4, 6, 7],  # Top face
-            [0, 1, 5], [0, 5, 4],  # Front face
-            [2, 3, 7], [2, 7, 6],  # Back face
-            [1, 2, 6], [1, 6, 5],  # Right face
-            [0, 3, 7], [0, 7, 4],  # Left face
-        ])
-
-        return CUBE_VERTS,CUBE_FACES
+        return build_camera_origin_cube_geometry()
 
 
 def rotation_to_float(rotation_matrix):
