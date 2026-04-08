@@ -164,7 +164,7 @@ class ArenaSimWidget(QWidget):
 
     # Camera placement controls - sliders to adjust camera position and orientation within the visualizer, with the option to sync these to the extrinsic calibration values for each camera once calibrated.
     def cam_controls_widget(self):
-        self.cam_controls = self._create_section_title("Camera Placement Controls")
+        controls_group, controls_layout = self._create_styled_groupbox("Camera Placement Controls")
         self.cam_placement = QListWidget()
 
         # For each camera, create control sliders to adjust position and orientation, displayed left to right with scrollbar
@@ -203,8 +203,8 @@ class ArenaSimWidget(QWidget):
                 self.cam_placement.setItemWidget(self.cam_placement.item(self.cam_placement.count()-1), QWidget())
                 self.cam_placement.itemWidget(self.cam_placement.item(self.cam_placement.count()-1)).setLayout(slider_layout)
 
-        self.right_vbox.addWidget(self.cam_controls, stretch=0)
-        self.right_vbox.addWidget(self.cam_placement, stretch=1)
+        controls_layout.addWidget(self.cam_placement, stretch=1)
+        self.right_vbox.addWidget(controls_group, stretch=1)
 
 
 
