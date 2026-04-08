@@ -49,6 +49,7 @@ class ArenaSimWidget(QWidget):
         self.insect_pixel_count = None
 
         self.place_widgets()
+        self.connect_widgets()
 
     # Helper function to create section titles
     def _create_section_font(self, point_size: int = 11) -> QFont:
@@ -130,7 +131,14 @@ class ArenaSimWidget(QWidget):
         self.overlap_visualization_layout.addStretch()
 
         params_layout.addWidget(self.camera_count_label)
-        create_labeled_spinbox_row(params_layout, "Arena Scale/ Depth (cm):", 0.1, 10000.0, decimals=1)
+        self.arena_scale_depth_cm = create_labeled_spinbox_row(
+            params_layout,
+            "Arena Scale/ Depth (cm):",
+            0.1,
+            10000.0,
+            decimals=1,
+        )
+        self.arena_scale_depth_cm.setValue(100.0)
         create_labeled_spinbox_row(params_layout, "Visualised Frustum Depth:", 0.1, 10000.0, decimals=2)
         params_layout.addLayout(self.overlap_visualization_layout)
         params_layout.addStretch()
@@ -188,9 +196,11 @@ class ArenaSimWidget(QWidget):
     def cam_controls_widget(self):
         controls_group, controls_layout = self._create_styled_groupbox("Camera Placement Controls")
         self.cam_placement = QListWidget()
+        self.camera_position_spinboxes = {}
 
         # For each camera, create control sliders to adjust position and orientation, displayed left to right with scrollbar
         for i in range(self.cameras):
+            position_spinboxes = {}
             cam_label = self._create_subsection_title(f"Camera {i+1}")
             item = QListWidgetItem()
             self.cam_placement.addItem(item)
@@ -206,6 +216,8 @@ class ArenaSimWidget(QWidget):
                 value_spinbox.setMinimum(-1000)
                 value_spinbox.setMaximum(1000)
                 value_spinbox.setValue(0)
+                value_spinbox.setDecimals(0)
+                value_spinbox.setSingleStep(1)
                 value_spinbox.setMaximumWidth(80)
                 value_spinbox.setMinimumHeight(24)
                 
@@ -215,8 +227,15 @@ class ArenaSimWidget(QWidget):
                 slider.setValue(0)
                 
                 # Sync spinbox and slider
-                value_spinbox.valueChanged.connect(slider.setValue)
+                value_spinbox.valueChanged.connect(lambda value, s=slider: s.setValue(int(value)))
                 slider.valueChanged.connect(value_spinbox.setValue)
+
+                if param == "X Position (mm)":
+                    position_spinboxes["x"] = value_spinbox
+                elif param == "Y Position (mm)":
+                    position_spinboxes["y"] = value_spinbox
+                elif param == "Z Position (mm)":
+                    position_spinboxes["z"] = value_spinbox
                 
                 slider_layout.addWidget(slider_label)
                 slider_layout.addWidget(value_spinbox)
@@ -225,10 +244,29 @@ class ArenaSimWidget(QWidget):
                 self.cam_placement.setItemWidget(self.cam_placement.item(self.cam_placement.count()-1), QWidget())
                 self.cam_placement.itemWidget(self.cam_placement.item(self.cam_placement.count()-1)).setLayout(slider_layout)
 
+            self.camera_position_spinboxes[i] = position_spinboxes
+            for axis in ["x", "y", "z"]:
+                position_spinboxes[axis].valueChanged.connect(lambda _, cam_index=i: self._update_camera_translation(cam_index))
+
+            self._update_camera_translation(i)
+
         controls_layout.addWidget(self.cam_placement, stretch=1)
         self.right_vbox.addWidget(controls_group, stretch=1)
 
+    def _update_camera_translation(self, camera_index: int):
+        """Push camera translation controls into the arena visualizer."""
+        position_spinboxes = self.camera_position_spinboxes.get(camera_index, {})
+        x_mm = position_spinboxes.get("x").value()
+        y_mm = position_spinboxes.get("y").value()
+        z_mm = position_spinboxes.get("z").value()
+        self.visualizer.set_camera_translation(camera_index, x_mm, y_mm, z_mm)
+
 
     def connect_widgets(self):
-        pass
+        self.arena_scale_depth_cm.valueChanged.connect(self._update_arena_scale)
+        self._update_arena_scale(self.arena_scale_depth_cm.value())
+
+    def _update_arena_scale(self, depth_cm: float):
+        """Update mm-to-scene scaling when arena depth changes."""
+        self.visualizer.set_arena_depth_cm(depth_cm)
         
