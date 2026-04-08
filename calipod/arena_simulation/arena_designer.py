@@ -8,6 +8,7 @@ from calipod.gui.vizualize.camera_mesh import (
 	build_camera_frustum_item,
 	build_camera_origin_cube_item,
 )
+from calipod.gui.utils.grids import build_edge_tick_specs, build_plane_grid_lines, format_axis_label, nice_step
 
 
 class ArenaDesignerVisualizer:
@@ -55,38 +56,10 @@ class ArenaDesignerVisualizer:
 
 		minor_color = (0.20, 0.20, 0.20, 0.30)
 		major_color = (0.05, 0.05, 0.05, 0.75)
-
-		def build_plane_grid(spacing: float, color: tuple[float, float, float, float], plane: str, width: float):
-			lines = []
-			steps = int(np.floor((2.0 * half) / spacing))
-			for i in range(-steps // 2, steps // 2 + 1):
-				v = i * spacing
-				if abs(v) > half + 1e-9:
-					continue
-				if plane == "xy":
-					lines.append([[-half, v, 0.0], [half, v, 0.0]])
-					lines.append([[v, -half, 0.0], [v, half, 0.0]])
-				else:
-					lines.append([[-half, 0.0, v], [half, 0.0, v]])
-					lines.append([[v, 0.0, -half], [v, 0.0, half]])
-
-			if not lines:
-				return None
-
-			item = gl.GLLinePlotItem(
-				pos=np.asarray(lines, dtype=np.float32).reshape(-1, 3),
-				color=color,
-				width=width,
-				mode="lines",
-				antialias=True,
-			)
-			item.setGLOptions("translucent")
-			return item
-
-		self.xy_grid_minor = build_plane_grid(minor_spacing_scene, minor_color, plane="xy", width=0.7)
-		self.xz_grid_minor = build_plane_grid(minor_spacing_scene, minor_color, plane="xz", width=0.7)
-		self.xy_grid_major = build_plane_grid(major_spacing_scene, major_color, plane="xy", width=1.3)
-		self.xz_grid_major = build_plane_grid(major_spacing_scene, major_color, plane="xz", width=1.3)
+		self.xy_grid_minor = self._build_grid_item("xy", minor_spacing_scene, half, minor_color, width=0.7, opaque=False)
+		self.xz_grid_minor = self._build_grid_item("xz", minor_spacing_scene, half, minor_color, width=0.7, opaque=False)
+		self.xy_grid_major = self._build_grid_item("xy", major_spacing_scene, half, major_color, width=1.3, opaque=True)
+		self.xz_grid_major = self._build_grid_item("xz", major_spacing_scene, half, major_color, width=1.3, opaque=True)
 
 		for grid_item in (
 			self.xy_grid_minor,
@@ -98,6 +71,21 @@ class ArenaDesignerVisualizer:
 				self.scene.addItem(grid_item)
 
 		self._add_scale_tick_labels(half=half, label_spacing_scene=major_spacing_scene)
+
+	def _build_grid_item(self, plane: str, spacing_scene: float, half_scene: float, color, width: float, opaque: bool):
+		"""Create a grid item for the arena scene using shared line-building helpers."""
+		lines = build_plane_grid_lines(plane, spacing_scene, half_scene)
+		if not lines:
+			return None
+		item = gl.GLLinePlotItem(
+			pos=np.asarray(lines, dtype=np.float32).reshape(-1, 3),
+			color=color,
+			width=width,
+			mode="lines",
+			antialias=True,
+		)
+		item.setGLOptions("opaque" if opaque else "translucent")
+		return item
 
 	@staticmethod
 	def _nice_step_mm(raw_mm: float) -> float:
@@ -118,10 +106,10 @@ class ArenaDesignerVisualizer:
 		"""
 		target_major_spacing_scene = 0.22
 		raw_major_mm = target_major_spacing_scene / max(self.mm_to_scene_scale, 1e-12)
-		major_mm = self._nice_step_mm(raw_major_mm)
+		major_mm = max(1.0, nice_step(raw_major_mm))
 
 		raw_minor_mm = major_mm / 5.0
-		minor_mm = self._nice_step_mm(raw_minor_mm)
+		minor_mm = max(1.0, nice_step(raw_minor_mm))
 		if minor_mm >= major_mm:
 			minor_mm = max(1.0, major_mm / 5.0)
 		return minor_mm, major_mm
@@ -135,15 +123,7 @@ class ArenaDesignerVisualizer:
 		self.grid_labels = []
 
 	def _format_mm_label(self, scene_value: float) -> str:
-		mm_value = scene_value / max(self.mm_to_scene_scale, 1e-12)
-		abs_mm = abs(mm_value)
-		if abs_mm >= 1000.0:
-			value = mm_value / 1000.0
-			return f"{value:.2f}".rstrip("0").rstrip(".") + " m"
-		if abs_mm >= 10.0:
-			value = mm_value / 10.0
-			return f"{value:.1f}".rstrip("0").rstrip(".") + " cm"
-		return f"{mm_value:.0f} mm"
+		return format_axis_label(scene_value, self.mm_to_scene_scale)
 
 	def _add_scale_tick_labels(self, half: float, label_spacing_scene: float):
 		"""Add edge-only tick labels in mm, centered around 0 mm at the origin."""
@@ -151,43 +131,14 @@ class ArenaDesignerVisualizer:
 		if label_spacing_scene <= 0:
 			return
 
-		offset = max(half * 0.03, label_spacing_scene * 0.25)
-		diagonal = offset * 0.35
-		steps = int(np.floor((2.0 * half) / label_spacing_scene))
-
-		for i in range(-steps // 2, steps // 2 + 1):
-			v = i * label_spacing_scene
-			if abs(v) > half + 1e-9:
-				continue
-
-			sign = 0.0 if abs(v) < 1e-9 else np.sign(v)
-
-			# X ticks on the lower edge of XY grid with slight diagonal placement.
-			x_tick = gl.GLTextItem(
-				pos=(v + sign * diagonal, -half - offset, 0.0),
-				text=self._format_mm_label(v),
-				color="black",
-			)
-			self.scene.addItem(x_tick)
-			self.grid_labels.append(x_tick)
-
-			# Y ticks on the left edge of XY grid with slight diagonal placement.
-			y_tick = gl.GLTextItem(
-				pos=(-half - offset, v + sign * diagonal, 0.0),
-				text=self._format_mm_label(v),
-				color="black",
-			)
-			self.scene.addItem(y_tick)
-			self.grid_labels.append(y_tick)
-
-			# Z ticks on the left edge of XZ grid with slight diagonal placement.
-			z_tick = gl.GLTextItem(
-				pos=(-half - offset, 0.0, v + sign * diagonal),
-				text=self._format_mm_label(v),
-				color="black",
-			)
-			self.scene.addItem(z_tick)
-			self.grid_labels.append(z_tick)
+		for pos, text in build_edge_tick_specs(
+			half_extent=half,
+			label_interval=label_spacing_scene,
+			label_formatter=self._format_mm_label,
+		):
+			tick = gl.GLTextItem(pos=pos, text=text, color="black")
+			self.scene.addItem(tick)
+			self.grid_labels.append(tick)
 
 	def _fallback_color(self, index: int, total: int) -> tuple[float, float, float, float]:
 		"""Generate deterministic colors when camera color metadata is unavailable."""
