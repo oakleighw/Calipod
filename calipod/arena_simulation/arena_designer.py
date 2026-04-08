@@ -15,6 +15,7 @@ class ArenaDesignerVisualizer:
 		self.camera_translations_mm = {}
 		self.camera_rotations_deg = {}
 		self.camera_frustum_angles_deg = {}
+		self.camera_min_working_distance_mm = {}
 		self.scene = gl.GLViewWidget()
 		self.scene.setBackgroundColor("w")
 		self.scene.setCameraPosition(distance=4)
@@ -42,6 +43,17 @@ class ArenaDesignerVisualizer:
 		r, g, b, _ = color
 		return f"rgb({int(r * 255)}, {int(g * 255)}, {int(b * 255)})"
 
+	@staticmethod
+	def _darken_color(color: tuple[float, float, float, float], factor: float = 0.45, alpha: float = 0.75):
+		"""Return a darker variant of the given RGBA color."""
+		r, g, b, _ = color
+		return (
+			max(0.0, min(1.0, r * factor)),
+			max(0.0, min(1.0, g * factor)),
+			max(0.0, min(1.0, b * factor)),
+			max(0.0, min(1.0, alpha)),
+		)
+
 	def _add_camera_cubes(self):
 		self.camera_cubes = {}
 
@@ -58,10 +70,12 @@ class ArenaDesignerVisualizer:
 
 	def _add_camera_frustums(self):
 		self.camera_frustums = {}
+		self.camera_min_distance_frustums = {}
 		depth_mm = max(self.visualised_frustum_depth_cm, 0.1) * 10.0
 		for camera_index in range(max(0, int(self.camera_count or 0))):
 			self._ensure_camera_state(camera_index)
 			horizontal_angle_deg, vertical_angle_deg = self.camera_frustum_angles_deg.get(camera_index, (60.0, 45.0))
+			min_working_distance_mm = self.camera_min_working_distance_mm.get(camera_index, 1.0)
 			color = self._fallback_color(camera_index, max(1, int(self.camera_count or 0)))
 			frustum_color = (color[0], color[1], color[2], 0.18)
 			frustum = build_camera_frustum_item(
@@ -73,6 +87,21 @@ class ArenaDesignerVisualizer:
 			)
 			self.camera_frustums[camera_index] = frustum
 			self.scene.addItem(frustum)
+
+			# Dark red sub-frustum marks the minimum working distance.
+			min_depth_mm = max(0.1, min(float(min_working_distance_mm), depth_mm))
+			dark_color = self._darken_color(color, factor=0.45, alpha=0.80)
+			dark_edge = self._darken_color(color, factor=0.35, alpha=1.0)
+			min_distance_frustum = build_camera_frustum_item(
+				horizontal_angle_deg=horizontal_angle_deg,
+				vertical_angle_deg=vertical_angle_deg,
+				depth=min_depth_mm * self.mm_to_scene_scale,
+				color=dark_color,
+				edge_color=dark_edge,
+				gl_options="additive",
+			)
+			self.camera_min_distance_frustums[camera_index] = min_distance_frustum
+			self.scene.addItem(min_distance_frustum)
 			self._apply_camera_transform(camera_index)
 
 	def _ensure_camera_state(self, camera_index: int):
@@ -80,10 +109,15 @@ class ArenaDesignerVisualizer:
 		self.camera_translations_mm.setdefault(camera_index, (0.0, 0.0, 0.0))
 		self.camera_rotations_deg.setdefault(camera_index, (0.0, 0.0, 0.0))
 		self.camera_frustum_angles_deg.setdefault(camera_index, (60.0, 45.0))
+		self.camera_min_working_distance_mm.setdefault(camera_index, 1.0)
 
 	def _apply_camera_transform(self, camera_index: int):
 		"""Apply the current rotation and translation for a specific camera cube."""
-		if camera_index not in self.camera_cubes and camera_index not in getattr(self, "camera_frustums", {}):
+		if (
+			camera_index not in self.camera_cubes
+			and camera_index not in getattr(self, "camera_frustums", {})
+			and camera_index not in getattr(self, "camera_min_distance_frustums", {})
+		):
 			return
 
 		x_mm, y_mm, z_mm = self.camera_translations_mm.get(camera_index, (0.0, 0.0, 0.0))
@@ -92,7 +126,11 @@ class ArenaDesignerVisualizer:
 		y = y_mm * self.mm_to_scene_scale
 		z = z_mm * self.mm_to_scene_scale
 
-		for item in (self.camera_cubes.get(camera_index), getattr(self, "camera_frustums", {}).get(camera_index)):
+		for item in (
+			self.camera_cubes.get(camera_index),
+			getattr(self, "camera_frustums", {}).get(camera_index),
+			getattr(self, "camera_min_distance_frustums", {}).get(camera_index),
+		):
 			if item is None:
 				continue
 			item.resetTransform()
@@ -128,6 +166,11 @@ class ArenaDesignerVisualizer:
 	def set_camera_frustum_angles(self, camera_index: int, horizontal_angle_deg: float, vertical_angle_deg: float):
 		"""Set lens angles for a camera frustum and rebuild the scene."""
 		self.camera_frustum_angles_deg[camera_index] = (float(horizontal_angle_deg), float(vertical_angle_deg))
+		self.refresh_scene()
+
+	def set_camera_min_working_distance(self, camera_index: int, min_working_distance_mm: float):
+		"""Set minimum working distance for a camera and rebuild sub-frustum."""
+		self.camera_min_working_distance_mm[camera_index] = max(float(min_working_distance_mm), 0.1)
 		self.refresh_scene()
 
 	def set_mm_to_scene_scale(self, mm_to_scene_scale: float):

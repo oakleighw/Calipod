@@ -126,6 +126,7 @@ def build_camera_frustum_item(
     depth: float,
     color=(0.5, 0.5, 0.5, 0.2),
     edge_color=(0, 0, 0, 1),
+    gl_options="translucent",
 ):
     """Create a translucent frustum mesh item for a camera preview."""
     verts, faces = build_camera_frustum_geometry(horizontal_angle_deg, vertical_angle_deg, depth)
@@ -134,7 +135,7 @@ def build_camera_frustum_item(
         faces=faces,
         color=color,
         edge_color=edge_color,
-        gl_options="translucent",
+        gl_options=gl_options,
         smooth=False,
         draw_edges=True,
     )

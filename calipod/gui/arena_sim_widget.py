@@ -180,9 +180,11 @@ class ArenaSimWidget(QWidget):
                 "vertical": vertical_spinbox,
             }
 
+            min_working_distance_spinbox.valueChanged.connect(lambda _, cam_index=i: self._update_camera_min_working_distance(cam_index))
             horizontal_spinbox.valueChanged.connect(lambda _, cam_index=i: self._update_camera_frustum(cam_index))
             vertical_spinbox.valueChanged.connect(lambda _, cam_index=i: self._update_camera_frustum(cam_index))
 
+            self._update_camera_min_working_distance(i)
             self._update_camera_frustum(i)
         
         lens_layout.addStretch()
@@ -333,6 +335,12 @@ class ArenaSimWidget(QWidget):
         horizontal_angle_deg = angle_spinboxes.get("horizontal").value()
         vertical_angle_deg = angle_spinboxes.get("vertical").value()
         self.visualizer.set_camera_frustum_angles(camera_index, horizontal_angle_deg, vertical_angle_deg)
+
+    def _update_camera_min_working_distance(self, camera_index: int):
+        """Push minimum working distance control into the arena visualizer."""
+        angle_spinboxes = self.lens_angle_spinboxes.get(camera_index, {})
+        min_working_distance_mm = angle_spinboxes.get("min_working_distance").value()
+        self.visualizer.set_camera_min_working_distance(camera_index, min_working_distance_mm)
 
     def _get_arena_config_payload(self) -> dict:
         """Collect current arena-sim widget values into a JSON-serializable payload."""
