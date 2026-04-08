@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+from itertools import combinations
 import cv2
 import numpy as np
 
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QDoubleSpinBox,
     QGroupBox,
+    QSizePolicy,
 )
 from PySide6.QtGui import QImage, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer
@@ -231,7 +233,9 @@ class ArenaSimWidget(QWidget):
     # Camera placement controls - sliders to adjust camera position and orientation within the visualizer, with the option to sync these to the extrinsic calibration values for each camera once calibrated.
     def cam_controls_widget(self):
         controls_group, controls_layout = self._create_styled_groupbox("Camera Placement Controls")
+        controls_row = QHBoxLayout()
         self.cam_placement = QListWidget()
+        self.cam_placement.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.camera_position_spinboxes = {}
         self.camera_rotation_spinboxes = {}
 
@@ -300,8 +304,111 @@ class ArenaSimWidget(QWidget):
             self._update_camera_translation(i)
             self._update_camera_rotation(i)
 
-        controls_layout.addWidget(self.cam_placement, stretch=1)
+        controls_row.addWidget(self.cam_placement, stretch=3)
+
+        self.optical_centres_group = self._create_optical_centres_distance_widget()
+        controls_row.addWidget(self.optical_centres_group, stretch=2)
+
+        controls_layout.addLayout(controls_row)
         self.right_vbox.addWidget(controls_group, stretch=1)
+
+    def _create_optical_centres_distance_widget(self) -> QGroupBox:
+        """Create a scrollable box showing pairwise distances between camera optical centres."""
+        group, layout = self._create_styled_groupbox("Optical Centre Distances")
+        self.optical_centres_distance_layout = QVBoxLayout()
+
+        self.optical_centres_distance_scroll = QScrollArea()
+        self.optical_centres_distance_scroll.setWidgetResizable(True)
+        self.optical_centres_distance_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        self.optical_centres_distance_content = QWidget()
+        self.optical_centres_distance_content_layout = QVBoxLayout(self.optical_centres_distance_content)
+        self.optical_centres_distance_content_layout.setContentsMargins(4, 4, 4, 4)
+        self.optical_centres_distance_content_layout.setSpacing(2)
+        self.optical_centres_distance_content_layout.addStretch()
+
+        self.optical_centres_distance_scroll.setWidget(self.optical_centres_distance_content)
+        layout.addWidget(self.optical_centres_distance_scroll)
+
+        self.optical_centres_distance_labels = []
+        self._refresh_optical_centres_distance_labels()
+        return group
+
+    def _format_distance_mm(self, distance_mm: float) -> str:
+        """Format distances in a readable unit based on magnitude."""
+        distance_mm = float(distance_mm)
+        abs_mm = abs(distance_mm)
+        if abs_mm >= 1000.0:
+            return f"{distance_mm / 1000.0:.2f} m".rstrip("0").rstrip(".")
+        if abs_mm >= 10.0:
+            return f"{distance_mm / 10.0:.1f} cm".rstrip("0").rstrip(".")
+        return f"{distance_mm:.0f} mm"
+
+    def _pair_distance_block(self, camera_a: int, camera_b: int, distance_3d_mm: float, distance_xy_mm: float, distance_z_mm: float) -> str:
+        """Build a capture-volume-style rich-text block for one camera pair."""
+        color_a = self.visualizer.color_to_css(self.visualizer.get_camera_color(camera_a))
+        color_b = self.visualizer.color_to_css(self.visualizer.get_camera_color(camera_b))
+        total_text = self._format_distance_mm(distance_3d_mm)
+        xy_text = self._format_distance_mm(distance_xy_mm)
+        z_text = self._format_distance_mm(distance_z_mm)
+        return (
+            f"<pre><font color='{color_a}'>Camera {camera_a + 1}</font>-"
+            f"<font color='{color_b}'>Camera {camera_b + 1}</font>: {total_text}\n"
+            f"    (xy): {xy_text}\n"
+            f"    (z): {z_text}</pre>"
+        )
+
+    def _clear_optical_centres_distance_labels(self):
+        """Remove old distance labels from the scroll area."""
+        for label in self.optical_centres_distance_labels:
+            self.optical_centres_distance_content_layout.removeWidget(label)
+            label.deleteLater()
+        self.optical_centres_distance_labels = []
+
+    def _refresh_optical_centres_distance_labels(self):
+        """Rebuild pairwise optical-centre distances from current camera translations."""
+        if not hasattr(self, "optical_centres_distance_content_layout"):
+            return
+
+        self._clear_optical_centres_distance_labels()
+
+        title = QLabel("Pairwise distances between optical centres")
+        title.setWordWrap(True)
+        title.setStyleSheet("font-weight: bold;")
+        self.optical_centres_distance_content_layout.insertWidget(0, title)
+        self.optical_centres_distance_labels.append(title)
+
+        if self.cameras < 2:
+            empty_label = QLabel("Need at least two cameras.")
+            empty_label.setWordWrap(True)
+            self.optical_centres_distance_content_layout.insertWidget(1, empty_label)
+            self.optical_centres_distance_labels.append(empty_label)
+            return
+
+        pair_count = 0
+        for camera_a, camera_b in combinations(range(self.cameras), 2):
+            # Use the simulated camera positions from the visualizer, not the raw UI fields.
+            translation_a = np.array(self.visualizer.camera_translations_mm.get(camera_a, (0.0, 0.0, 0.0)), dtype=float)
+            translation_b = np.array(self.visualizer.camera_translations_mm.get(camera_b, (0.0, 0.0, 0.0)), dtype=float)
+            distance_mm = float(np.linalg.norm(translation_a - translation_b))
+            distance_xy_mm = float(np.linalg.norm(translation_a[:2] - translation_b[:2]))
+            distance_z_mm = float(abs(translation_a[2] - translation_b[2]))
+
+            line = QLabel(self._pair_distance_block(camera_a, camera_b, distance_mm, distance_xy_mm, distance_z_mm))
+            line.setTextFormat(Qt.TextFormat.RichText)
+            line.setWordWrap(True)
+            self.optical_centres_distance_content_layout.insertWidget(self.optical_centres_distance_content_layout.count() - 1, line)
+            self.optical_centres_distance_labels.append(line)
+            pair_count += 1
+
+        if pair_count == 0:
+            empty_label = QLabel("No pairwise distances available.")
+            self.optical_centres_distance_content_layout.insertWidget(1, empty_label)
+            self.optical_centres_distance_labels.append(empty_label)
+
+    def _update_optical_centres_distances(self):
+        """Refresh the optical-centre distance panel after camera movement changes."""
+        self._refresh_optical_centres_distance_labels()
 
     def _update_camera_translation(self, camera_index: int):
         """Push camera translation controls into the arena visualizer."""
@@ -310,6 +417,7 @@ class ArenaSimWidget(QWidget):
         y_mm = position_spinboxes.get("y").value()
         z_mm = position_spinboxes.get("z").value()
         self.visualizer.set_camera_translation(camera_index, x_mm, y_mm, z_mm)
+        self._update_optical_centres_distances()
 
     def _update_camera_rotation(self, camera_index: int):
         """Push camera rotation controls into the arena visualizer."""
@@ -318,6 +426,7 @@ class ArenaSimWidget(QWidget):
         tilt_deg = rotation_spinboxes.get("tilt").value()
         roll_deg = rotation_spinboxes.get("roll").value()
         self.visualizer.set_camera_rotation(camera_index, pan_deg, tilt_deg, roll_deg)
+        self._update_optical_centres_distances()
 
 
     def connect_widgets(self):
@@ -470,4 +579,6 @@ class ArenaSimWidget(QWidget):
                 rotation_spinboxes.get("tilt").setValue(float(rotation["tilt"]))
             if "roll" in rotation:
                 rotation_spinboxes.get("roll").setValue(float(rotation["roll"]))
+
+        self._update_optical_centres_distances()
         
