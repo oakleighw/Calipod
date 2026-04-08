@@ -197,10 +197,12 @@ class ArenaSimWidget(QWidget):
         controls_group, controls_layout = self._create_styled_groupbox("Camera Placement Controls")
         self.cam_placement = QListWidget()
         self.camera_position_spinboxes = {}
+        self.camera_rotation_spinboxes = {}
 
         # For each camera, create control sliders to adjust position and orientation, displayed left to right with scrollbar
         for i in range(self.cameras):
             position_spinboxes = {}
+            rotation_spinboxes = {}
             cam_label = self._create_subsection_title(f"Camera {i+1}")
             item = QListWidgetItem()
             self.cam_placement.addItem(item)
@@ -236,6 +238,12 @@ class ArenaSimWidget(QWidget):
                     position_spinboxes["y"] = value_spinbox
                 elif param == "Z Position (mm)":
                     position_spinboxes["z"] = value_spinbox
+                elif param == "Pan (deg)":
+                    rotation_spinboxes["pan"] = value_spinbox
+                elif param == "Tilt (deg)":
+                    rotation_spinboxes["tilt"] = value_spinbox
+                elif param == "Roll (deg)":
+                    rotation_spinboxes["roll"] = value_spinbox
                 
                 slider_layout.addWidget(slider_label)
                 slider_layout.addWidget(value_spinbox)
@@ -245,10 +253,15 @@ class ArenaSimWidget(QWidget):
                 self.cam_placement.itemWidget(self.cam_placement.item(self.cam_placement.count()-1)).setLayout(slider_layout)
 
             self.camera_position_spinboxes[i] = position_spinboxes
+            self.camera_rotation_spinboxes[i] = rotation_spinboxes
             for axis in ["x", "y", "z"]:
                 position_spinboxes[axis].valueChanged.connect(lambda _, cam_index=i: self._update_camera_translation(cam_index))
 
+            for axis in ["pan", "tilt", "roll"]:
+                rotation_spinboxes[axis].valueChanged.connect(lambda _, cam_index=i: self._update_camera_rotation(cam_index))
+
             self._update_camera_translation(i)
+            self._update_camera_rotation(i)
 
         controls_layout.addWidget(self.cam_placement, stretch=1)
         self.right_vbox.addWidget(controls_group, stretch=1)
@@ -260,6 +273,14 @@ class ArenaSimWidget(QWidget):
         y_mm = position_spinboxes.get("y").value()
         z_mm = position_spinboxes.get("z").value()
         self.visualizer.set_camera_translation(camera_index, x_mm, y_mm, z_mm)
+
+    def _update_camera_rotation(self, camera_index: int):
+        """Push camera rotation controls into the arena visualizer."""
+        rotation_spinboxes = self.camera_rotation_spinboxes.get(camera_index, {})
+        pan_deg = rotation_spinboxes.get("pan").value()
+        tilt_deg = rotation_spinboxes.get("tilt").value()
+        roll_deg = rotation_spinboxes.get("roll").value()
+        self.visualizer.set_camera_rotation(camera_index, pan_deg, tilt_deg, roll_deg)
 
 
     def connect_widgets(self):

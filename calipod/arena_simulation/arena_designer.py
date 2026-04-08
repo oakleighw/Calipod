@@ -12,6 +12,7 @@ class ArenaDesignerVisualizer:
 		self.camera_count = camera_count
 		self.mm_to_scene_scale = 0.001
 		self.camera_translations_mm = {}
+		self.camera_rotations_deg = {}
 		self.scene = gl.GLViewWidget()
 		self.scene.setBackgroundColor("w")
 		self.scene.setCameraPosition(distance=4)
@@ -40,28 +41,34 @@ class ArenaDesignerVisualizer:
 			cube = build_camera_origin_cube_item(color=color, edge_color=(0, 0, 0, 1))
 			if i not in self.camera_translations_mm:
 				self.camera_translations_mm[i] = (0.0, 0.0, 0.0)
+			if i not in self.camera_rotations_deg:
+				self.camera_rotations_deg[i] = (0.0, 0.0, 0.0)
 			self.camera_cubes[i] = cube
 			self.scene.addItem(cube)
-			self._apply_camera_translation(i)
+			self._apply_camera_transform(i)
 
-	def _apply_camera_translation(self, camera_index: int):
-		"""Apply the current translation (in mm) for a specific camera cube."""
+	def _apply_camera_transform(self, camera_index: int):
+		"""Apply the current rotation and translation for a specific camera cube."""
 		if camera_index not in self.camera_cubes:
 			return
 
 		x_mm, y_mm, z_mm = self.camera_translations_mm.get(camera_index, (0.0, 0.0, 0.0))
+		pan_deg, tilt_deg, roll_deg = self.camera_rotations_deg.get(camera_index, (0.0, 0.0, 0.0))
 		x = x_mm * self.mm_to_scene_scale
 		y = y_mm * self.mm_to_scene_scale
 		z = z_mm * self.mm_to_scene_scale
 
 		cube = self.camera_cubes[camera_index]
 		cube.resetTransform()
+		cube.rotate(roll_deg, 1, 0, 0, local=True)
+		cube.rotate(tilt_deg, 0, 1, 0, local=True)
+		cube.rotate(pan_deg, 0, 0, 1, local=True)
 		cube.translate(x, y, z)
 
 	def _apply_all_camera_translations(self):
 		"""Re-apply translations after scene scale changes."""
 		for camera_index in self.camera_cubes:
-			self._apply_camera_translation(camera_index)
+			self._apply_camera_transform(camera_index)
 
 	def refresh_scene(self):
 		self._init_empty_scene()
@@ -74,7 +81,12 @@ class ArenaDesignerVisualizer:
 	def set_camera_translation(self, camera_index: int, x_mm: float, y_mm: float, z_mm: float):
 		"""Set camera cube translation in mm and update the corresponding mesh."""
 		self.camera_translations_mm[camera_index] = (float(x_mm), float(y_mm), float(z_mm))
-		self._apply_camera_translation(camera_index)
+		self._apply_camera_transform(camera_index)
+
+	def set_camera_rotation(self, camera_index: int, pan_deg: float, tilt_deg: float, roll_deg: float):
+		"""Set camera cube rotation in degrees and update the corresponding mesh."""
+		self.camera_rotations_deg[camera_index] = (float(pan_deg), float(tilt_deg), float(roll_deg))
+		self._apply_camera_transform(camera_index)
 
 	def set_mm_to_scene_scale(self, mm_to_scene_scale: float):
 		"""Set conversion factor from mm to scene units and refresh transforms."""
