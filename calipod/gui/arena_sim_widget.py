@@ -43,7 +43,11 @@ class ArenaSimWidget(QWidget):
 
         #arena designer window placeholder (capture volume vizualiser for now)
         self.visualizer = CaptureVolumeVisualizer(self.controller.capture_volume)
-        # self.visualizer.scene.show()
+        
+        #calculated pixel-to-animal values
+        self.furthest_distance_mm = None
+        self.insect_pixel_count = None
+
         self.place_widgets()
 
     # Helper function to create section titles
@@ -156,6 +160,24 @@ class ArenaSimWidget(QWidget):
         create_labeled_spinbox_row(pixel_layout, "Pixel Size on Sensor (μm):", 0.001, 10.0)
         create_labeled_spinbox_row(pixel_layout, "Furthest Distance (mm):", 0.1, 10000.0)
         create_labeled_spinbox_row(pixel_layout, "Focal Length (mm):", 0.1, 1000.0)
+
+        #results
+        insect_pixel_count_result = QHBoxLayout()
+        self.insect_pixel_count_label = self._create_subsection_title("Insect size:") # to be updated with actual calculation
+        self.insect_pixel_count_value =  QLabel(f"{self.insect_pixel_count} pixels @ furthest distance")
+        insect_pixel_count_result.addWidget(self.insect_pixel_count_label)
+        insect_pixel_count_result.addWidget(self.insect_pixel_count_value)
+        pixel_layout.addLayout(insect_pixel_count_result)
+
+
+        furthest_distance_mm_result = QHBoxLayout()
+        self.furthest_distance_mm_label = self._create_subsection_title("Furthest Distance:")
+        self.furthest_distance_mm_value = QLabel(f"{self.furthest_distance_mm} mm") # to be updated with actual value, given if entered or calculated from lens parameters
+        
+        furthest_distance_mm_result.addWidget(self.furthest_distance_mm_label)
+        furthest_distance_mm_result.addWidget(self.furthest_distance_mm_value)
+        pixel_layout.addLayout(furthest_distance_mm_result)
+
         pixel_layout.addStretch()
         
         self.left_vbox.addWidget(pixel_group)
