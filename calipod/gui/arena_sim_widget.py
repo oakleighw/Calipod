@@ -28,6 +28,7 @@ from PySide6.QtCore import Qt, QTimer
 
 from calipod.gui.utils.spinbox_utils import create_labeled_spinbox_row
 from calipod.arena_simulation.arena_designer import ArenaDesignerVisualizer
+from calipod.arena_simulation.arena_config_manager import ArenaConfigManager
 import calipod.logger
 from calipod.controller import Controller
 
@@ -48,7 +49,10 @@ class ArenaSimWidget(QWidget):
         self.furthest_distance_mm = None
         self.insect_pixel_count = None
 
+        self.arena_config_manager = ArenaConfigManager(self.controller.workspace_guide.arena_sim_dir)
+
         self.place_widgets()
+        self.load_arena_config()
         self.connect_widgets()
 
     # Helper function to create section titles
@@ -104,6 +108,9 @@ class ArenaSimWidget(QWidget):
 
         # Simulation visualizer
         self.right_vbox.addWidget(self.visualizer.scene, stretch=2)
+
+        self.save_arena_config_button = QPushButton("Save Arena Config")
+        self.right_vbox.addWidget(self.save_arena_config_button, stretch=0)
 
         # Camera Movement Controls
         self.cam_controls_widget()
@@ -163,11 +170,12 @@ class ArenaSimWidget(QWidget):
         for i in range(cam_num):
             cam_label = self._create_subsection_title(f"Camera {i+1}")
             lens_layout.addWidget(cam_label)
-            create_labeled_spinbox_row(lens_layout, "Min Working Distance (mm):", 1, 100000.00)
+            min_working_distance_spinbox = create_labeled_spinbox_row(lens_layout, "Min Working Distance (mm):", 1, 100000.00)
             horizontal_spinbox = create_labeled_spinbox_row(lens_layout, "Horizontal Angle (deg):", 1, 360.00)
             vertical_spinbox = create_labeled_spinbox_row(lens_layout, "Vertical Angle (deg):", 1, 360.00)
 
             self.lens_angle_spinboxes[i] = {
+                "min_working_distance": min_working_distance_spinbox,
                 "horizontal": horizontal_spinbox,
                 "vertical": vertical_spinbox,
             }
@@ -307,6 +315,7 @@ class ArenaSimWidget(QWidget):
     def connect_widgets(self):
         self.arena_scale_depth_cm.valueChanged.connect(self._update_arena_scale)
         self.visualised_frustum_depth.valueChanged.connect(self._update_frustum_depth)
+        self.save_arena_config_button.clicked.connect(self.save_arena_config)
         self._update_arena_scale(self.arena_scale_depth_cm.value())
         self._update_frustum_depth(self.visualised_frustum_depth.value())
 
@@ -324,4 +333,81 @@ class ArenaSimWidget(QWidget):
         horizontal_angle_deg = angle_spinboxes.get("horizontal").value()
         vertical_angle_deg = angle_spinboxes.get("vertical").value()
         self.visualizer.set_camera_frustum_angles(camera_index, horizontal_angle_deg, vertical_angle_deg)
+
+    def _get_arena_config_payload(self) -> dict:
+        """Collect current arena-sim widget values into a JSON-serializable payload."""
+        cameras = []
+        for camera_index in range(self.cameras):
+            lens_spinboxes = self.lens_angle_spinboxes.get(camera_index, {})
+            position_spinboxes = self.camera_position_spinboxes.get(camera_index, {})
+            rotation_spinboxes = self.camera_rotation_spinboxes.get(camera_index, {})
+            cameras.append(
+                {
+                    "camera_index": camera_index,
+                    "min_working_distance_mm": lens_spinboxes.get("min_working_distance").value(),
+                    "horizontal_angle_deg": lens_spinboxes.get("horizontal").value(),
+                    "vertical_angle_deg": lens_spinboxes.get("vertical").value(),
+                    "translation_mm": {
+                        "x": position_spinboxes.get("x").value(),
+                        "y": position_spinboxes.get("y").value(),
+                        "z": position_spinboxes.get("z").value(),
+                    },
+                    "rotation_deg": {
+                        "pan": rotation_spinboxes.get("pan").value(),
+                        "tilt": rotation_spinboxes.get("tilt").value(),
+                        "roll": rotation_spinboxes.get("roll").value(),
+                    },
+                }
+            )
+
+        return {
+            "arena_scale_depth_cm": self.arena_scale_depth_cm.value(),
+            "visualised_frustum_depth_cm": self.visualised_frustum_depth.value(),
+            "cameras": cameras,
+        }
+
+    def save_arena_config(self):
+        """Persist current arena simulation controls to workspace metadata."""
+        self.arena_config_manager.save(self._get_arena_config_payload())
+
+    def load_arena_config(self):
+        """Load previously saved arena simulation controls from workspace metadata."""
+        config = self.arena_config_manager.load()
+        if not config:
+            return
+
+        self.arena_scale_depth_cm.setValue(float(config.get("arena_scale_depth_cm", self.arena_scale_depth_cm.value())))
+        self.visualised_frustum_depth.setValue(float(config.get("visualised_frustum_depth_cm", self.visualised_frustum_depth.value())))
+
+        for camera_config in config.get("cameras", []):
+            camera_index = int(camera_config.get("camera_index", -1))
+            if camera_index < 0 or camera_index >= self.cameras:
+                continue
+
+            lens_spinboxes = self.lens_angle_spinboxes.get(camera_index, {})
+            position_spinboxes = self.camera_position_spinboxes.get(camera_index, {})
+            rotation_spinboxes = self.camera_rotation_spinboxes.get(camera_index, {})
+
+            if "min_working_distance_mm" in camera_config:
+                lens_spinboxes.get("min_working_distance").setValue(float(camera_config["min_working_distance_mm"]))
+            if "horizontal_angle_deg" in camera_config:
+                lens_spinboxes.get("horizontal").setValue(float(camera_config["horizontal_angle_deg"]))
+            if "vertical_angle_deg" in camera_config:
+                lens_spinboxes.get("vertical").setValue(float(camera_config["vertical_angle_deg"]))
+
+            translation = camera_config.get("translation_mm", {})
+            if "x" in translation:
+                position_spinboxes.get("x").setValue(float(translation["x"]))
+            if "y" in translation:
+                position_spinboxes.get("y").setValue(float(translation["y"]))
+            if "z" in translation:
+                position_spinboxes.get("z").setValue(float(translation["z"]))
+
+            rotation = camera_config.get("rotation_deg", {})
+            if "pan" in rotation:
+                rotation_spinboxes.get("pan").setValue(float(rotation["pan"]))
+            if "tilt" in rotation:
+                rotation_spinboxes.get("tilt").setValue(float(rotation["tilt"]))
+            if "roll" in rotation:
+                rotation_spinboxes.get("roll").setValue(float(rotation["roll"]))
         

@@ -14,6 +14,7 @@ class WorkspaceGuide:
         self.extrinsic_dir = Path(workspace_dir, "calibration", "extrinsic")
         self.recording_dir = Path(workspace_dir, "recordings")
         self.annotations_dir = Path(workspace_dir, "annotations")
+        self.arena_sim_dir = Path(workspace_dir, "arena_sim")
 
     def get_ports_in_dir(self, directory: Path) -> list:
         """

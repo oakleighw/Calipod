@@ -73,6 +73,7 @@ class Controller(QObject):
         self.workspace_guide.intrinsic_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.extrinsic_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.recording_dir.mkdir(exist_ok=True, parents=True)
+        self.workspace_guide.arena_sim_dir.mkdir(exist_ok=True, parents=True)
 
         self.capture_volume = None
         self.capture_volume_loaded = False
