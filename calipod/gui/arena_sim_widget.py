@@ -66,10 +66,12 @@ class ArenaSimWidget(QWidget):
         return title
     
     # Helper function to create subsection titles
-    def _create_subsection_title(self, text: str) -> QLabel:
+    def _create_subsection_title(self, text: str, color: str | None = None) -> QLabel:
         """Create a styled subsection title label."""
         title = QLabel(text)
         title.setFont(self._create_section_font(10))
+        if color is not None:
+            title.setStyleSheet(f"color: {color};")
         return title
 
     def _create_styled_groupbox(self, title: str) -> tuple[QGroupBox, QVBoxLayout]:
@@ -203,7 +205,8 @@ class ArenaSimWidget(QWidget):
         for i in range(self.cameras):
             position_spinboxes = {}
             rotation_spinboxes = {}
-            cam_label = self._create_subsection_title(f"Camera {i+1}")
+            camera_color = self.visualizer.color_to_css(self.visualizer.get_camera_color(i))
+            cam_label = self._create_subsection_title(f"Camera {i+1}", color=camera_color)
             item = QListWidgetItem()
             self.cam_placement.addItem(item)
             self.cam_placement.setItemWidget(item, cam_label)

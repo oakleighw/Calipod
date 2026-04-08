@@ -30,6 +30,16 @@ class ArenaDesignerVisualizer:
 		r, g, b = colorsys.hls_to_rgb(hue, 0.5, 0.9)
 		return (r, g, b, 1.0)
 
+	def get_camera_color(self, camera_index: int) -> tuple[float, float, float, float]:
+		"""Return the color assigned to a camera index."""
+		return self._fallback_color(camera_index, max(1, int(self.camera_count or 0)))
+
+	@staticmethod
+	def color_to_css(color: tuple[float, float, float, float]) -> str:
+		"""Convert an RGBA color tuple into a stylesheet color string."""
+		r, g, b, _ = color
+		return f"rgb({int(r * 255)}, {int(g * 255)}, {int(b * 255)})"
+
 	def _add_camera_cubes(self):
 		self.camera_cubes = {}
 
