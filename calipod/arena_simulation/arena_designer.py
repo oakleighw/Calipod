@@ -1,5 +1,6 @@
 import colorsys
 
+import numpy as np
 import pyqtgraph.opengl as gl
 
 from calipod.arena_simulation.arena_overlap import build_overlap_mesh_items
@@ -14,8 +15,13 @@ class ArenaDesignerVisualizer:
 
 	def __init__(self, camera_count: int = 0):
 		self.camera_count = camera_count
+		self.arena_depth_cm = 100.0
 		self.mm_to_scene_scale = 0.001
 		self.visualised_frustum_depth_cm = 100.0
+		self.grid_spacing_mm = 100.0
+		self.grid_major_spacing_mm = 500.0
+		self.show_scale_grid = True
+		self.grid_labels = []
 		self.camera_translations_mm = {}
 		self.camera_rotations_deg = {}
 		self.camera_frustum_angles_deg = {}
@@ -29,8 +35,159 @@ class ArenaDesignerVisualizer:
 	def _init_empty_scene(self):
 		"""Create the default scene baseline before adding arena/camera items."""
 		self.scene.clear()
+		# Keep arena designer contrast consistent for dark grid lines.
+		self.scene.setBackgroundColor("w")
 		axis = gl.GLAxisItem()
 		self.scene.addItem(axis)
+		if self.show_scale_grid:
+			self._add_scale_grids()
+
+	def _add_scale_grids(self):
+		"""Render lightweight XY/XZ scale grids tied to mm-to-scene scale."""
+		depth_mm = max(self.visualised_frustum_depth_cm, 0.1) * 10.0
+		extent_mm = max(2000.0, depth_mm * 2.0)
+		size_scene = extent_mm * self.mm_to_scene_scale
+		self.grid_spacing_mm, self.grid_major_spacing_mm = self._get_adaptive_grid_spacing_mm()
+
+		minor_spacing_scene = max(self.grid_spacing_mm * self.mm_to_scene_scale, 1e-4)
+		major_spacing_scene = max(self.grid_major_spacing_mm * self.mm_to_scene_scale, 1e-4)
+		half = size_scene * 0.5
+
+		minor_color = (0.20, 0.20, 0.20, 0.30)
+		major_color = (0.05, 0.05, 0.05, 0.75)
+
+		def build_plane_grid(spacing: float, color: tuple[float, float, float, float], plane: str, width: float):
+			lines = []
+			steps = int(np.floor((2.0 * half) / spacing))
+			for i in range(-steps // 2, steps // 2 + 1):
+				v = i * spacing
+				if abs(v) > half + 1e-9:
+					continue
+				if plane == "xy":
+					lines.append([[-half, v, 0.0], [half, v, 0.0]])
+					lines.append([[v, -half, 0.0], [v, half, 0.0]])
+				else:
+					lines.append([[-half, 0.0, v], [half, 0.0, v]])
+					lines.append([[v, 0.0, -half], [v, 0.0, half]])
+
+			if not lines:
+				return None
+
+			item = gl.GLLinePlotItem(
+				pos=np.asarray(lines, dtype=np.float32).reshape(-1, 3),
+				color=color,
+				width=width,
+				mode="lines",
+				antialias=True,
+			)
+			item.setGLOptions("translucent")
+			return item
+
+		self.xy_grid_minor = build_plane_grid(minor_spacing_scene, minor_color, plane="xy", width=0.7)
+		self.xz_grid_minor = build_plane_grid(minor_spacing_scene, minor_color, plane="xz", width=0.7)
+		self.xy_grid_major = build_plane_grid(major_spacing_scene, major_color, plane="xy", width=1.3)
+		self.xz_grid_major = build_plane_grid(major_spacing_scene, major_color, plane="xz", width=1.3)
+
+		for grid_item in (
+			self.xy_grid_minor,
+			self.xz_grid_minor,
+			self.xy_grid_major,
+			self.xz_grid_major,
+		):
+			if grid_item is not None:
+				self.scene.addItem(grid_item)
+
+		self._add_scale_tick_labels(half=half, label_spacing_scene=major_spacing_scene)
+
+	@staticmethod
+	def _nice_step_mm(raw_mm: float) -> float:
+		"""Round a raw spacing to a human-friendly 1/2/5*10^n step in mm."""
+		raw_mm = max(float(raw_mm), 1.0)
+		exponent = int(np.floor(np.log10(raw_mm)))
+		base = 10.0**exponent
+		for multiplier in (1.0, 2.0, 5.0, 10.0):
+			candidate = multiplier * base
+			if candidate >= raw_mm:
+				return candidate
+		return 10.0 ** (exponent + 1)
+
+	def _get_adaptive_grid_spacing_mm(self) -> tuple[float, float]:
+		"""Pick adaptive minor/major grid spacing based on current scene scale.
+
+		Targets roughly 8-12 major intervals across the visible grid width.
+		"""
+		target_major_spacing_scene = 0.22
+		raw_major_mm = target_major_spacing_scene / max(self.mm_to_scene_scale, 1e-12)
+		major_mm = self._nice_step_mm(raw_major_mm)
+
+		raw_minor_mm = major_mm / 5.0
+		minor_mm = self._nice_step_mm(raw_minor_mm)
+		if minor_mm >= major_mm:
+			minor_mm = max(1.0, major_mm / 5.0)
+		return minor_mm, major_mm
+
+	def _clear_scale_tick_labels(self):
+		for label in self.grid_labels:
+			try:
+				self.scene.removeItem(label)
+			except Exception:
+				pass
+		self.grid_labels = []
+
+	def _format_mm_label(self, scene_value: float) -> str:
+		mm_value = scene_value / max(self.mm_to_scene_scale, 1e-12)
+		abs_mm = abs(mm_value)
+		if abs_mm >= 1000.0:
+			value = mm_value / 1000.0
+			return f"{value:.2f}".rstrip("0").rstrip(".") + " m"
+		if abs_mm >= 10.0:
+			value = mm_value / 10.0
+			return f"{value:.1f}".rstrip("0").rstrip(".") + " cm"
+		return f"{mm_value:.0f} mm"
+
+	def _add_scale_tick_labels(self, half: float, label_spacing_scene: float):
+		"""Add edge-only tick labels in mm, centered around 0 mm at the origin."""
+		self._clear_scale_tick_labels()
+		if label_spacing_scene <= 0:
+			return
+
+		offset = max(half * 0.03, label_spacing_scene * 0.25)
+		diagonal = offset * 0.35
+		steps = int(np.floor((2.0 * half) / label_spacing_scene))
+
+		for i in range(-steps // 2, steps // 2 + 1):
+			v = i * label_spacing_scene
+			if abs(v) > half + 1e-9:
+				continue
+
+			sign = 0.0 if abs(v) < 1e-9 else np.sign(v)
+
+			# X ticks on the lower edge of XY grid with slight diagonal placement.
+			x_tick = gl.GLTextItem(
+				pos=(v + sign * diagonal, -half - offset, 0.0),
+				text=self._format_mm_label(v),
+				color="black",
+			)
+			self.scene.addItem(x_tick)
+			self.grid_labels.append(x_tick)
+
+			# Y ticks on the left edge of XY grid with slight diagonal placement.
+			y_tick = gl.GLTextItem(
+				pos=(-half - offset, v + sign * diagonal, 0.0),
+				text=self._format_mm_label(v),
+				color="black",
+			)
+			self.scene.addItem(y_tick)
+			self.grid_labels.append(y_tick)
+
+			# Z ticks on the left edge of XZ grid with slight diagonal placement.
+			z_tick = gl.GLTextItem(
+				pos=(-half - offset, 0.0, v + sign * diagonal),
+				text=self._format_mm_label(v),
+				color="black",
+			)
+			self.scene.addItem(z_tick)
+			self.grid_labels.append(z_tick)
 
 	def _fallback_color(self, index: int, total: int) -> tuple[float, float, float, float]:
 		"""Generate deterministic colors when camera color metadata is unavailable."""

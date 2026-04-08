@@ -151,7 +151,7 @@ class ArenaSimWidget(QWidget):
         self.arena_scale_depth_cm.setValue(100.0)
         self.visualised_frustum_depth = create_labeled_spinbox_row(
             params_layout,
-            "Visualised Frustum Depth:",
+            "Visualised Frustum Depth (cm):",
             0.1,
             10000.0,
             decimals=2,
