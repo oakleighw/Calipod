@@ -2,7 +2,11 @@ import colorsys
 
 import pyqtgraph.opengl as gl
 
-from calipod.gui.vizualize.camera_mesh import build_camera_frustum_item, build_camera_origin_cube_item
+from calipod.arena_simulation.arena_overlap import build_overlap_mesh_items
+from calipod.gui.vizualize.camera_mesh import (
+	build_camera_frustum_item,
+	build_camera_origin_cube_item,
+)
 
 
 class ArenaDesignerVisualizer:
@@ -16,6 +20,7 @@ class ArenaDesignerVisualizer:
 		self.camera_rotations_deg = {}
 		self.camera_frustum_angles_deg = {}
 		self.camera_min_working_distance_mm = {}
+		self.overlap_mode = "min_two"
 		self.scene = gl.GLViewWidget()
 		self.scene.setBackgroundColor("w")
 		self.scene.setCameraPosition(distance=4)
@@ -104,6 +109,34 @@ class ArenaDesignerVisualizer:
 			self.scene.addItem(min_distance_frustum)
 			self._apply_camera_transform(camera_index)
 
+	def _add_overlap_meshes(self):
+		"""Render overlap coverage mesh based on selected overlap mode."""
+		self.overlap_meshes = build_overlap_mesh_items(
+			camera_count=self.camera_count,
+			overlap_mode=self.overlap_mode,
+			camera_frustum_angles_deg=self.camera_frustum_angles_deg,
+			camera_translations_mm=self.camera_translations_mm,
+			camera_rotations_deg=self.camera_rotations_deg,
+			visualised_frustum_depth_cm=self.visualised_frustum_depth_cm,
+			mm_to_scene_scale=self.mm_to_scene_scale,
+		)
+		for overlap_mesh in self.overlap_meshes:
+			self.scene.addItem(overlap_mesh)
+
+	def _remove_overlap_meshes(self):
+		"""Remove currently rendered overlap items from the scene."""
+		for overlap_item in getattr(self, "overlap_meshes", []):
+			try:
+				self.scene.removeItem(overlap_item)
+			except Exception:
+				pass
+		self.overlap_meshes = []
+
+	def _refresh_overlap_meshes(self):
+		"""Recompute and redraw overlap items without rebuilding all camera meshes."""
+		self._remove_overlap_meshes()
+		self._add_overlap_meshes()
+
 	def _ensure_camera_state(self, camera_index: int):
 		"""Initialize stored state for a camera if it does not exist yet."""
 		self.camera_translations_mm.setdefault(camera_index, (0.0, 0.0, 0.0))
@@ -148,6 +181,7 @@ class ArenaDesignerVisualizer:
 		self._init_empty_scene()
 		self._add_camera_cubes()
 		self._add_camera_frustums()
+		self._add_overlap_meshes()
 
 	def update_camera_count(self, camera_count: int):
 		self.camera_count = camera_count
@@ -157,11 +191,13 @@ class ArenaDesignerVisualizer:
 		"""Set camera cube translation in mm and update the corresponding mesh."""
 		self.camera_translations_mm[camera_index] = (float(x_mm), float(y_mm), float(z_mm))
 		self._apply_camera_transform(camera_index)
+		self._refresh_overlap_meshes()
 
 	def set_camera_rotation(self, camera_index: int, pan_deg: float, tilt_deg: float, roll_deg: float):
 		"""Set camera cube rotation in degrees and update the corresponding mesh."""
 		self.camera_rotations_deg[camera_index] = (float(pan_deg), float(tilt_deg), float(roll_deg))
 		self._apply_camera_transform(camera_index)
+		self._refresh_overlap_meshes()
 
 	def set_camera_frustum_angles(self, camera_index: int, horizontal_angle_deg: float, vertical_angle_deg: float):
 		"""Set lens angles for a camera frustum and rebuild the scene."""
@@ -187,6 +223,13 @@ class ArenaDesignerVisualizer:
 	def set_visualised_frustum_depth_cm(self, depth_cm: float):
 		"""Set the visualised frustum depth and rebuild the scene."""
 		self.visualised_frustum_depth_cm = max(float(depth_cm), 0.1)
+		self.refresh_scene()
+
+	def set_overlap_mode(self, mode: str):
+		"""Set overlap visualization mode: 'min_two' or 'max_all'."""
+		if mode not in {"min_two", "max_all"}:
+			return
+		self.overlap_mode = mode
 		self.refresh_scene()
 
 	def reset_scene(self):

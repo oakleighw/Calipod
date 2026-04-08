@@ -130,13 +130,14 @@ class ArenaSimWidget(QWidget):
         self.overlap_visualization_layout = QVBoxLayout()
         self.overlap_visualization_group = QButtonGroup()
         
-        overlap_min = QRadioButton("Min Coverage (2 cameras)")
-        overlap_max = QRadioButton("Max Coverage (All cameras)")
-        self.overlap_visualization_group.addButton(overlap_min, 0)
-        self.overlap_visualization_group.addButton(overlap_max, 1)
+        self.overlap_min_radio = QRadioButton("Min Coverage (2 cameras)")
+        self.overlap_max_radio = QRadioButton("Max Coverage (All cameras)")
+        self.overlap_visualization_group.addButton(self.overlap_min_radio, 0)
+        self.overlap_visualization_group.addButton(self.overlap_max_radio, 1)
+        self.overlap_min_radio.setChecked(True)
         
-        self.overlap_visualization_layout.addWidget(overlap_min)
-        self.overlap_visualization_layout.addWidget(overlap_max)
+        self.overlap_visualization_layout.addWidget(self.overlap_min_radio)
+        self.overlap_visualization_layout.addWidget(self.overlap_max_radio)
         self.overlap_visualization_layout.addStretch()
 
         params_layout.addWidget(self.camera_count_label)
@@ -317,9 +318,11 @@ class ArenaSimWidget(QWidget):
     def connect_widgets(self):
         self.arena_scale_depth_cm.valueChanged.connect(self._update_arena_scale)
         self.visualised_frustum_depth.valueChanged.connect(self._update_frustum_depth)
+        self.overlap_visualization_group.idToggled.connect(self._update_overlap_mode)
         self.save_arena_config_button.clicked.connect(self.save_arena_config)
         self._update_arena_scale(self.arena_scale_depth_cm.value())
         self._update_frustum_depth(self.visualised_frustum_depth.value())
+        self._update_overlap_mode(self.overlap_visualization_group.checkedId(), True)
 
     def _update_arena_scale(self, depth_cm: float):
         """Update mm-to-scene scaling when arena depth changes."""
@@ -341,6 +344,15 @@ class ArenaSimWidget(QWidget):
         angle_spinboxes = self.lens_angle_spinboxes.get(camera_index, {})
         min_working_distance_mm = angle_spinboxes.get("min_working_distance").value()
         self.visualizer.set_camera_min_working_distance(camera_index, min_working_distance_mm)
+
+    def _update_overlap_mode(self, mode_id: int, checked: bool):
+        """Push overlap mode selection into the arena visualizer."""
+        if not checked:
+            return
+        if mode_id == 1:
+            self.visualizer.set_overlap_mode("max_all")
+        else:
+            self.visualizer.set_overlap_mode("min_two")
 
     def _get_arena_config_payload(self) -> dict:
         """Collect current arena-sim widget values into a JSON-serializable payload."""
@@ -371,6 +383,7 @@ class ArenaSimWidget(QWidget):
         return {
             "arena_scale_depth_cm": self.arena_scale_depth_cm.value(),
             "visualised_frustum_depth_cm": self.visualised_frustum_depth.value(),
+            "overlap_mode": "max_all" if self.overlap_max_radio.isChecked() else "min_two",
             "cameras": cameras,
         }
 
@@ -386,6 +399,10 @@ class ArenaSimWidget(QWidget):
 
         self.arena_scale_depth_cm.setValue(float(config.get("arena_scale_depth_cm", self.arena_scale_depth_cm.value())))
         self.visualised_frustum_depth.setValue(float(config.get("visualised_frustum_depth_cm", self.visualised_frustum_depth.value())))
+        if config.get("overlap_mode", "min_two") == "max_all":
+            self.overlap_max_radio.setChecked(True)
+        else:
+            self.overlap_min_radio.setChecked(True)
 
         for camera_config in config.get("cameras", []):
             camera_index = int(camera_config.get("camera_index", -1))
