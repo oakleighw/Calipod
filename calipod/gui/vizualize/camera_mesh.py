@@ -10,6 +10,28 @@ from calipod.cameras.camera_array import CameraData
 logger = calipod.logger.get(__name__)
 
 
+def build_mesh_item_from_geometry(
+    vertexes: np.ndarray,
+    faces: np.ndarray,
+    color=(1, 1, 1, 1),
+    edge_color=(0, 0, 0, 1),
+    gl_options="opaque",
+    smooth=False,
+    draw_edges=True,
+):
+    """Build a GLMeshItem from generic geometry and per-face color."""
+    mesh_item = gl.GLMeshItem(
+        vertexes=vertexes,
+        faces=faces,
+        smooth=smooth,
+        drawEdges=draw_edges,
+        edgeColor=edge_color,
+    )
+    mesh_item.setColor(color)
+    mesh_item.setGLOptions(gl_options)
+    return mesh_item
+
+
 def build_camera_origin_cube_geometry():
     """Return cube vertices/faces used for camera origin markers."""
     cube_verts = np.array(
@@ -52,17 +74,70 @@ def build_camera_origin_cube_item(
 ):
     """Create a GLMeshItem cube matching camera origin marker geometry."""
     cube_verts, cube_faces = build_camera_origin_cube_geometry()
-    face_colors = np.tile(np.array(color), (cube_faces.shape[0], 1))
-    cube = gl.GLMeshItem(
+    return build_mesh_item_from_geometry(
         vertexes=cube_verts * scale,
         faces=cube_faces,
-        faceColors=face_colors,
+        color=color,
+        edge_color=edge_color,
+        gl_options="opaque",
         smooth=False,
-        drawEdges=True,
-        edgeColor=edge_color,
+        draw_edges=True,
     )
-    cube.setGLOptions("opaque")
-    return cube
+
+
+def build_camera_frustum_geometry(horizontal_angle_deg: float, vertical_angle_deg: float, depth: float):
+    """Return vertices/faces for a camera frustum with apex at the origin."""
+    depth = max(float(depth), 1e-6)
+    horizontal_angle_deg = min(max(float(horizontal_angle_deg), 0.1), 179.9)
+    vertical_angle_deg = min(max(float(vertical_angle_deg), 0.1), 179.9)
+
+    half_width = depth * math.tan(math.radians(horizontal_angle_deg) / 2.0)
+    half_height = depth * math.tan(math.radians(vertical_angle_deg) / 2.0)
+
+    verts = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [-half_width, -half_height, depth],
+            [half_width, -half_height, depth],
+            [half_width, half_height, depth],
+            [-half_width, half_height, depth],
+        ],
+        dtype=np.float32,
+    )
+
+    faces = np.array(
+        [
+            [0, 1, 2],
+            [0, 2, 3],
+            [0, 3, 4],
+            [0, 4, 1],
+            [1, 2, 3],
+            [1, 3, 4],
+        ],
+        dtype=np.uint32,
+    )
+
+    return verts, faces
+
+
+def build_camera_frustum_item(
+    horizontal_angle_deg: float,
+    vertical_angle_deg: float,
+    depth: float,
+    color=(0.5, 0.5, 0.5, 0.2),
+    edge_color=(0, 0, 0, 1),
+):
+    """Create a translucent frustum mesh item for a camera preview."""
+    verts, faces = build_camera_frustum_geometry(horizontal_angle_deg, vertical_angle_deg, depth)
+    return build_mesh_item_from_geometry(
+        vertexes=verts,
+        faces=faces,
+        color=color,
+        edge_color=edge_color,
+        gl_options="translucent",
+        smooth=False,
+        draw_edges=True,
+    )
 
 
 class CameraMesh:
@@ -84,28 +159,21 @@ class CameraMesh:
         self.build_faces()
         self.build_colors()
 
-        self.mesh = gl.GLMeshItem(
+        self.mesh = build_mesh_item_from_geometry(
             vertexes=self.verts,
             faces=self.faces,
-            faceColors=self.colors,
+            color=(0.5, 1, 0, 0.2),
+            edge_color=(0, 0, 1, 1),
+            gl_options="additive",
             smooth=False,
-            drawEdges=True,
-            edgeColor=(0, 0, 1, 1),
-        )
-        self.mesh.setGLOptions("additive")
-
-
-        com_verts,com_faces = self.build_camera_origin_mesh()
-        scaled_com_verts = com_verts * 0.05
-        self.origin_point = gl.GLMeshItem(
-            vertexes=scaled_com_verts,
-            faces=com_faces,
-            smooth=False, # Keep sharp edges for a cube
-            drawEdges=True, # Draw edges for better cube visualization
-            edgeColor=(0, 0, 1, 1), #  edges for the cube
+            draw_edges=True,
         )
 
-        self.origin_point.setGLOptions("opaque") # Opaque for solid cube, or "translucent" if you want transparency
+        self.origin_point = build_camera_origin_cube_item(
+            color=(1, 1, 1, 1),
+            scale=0.05,
+            edge_color=(0, 0, 1, 1),
+        )
 
         logger.debug(self.verts)
         logger.debug(self.faces)

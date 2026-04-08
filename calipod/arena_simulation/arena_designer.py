@@ -2,7 +2,7 @@ import colorsys
 
 import pyqtgraph.opengl as gl
 
-from calipod.gui.vizualize.camera_mesh import build_camera_origin_cube_item
+from calipod.gui.vizualize.camera_mesh import build_camera_frustum_item, build_camera_origin_cube_item
 
 
 class ArenaDesignerVisualizer:
@@ -11,8 +11,10 @@ class ArenaDesignerVisualizer:
 	def __init__(self, camera_count: int = 0):
 		self.camera_count = camera_count
 		self.mm_to_scene_scale = 0.001
+		self.visualised_frustum_depth_cm = 100.0
 		self.camera_translations_mm = {}
 		self.camera_rotations_deg = {}
+		self.camera_frustum_angles_deg = {}
 		self.scene = gl.GLViewWidget()
 		self.scene.setBackgroundColor("w")
 		self.scene.setCameraPosition(distance=4)
@@ -47,19 +49,41 @@ class ArenaDesignerVisualizer:
 		# spawn camera_count cubes at origin for manual placement workflows.
 		total = max(0, int(self.camera_count or 0))
 		for i in range(total):
+			self._ensure_camera_state(i)
 			color = self._fallback_color(i, total)
 			cube = build_camera_origin_cube_item(color=color, edge_color=(0, 0, 0, 1))
-			if i not in self.camera_translations_mm:
-				self.camera_translations_mm[i] = (0.0, 0.0, 0.0)
-			if i not in self.camera_rotations_deg:
-				self.camera_rotations_deg[i] = (0.0, 0.0, 0.0)
 			self.camera_cubes[i] = cube
 			self.scene.addItem(cube)
 			self._apply_camera_transform(i)
 
+	def _add_camera_frustums(self):
+		self.camera_frustums = {}
+		depth_mm = max(self.visualised_frustum_depth_cm, 0.1) * 10.0
+		for camera_index in range(max(0, int(self.camera_count or 0))):
+			self._ensure_camera_state(camera_index)
+			horizontal_angle_deg, vertical_angle_deg = self.camera_frustum_angles_deg.get(camera_index, (60.0, 45.0))
+			color = self._fallback_color(camera_index, max(1, int(self.camera_count or 0)))
+			frustum_color = (color[0], color[1], color[2], 0.18)
+			frustum = build_camera_frustum_item(
+				horizontal_angle_deg=horizontal_angle_deg,
+				vertical_angle_deg=vertical_angle_deg,
+				depth=depth_mm * self.mm_to_scene_scale,
+				color=frustum_color,
+				edge_color=color,
+			)
+			self.camera_frustums[camera_index] = frustum
+			self.scene.addItem(frustum)
+			self._apply_camera_transform(camera_index)
+
+	def _ensure_camera_state(self, camera_index: int):
+		"""Initialize stored state for a camera if it does not exist yet."""
+		self.camera_translations_mm.setdefault(camera_index, (0.0, 0.0, 0.0))
+		self.camera_rotations_deg.setdefault(camera_index, (0.0, 0.0, 0.0))
+		self.camera_frustum_angles_deg.setdefault(camera_index, (60.0, 45.0))
+
 	def _apply_camera_transform(self, camera_index: int):
 		"""Apply the current rotation and translation for a specific camera cube."""
-		if camera_index not in self.camera_cubes:
+		if camera_index not in self.camera_cubes and camera_index not in getattr(self, "camera_frustums", {}):
 			return
 
 		x_mm, y_mm, z_mm = self.camera_translations_mm.get(camera_index, (0.0, 0.0, 0.0))
@@ -68,12 +92,14 @@ class ArenaDesignerVisualizer:
 		y = y_mm * self.mm_to_scene_scale
 		z = z_mm * self.mm_to_scene_scale
 
-		cube = self.camera_cubes[camera_index]
-		cube.resetTransform()
-		cube.rotate(roll_deg, 1, 0, 0, local=True)
-		cube.rotate(tilt_deg, 0, 1, 0, local=True)
-		cube.rotate(pan_deg, 0, 0, 1, local=True)
-		cube.translate(x, y, z)
+		for item in (self.camera_cubes.get(camera_index), getattr(self, "camera_frustums", {}).get(camera_index)):
+			if item is None:
+				continue
+			item.resetTransform()
+			item.rotate(roll_deg, 1, 0, 0, local=True)
+			item.rotate(tilt_deg, 0, 1, 0, local=True)
+			item.rotate(pan_deg, 0, 0, 1, local=True)
+			item.translate(x, y, z)
 
 	def _apply_all_camera_translations(self):
 		"""Re-apply translations after scene scale changes."""
@@ -83,6 +109,7 @@ class ArenaDesignerVisualizer:
 	def refresh_scene(self):
 		self._init_empty_scene()
 		self._add_camera_cubes()
+		self._add_camera_frustums()
 
 	def update_camera_count(self, camera_count: int):
 		self.camera_count = camera_count
@@ -98,16 +125,26 @@ class ArenaDesignerVisualizer:
 		self.camera_rotations_deg[camera_index] = (float(pan_deg), float(tilt_deg), float(roll_deg))
 		self._apply_camera_transform(camera_index)
 
+	def set_camera_frustum_angles(self, camera_index: int, horizontal_angle_deg: float, vertical_angle_deg: float):
+		"""Set lens angles for a camera frustum and rebuild the scene."""
+		self.camera_frustum_angles_deg[camera_index] = (float(horizontal_angle_deg), float(vertical_angle_deg))
+		self.refresh_scene()
+
 	def set_mm_to_scene_scale(self, mm_to_scene_scale: float):
 		"""Set conversion factor from mm to scene units and refresh transforms."""
 		self.mm_to_scene_scale = float(mm_to_scene_scale)
-		self._apply_all_camera_translations()
+		self.refresh_scene()
 
 	def set_arena_depth_cm(self, depth_cm: float):
 		"""Map user arena depth in cm to scene scale, anchored at 100 cm -> 0.001."""
 		depth_cm = max(float(depth_cm), 0.1)
 		self.mm_to_scene_scale = 0.1 / depth_cm
-		self._apply_all_camera_translations()
+		self.refresh_scene()
+
+	def set_visualised_frustum_depth_cm(self, depth_cm: float):
+		"""Set the visualised frustum depth and rebuild the scene."""
+		self.visualised_frustum_depth_cm = max(float(depth_cm), 0.1)
+		self.refresh_scene()
 
 	def reset_scene(self):
 		"""Reset to the default empty scene baseline and rebuild camera cubes."""

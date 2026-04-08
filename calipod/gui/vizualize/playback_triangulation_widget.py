@@ -1303,7 +1303,6 @@ class TriangulationVisualizer:
                 mesh, origin_point = mesh_from_camera(cam)
                 mesh: CameraMesh = mesh
                 origin_point: CameraMesh = origin_point
-                mesh.setColor(self.default_mesh_color) # Set initial mesh color
                 origin_point.setColor(cam.color)
                 self.meshes[port] = mesh
                 self.origin_points[port] = origin_point
@@ -1922,8 +1921,6 @@ class TriangulationVisualizer:
         if self.is_measurement_mode_active:
             self.scene.setBackgroundColor(QColorConstants.Black)
             self.scatter.setData(color=self.default_scatter_color)
-            for mesh in self.meshes.values():
-                mesh.setColor(self.default_mesh_color)
             
             if self.xy_grid:
                 self.scene.removeItem(self.xy_grid)
@@ -1948,8 +1945,6 @@ class TriangulationVisualizer:
         else:
             self.scene.setBackgroundColor(QColorConstants.Black)
             self.scatter.setData(color=self.default_scatter_color)
-            for mesh in self.meshes.values():
-                mesh.setColor(self.default_mesh_color)
 
             if self.xy_grid:
                 self.scene.removeItem(self.xy_grid)

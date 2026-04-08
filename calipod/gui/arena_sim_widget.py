@@ -141,7 +141,14 @@ class ArenaSimWidget(QWidget):
             decimals=1,
         )
         self.arena_scale_depth_cm.setValue(100.0)
-        create_labeled_spinbox_row(params_layout, "Visualised Frustum Depth:", 0.1, 10000.0, decimals=2)
+        self.visualised_frustum_depth = create_labeled_spinbox_row(
+            params_layout,
+            "Visualised Frustum Depth:",
+            0.1,
+            10000.0,
+            decimals=2,
+        )
+        self.visualised_frustum_depth.setValue(100.0)
         params_layout.addLayout(self.overlap_visualization_layout)
         params_layout.addStretch()
         
@@ -150,14 +157,25 @@ class ArenaSimWidget(QWidget):
     # Widgets for lens parameters
     def lens_widget(self, cam_num):
         lens_group, lens_layout = self._create_styled_groupbox("Lens Angles")
+        self.lens_angle_spinboxes = {}
 
         # Create lens angle entries based on camera count
         for i in range(cam_num):
             cam_label = self._create_subsection_title(f"Camera {i+1}")
             lens_layout.addWidget(cam_label)
             create_labeled_spinbox_row(lens_layout, "Min Working Distance (mm):", 1, 100000.00)
-            create_labeled_spinbox_row(lens_layout, "Horizontal Angle (deg):", 1, 360.00)
-            create_labeled_spinbox_row(lens_layout, "Vertical Angle (deg):", 1, 360.00)
+            horizontal_spinbox = create_labeled_spinbox_row(lens_layout, "Horizontal Angle (deg):", 1, 360.00)
+            vertical_spinbox = create_labeled_spinbox_row(lens_layout, "Vertical Angle (deg):", 1, 360.00)
+
+            self.lens_angle_spinboxes[i] = {
+                "horizontal": horizontal_spinbox,
+                "vertical": vertical_spinbox,
+            }
+
+            horizontal_spinbox.valueChanged.connect(lambda _, cam_index=i: self._update_camera_frustum(cam_index))
+            vertical_spinbox.valueChanged.connect(lambda _, cam_index=i: self._update_camera_frustum(cam_index))
+
+            self._update_camera_frustum(i)
         
         lens_layout.addStretch()
         self.left_vbox.addWidget(lens_group)
@@ -288,9 +306,22 @@ class ArenaSimWidget(QWidget):
 
     def connect_widgets(self):
         self.arena_scale_depth_cm.valueChanged.connect(self._update_arena_scale)
+        self.visualised_frustum_depth.valueChanged.connect(self._update_frustum_depth)
         self._update_arena_scale(self.arena_scale_depth_cm.value())
+        self._update_frustum_depth(self.visualised_frustum_depth.value())
 
     def _update_arena_scale(self, depth_cm: float):
         """Update mm-to-scene scaling when arena depth changes."""
         self.visualizer.set_arena_depth_cm(depth_cm)
+
+    def _update_frustum_depth(self, depth_cm: float):
+        """Update the visualised frustum depth in the arena visualizer."""
+        self.visualizer.set_visualised_frustum_depth_cm(depth_cm)
+
+    def _update_camera_frustum(self, camera_index: int):
+        """Push lens angle controls into the arena visualizer."""
+        angle_spinboxes = self.lens_angle_spinboxes.get(camera_index, {})
+        horizontal_angle_deg = angle_spinboxes.get("horizontal").value()
+        vertical_angle_deg = angle_spinboxes.get("vertical").value()
+        self.visualizer.set_camera_frustum_angles(camera_index, horizontal_angle_deg, vertical_angle_deg)
         
