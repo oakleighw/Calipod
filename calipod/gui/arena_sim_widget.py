@@ -27,7 +27,7 @@ from PySide6.QtGui import QImage, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer
 
 from calipod.gui.utils.spinbox_utils import create_labeled_spinbox_row
-from calipod.gui.vizualize.calibration.capture_volume_visualizer import CaptureVolumeVisualizer
+from calipod.arena_simulation.arena_designer import ArenaDesignerVisualizer
 import calipod.logger
 from calipod.controller import Controller
 
@@ -41,8 +41,8 @@ class ArenaSimWidget(QWidget):
         self.cameras = self.controller.get_camera_count()
 
 
-        #arena designer window placeholder (capture volume vizualiser for now)
-        self.visualizer = CaptureVolumeVisualizer(self.controller.capture_volume)
+        # Arena designer starts from an empty scene; controls can populate it later.
+        self.visualizer = ArenaDesignerVisualizer()
         
         #calculated pixel-to-animal values
         self.furthest_distance_mm = None
@@ -229,5 +229,6 @@ class ArenaSimWidget(QWidget):
         self.right_vbox.addWidget(controls_group, stretch=1)
 
 
-
+    def connect_widgets(self):
+        pass
         
