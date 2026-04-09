@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QRadioButton,
     QButtonGroup,
+    QCheckBox,
 )
 from scipy.spatial import ConvexHull, QhullError
 
@@ -35,6 +36,8 @@ class ArenaMatplotlibGraphWindow(QWidget):
         self.arena_state = arena_state
         self.arena_sim_dir = Path(arena_sim_dir)
         self.view_mode = "all"  # "all" or "intersection_only"
+        self.show_intersection_measurements = False
+        self._measurement_text_artist = None
         self.setWindowFlag(Qt.Window, True)
         self.setWindowFlag(Qt.WindowCloseButtonHint, True)
         self.setWindowFlag(Qt.WindowMinMaxButtonsHint, True)
@@ -77,6 +80,9 @@ class ArenaMatplotlibGraphWindow(QWidget):
         self.view_mode_group.idClicked.connect(self._on_view_mode_changed)
         view_mode_row.addWidget(self.all_radio)
         view_mode_row.addWidget(self.intersection_only_radio)
+        self.show_measurements_checkbox = QCheckBox("Show Intersection Measurements")
+        self.show_measurements_checkbox.toggled.connect(self._on_measurements_toggled)
+        view_mode_row.addWidget(self.show_measurements_checkbox)
         view_mode_row.addStretch()
         layout.addLayout(view_mode_row)
 
@@ -100,6 +106,77 @@ class ArenaMatplotlibGraphWindow(QWidget):
         else:
             self.view_mode = "intersection_only"
         self.plot_arena_graph()
+
+    def _on_measurements_toggled(self, checked: bool):
+        """Toggle intersection measurement overlays."""
+        self.show_intersection_measurements = bool(checked)
+        self.plot_arena_graph()
+
+    @staticmethod
+    def _angle_deg_between(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
+        """Compute the angle in degrees between two vectors."""
+        norm_a = float(np.linalg.norm(vec_a))
+        norm_b = float(np.linalg.norm(vec_b))
+        if norm_a <= 1e-12 or norm_b <= 1e-12:
+            return float("nan")
+        cos_theta = float(np.dot(vec_a, vec_b) / (norm_a * norm_b))
+        cos_theta = float(np.clip(cos_theta, -1.0, 1.0))
+        return float(np.degrees(np.arccos(cos_theta)))
+
+    def _intersection_measurements(self, hull, overlap_verts_mm: np.ndarray) -> tuple[list[dict], list[dict]]:
+        """Build edge-length and vertex-angle measurements from a convex hull."""
+        edge_set = set()
+        for simplex in hull.simplices:
+            a, b, c = int(simplex[0]), int(simplex[1]), int(simplex[2])
+            edge_set.add(tuple(sorted((a, b))))
+            edge_set.add(tuple(sorted((b, c))))
+            edge_set.add(tuple(sorted((a, c))))
+
+        sorted_edges = sorted(edge_set)
+        edge_measurements = []
+        neighbours: dict[int, set[int]] = {}
+        for edge_id, (idx_a, idx_b) in enumerate(sorted_edges, start=1):
+            point_a = overlap_verts_mm[idx_a]
+            point_b = overlap_verts_mm[idx_b]
+            midpoint = (point_a + point_b) * 0.5
+            length_mm = float(np.linalg.norm(point_b - point_a))
+            edge_measurements.append(
+                {
+                    "id": edge_id,
+                    "a": idx_a,
+                    "b": idx_b,
+                    "midpoint": midpoint,
+                    "length_mm": length_mm,
+                }
+            )
+            neighbours.setdefault(idx_a, set()).add(idx_b)
+            neighbours.setdefault(idx_b, set()).add(idx_a)
+
+        vertex_measurements = []
+        for vertex_id in sorted(neighbours.keys()):
+            connected = sorted(neighbours[vertex_id])
+            if len(connected) < 2:
+                continue
+
+            center = overlap_verts_mm[vertex_id]
+            vectors = [overlap_verts_mm[idx] - center for idx in connected]
+            min_angle = float("inf")
+            for i in range(len(vectors)):
+                for j in range(i + 1, len(vectors)):
+                    angle_deg = self._angle_deg_between(vectors[i], vectors[j])
+                    if np.isfinite(angle_deg) and angle_deg < min_angle:
+                        min_angle = angle_deg
+
+            if np.isfinite(min_angle):
+                vertex_measurements.append(
+                    {
+                        "id": vertex_id,
+                        "point": center,
+                        "angle_deg": float(min_angle),
+                    }
+                )
+
+        return edge_measurements, vertex_measurements
 
     def _compute_overlap_polyhedra_mm(self):
         camera_count = int(self._state("camera_count", 0))
@@ -186,6 +263,14 @@ class ArenaMatplotlibGraphWindow(QWidget):
 
     def plot_arena_graph(self):
         self.ax.clear()
+        if self._measurement_text_artist is not None:
+            try:
+                self._measurement_text_artist.remove()
+            except Exception:
+                pass
+            self._measurement_text_artist = None
+
+        self.fig.subplots_adjust(right=0.80 if self.show_intersection_measurements else 0.95)
 
         camera_count = int(self._state("camera_count", 0))
         camera_frustum_angles_deg = self._state("camera_frustum_angles_deg", {})
@@ -229,11 +314,15 @@ class ArenaMatplotlibGraphWindow(QWidget):
                 self.ax.scatter([origin[0]], [origin[1]], [origin[2]], color=tuple(cam_color[:3]), s=32)
 
         # Draw intersection polyhedra (shown in both modes)
+        measurement_lines: list[str] = []
+        mesh_counter = 0
         for overlap_verts_mm in self._compute_overlap_polyhedra_mm():
             try:
                 hull = ConvexHull(overlap_verts_mm)
             except QhullError:
                 continue
+
+            mesh_counter += 1
 
             hull_tris = [
                 [
@@ -254,6 +343,40 @@ class ArenaMatplotlibGraphWindow(QWidget):
             self.ax.add_collection3d(overlap_poly)
             all_points.append(overlap_verts_mm)
 
+            if self.show_intersection_measurements:
+                edge_measurements, vertex_measurements = self._intersection_measurements(hull, overlap_verts_mm)
+
+                measurement_lines.append(f"Mesh {mesh_counter}")
+                for edge in edge_measurements:
+                    midpoint = edge["midpoint"]
+                    edge_tag = f"E{mesh_counter}.{edge['id']}"
+                    self.ax.text(
+                        float(midpoint[0]),
+                        float(midpoint[1]),
+                        float(midpoint[2]),
+                        edge_tag,
+                        fontsize=7,
+                        color="#1f77b4",
+                    )
+                    measurement_lines.append(
+                        f"  {edge_tag}: {edge['length_mm']:.2f} mm"
+                    )
+
+                for vertex in vertex_measurements:
+                    point = vertex["point"]
+                    vertex_tag = f"V{mesh_counter}.{int(vertex['id'])}"
+                    self.ax.text(
+                        float(point[0]),
+                        float(point[1]),
+                        float(point[2]),
+                        vertex_tag,
+                        fontsize=7,
+                        color="#d62728",
+                    )
+                    measurement_lines.append(
+                        f"  {vertex_tag}: {vertex['angle_deg']:.1f} deg"
+                    )
+
         self.ax.set_xlabel("X (mm)")
         self.ax.set_ylabel("Y (mm)")
         self.ax.set_zlabel("Z (mm)")
@@ -265,6 +388,29 @@ class ArenaMatplotlibGraphWindow(QWidget):
 
         legend_handles = self._build_camera_legend_handles(self.view_mode)
         self.ax.legend(handles=legend_handles, loc="upper right")
+
+        if self.show_intersection_measurements:
+            if measurement_lines:
+                self._measurement_text_artist = self.fig.text(
+                    0.81,
+                    0.96,
+                    "\n".join(measurement_lines),
+                    va="top",
+                    ha="left",
+                    fontsize=8,
+                    family="monospace",
+                    bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "#777777"},
+                )
+            else:
+                self._measurement_text_artist = self.fig.text(
+                    0.81,
+                    0.96,
+                    "No intersection mesh available",
+                    va="top",
+                    ha="left",
+                    fontsize=9,
+                    bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "#777777"},
+                )
 
         # Use all_points if available (for normal content), otherwise use scaling_points for axis bounds
         points_for_scaling = all_points if all_points else scaling_points
