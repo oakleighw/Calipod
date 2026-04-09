@@ -5,7 +5,15 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+    QRadioButton,
+    QButtonGroup,
+)
 from scipy.spatial import ConvexHull, QhullError
 
 import calipod.logger
@@ -26,6 +34,7 @@ class ArenaMatplotlibGraphWindow(QWidget):
         super().__init__(None)
         self.arena_state = arena_state
         self.arena_sim_dir = Path(arena_sim_dir)
+        self.view_mode = "all"  # "all" or "intersection_only"
         self.setWindowFlag(Qt.Window, True)
         self.setWindowFlag(Qt.WindowCloseButtonHint, True)
         self.setWindowFlag(Qt.WindowMinMaxButtonsHint, True)
@@ -57,6 +66,20 @@ class ArenaMatplotlibGraphWindow(QWidget):
         self.canvas = FigureCanvas(self.fig)
         layout.addWidget(self.canvas, stretch=1)
 
+        view_mode_row = QHBoxLayout()
+        view_mode_row.addStretch()
+        self.view_mode_group = QButtonGroup()
+        self.all_radio = QRadioButton("All")
+        self.intersection_only_radio = QRadioButton("Intersection Only")
+        self.all_radio.setChecked(True)
+        self.view_mode_group.addButton(self.all_radio, 0)
+        self.view_mode_group.addButton(self.intersection_only_radio, 1)
+        self.view_mode_group.idClicked.connect(self._on_view_mode_changed)
+        view_mode_row.addWidget(self.all_radio)
+        view_mode_row.addWidget(self.intersection_only_radio)
+        view_mode_row.addStretch()
+        layout.addLayout(view_mode_row)
+
         button_row = QHBoxLayout()
         save_button = QPushButton("Save Current View as PNG")
         save_button.clicked.connect(self.save_current_view)
@@ -69,6 +92,14 @@ class ArenaMatplotlibGraphWindow(QWidget):
 
     def _state(self, key: str, default):
         return self.arena_state.get(key, default)
+
+    def _on_view_mode_changed(self, mode_id: int):
+        """Update view mode and redraw graph."""
+        if mode_id == 0:
+            self.view_mode = "all"
+        else:
+            self.view_mode = "intersection_only"
+        self.plot_arena_graph()
 
     def _compute_overlap_polyhedra_mm(self):
         camera_count = int(self._state("camera_count", 0))
@@ -118,28 +149,31 @@ class ArenaMatplotlibGraphWindow(QWidget):
 
         return overlap_vertices_mm
 
-    def _build_camera_legend_handles(self):
+    def _build_camera_legend_handles(self, view_mode: str):
         handles = []
-        camera_colors = self._state("camera_colors", {})
-        for camera_index in range(int(self._state("camera_count", 0))):
-            color = camera_colors.get(camera_index, (0.3, 0.3, 0.3, 1.0))
-            rgb = tuple(color[:3])
-            handles.append(
-                self.Patch(facecolor=rgb, edgecolor=rgb, alpha=0.35, label=f"Camera {camera_index + 1} Frustum")
-            )
-            handles.append(
-                self.Line2D(
-                    [0],
-                    [0],
-                    marker="o",
-                    color="none",
-                    markerfacecolor=rgb,
-                    markeredgecolor=rgb,
-                    markersize=7,
-                    label=f"Camera {camera_index + 1} Optical Centre",
+        if view_mode == "all":
+            camera_colors = self._state("camera_colors", {})
+            for camera_index in range(int(self._state("camera_count", 0))):
+                color = camera_colors.get(camera_index, (0.3, 0.3, 0.3, 1.0))
+                rgb = tuple(color[:3])
+                handles.append(
+                    self.Patch(facecolor=rgb, edgecolor=rgb, alpha=0.35, label=f"Camera {camera_index + 1} Frustum")
                 )
-            )
-        handles.append(self.Patch(facecolor=(1.0, 1.0, 1.0), edgecolor=(0.0, 0.0, 0.0), alpha=0.35, label="Intersection"))
+                handles.append(
+                    self.Line2D(
+                        [0],
+                        [0],
+                        marker="o",
+                        color="none",
+                        markerfacecolor=rgb,
+                        markeredgecolor=rgb,
+                        markersize=7,
+                        label=f"Camera {camera_index + 1} Optical Centre",
+                    )
+                )
+            handles.append(self.Patch(facecolor=(1.0, 1.0, 1.0), edgecolor=(0.0, 0.0, 0.0), alpha=0.35, label="Intersection"))
+        else:  # intersection_only
+            handles.append(self.Patch(facecolor=(1.0, 1.0, 1.0), edgecolor=(0.0, 0.0, 0.0), alpha=0.35, label="Intersection Mesh"))
         return handles
 
     @staticmethod
@@ -162,6 +196,9 @@ class ArenaMatplotlibGraphWindow(QWidget):
         camera_colors = self._state("camera_colors", {})
 
         all_points = []
+        scaling_points = []  # Points used for scaling even if not rendered
+        
+        # Compute camera frustum geometry (render only if "all" mode, always use for scaling)
         for camera_index in range(max(0, camera_count)):
             verts_scene, faces = get_camera_world_frustum_geometry(
                 camera_index=camera_index,
@@ -172,23 +209,26 @@ class ArenaMatplotlibGraphWindow(QWidget):
                 mm_to_scene_scale=mm_to_scene_scale,
             )
             verts_mm = verts_scene / max(mm_to_scene_scale, 1e-12)
-            all_points.append(verts_mm)
+            scaling_points.append(verts_mm)
+            
+            if self.view_mode == "all":
+                all_points.append(verts_mm)
+                tris = [[verts_mm[face[0]], verts_mm[face[1]], verts_mm[face[2]]] for face in faces]
+                cam_color = camera_colors.get(camera_index, (0.4, 0.4, 0.4, 1.0))
+                poly = self.Poly3DCollection(
+                    tris,
+                    alpha=0.22,
+                    facecolor=tuple(cam_color[:3]),
+                    edgecolor=tuple(cam_color[:3]),
+                    linewidth=0.8,
+                )
+                self._promote_poly_collection(poly, sort_zpos=float(np.max(verts_mm[:, 2])))
+                self.ax.add_collection3d(poly)
 
-            tris = [[verts_mm[face[0]], verts_mm[face[1]], verts_mm[face[2]]] for face in faces]
-            cam_color = camera_colors.get(camera_index, (0.4, 0.4, 0.4, 1.0))
-            poly = self.Poly3DCollection(
-                tris,
-                alpha=0.22,
-                facecolor=tuple(cam_color[:3]),
-                edgecolor=tuple(cam_color[:3]),
-                linewidth=0.8,
-            )
-            self._promote_poly_collection(poly, sort_zpos=float(np.max(verts_mm[:, 2])))
-            self.ax.add_collection3d(poly)
+                origin = np.asarray(camera_translations_mm.get(camera_index, (0.0, 0.0, 0.0)), dtype=float)
+                self.ax.scatter([origin[0]], [origin[1]], [origin[2]], color=tuple(cam_color[:3]), s=32)
 
-            origin = np.asarray(camera_translations_mm.get(camera_index, (0.0, 0.0, 0.0)), dtype=float)
-            self.ax.scatter([origin[0]], [origin[1]], [origin[2]], color=tuple(cam_color[:3]), s=32)
-
+        # Draw intersection polyhedra (shown in both modes)
         for overlap_verts_mm in self._compute_overlap_polyhedra_mm():
             try:
                 hull = ConvexHull(overlap_verts_mm)
@@ -217,13 +257,19 @@ class ArenaMatplotlibGraphWindow(QWidget):
         self.ax.set_xlabel("X (mm)")
         self.ax.set_ylabel("Y (mm)")
         self.ax.set_zlabel("Z (mm)")
-        self.ax.set_title("Arena Simulation Frustum Layout")
+        
+        if self.view_mode == "all":
+            self.ax.set_title("Arena Simulation Frustum Layout")
+        else:
+            self.ax.set_title("Arena Simulation - Intersection Mesh Only")
 
-        legend_handles = self._build_camera_legend_handles()
+        legend_handles = self._build_camera_legend_handles(self.view_mode)
         self.ax.legend(handles=legend_handles, loc="upper right")
 
-        if all_points:
-            points = np.vstack(all_points)
+        # Use all_points if available (for normal content), otherwise use scaling_points for axis bounds
+        points_for_scaling = all_points if all_points else scaling_points
+        if points_for_scaling:
+            points = np.vstack(points_for_scaling)
             center = points.mean(axis=0)
             max_range = max(points.max(axis=0) - points.min(axis=0)) * 0.6
             max_range = max(max_range, 100.0)
