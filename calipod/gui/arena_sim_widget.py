@@ -29,6 +29,12 @@ from PySide6.QtGui import QImage, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer
 
 from calipod.gui.utils.spinbox_utils import create_labeled_spinbox_row
+from calipod.arena_simulation.pixel_to_animal import (
+    PixelToAnimalInputs,
+    compute_pixel_to_animal_result,
+    resolve_input_mode_for_distance_change,
+    resolve_input_mode_for_pixel_size_change,
+)
 from calipod.arena_simulation.arena_designer import ArenaDesignerVisualizer
 from calipod.arena_simulation.arena_config_manager import ArenaConfigManager
 from calipod.arena_simulation.arena_matplotlib_graph import ArenaMatplotlibGraphWindow
@@ -51,6 +57,8 @@ class ArenaSimWidget(QWidget):
         #calculated pixel-to-animal values
         self.furthest_distance_mm = None
         self.insect_pixel_count = None
+        self.pixel_to_animal_input_mode = None
+        self._updating_pixel_to_animal_widgets = False
 
         self.arena_config_manager = ArenaConfigManager(self.controller.workspace_guide.arena_sim_dir)
 
@@ -202,15 +210,20 @@ class ArenaSimWidget(QWidget):
         # Widgets for pixel to animal calculation parameters
         pixel_group, pixel_layout = self._create_styled_groupbox("Pixel-To-Animal Calculation")
         
-        create_labeled_spinbox_row(pixel_layout, "Min Insect Size (mm):", 0.1, 1000.0)
-        create_labeled_spinbox_row(pixel_layout, "Pixel Size on Sensor (μm):", 0.001, 10.0)
-        create_labeled_spinbox_row(pixel_layout, "Furthest Distance (mm):", 0.1, 10000.0)
-        create_labeled_spinbox_row(pixel_layout, "Focal Length (mm):", 0.1, 1000.0)
+        self.min_insect_size_mm_spinbox = create_labeled_spinbox_row(pixel_layout, "Min Insect Size (mm):", 0.1, 1000.0)
+        self.pixel_size_on_sensor_um_spinbox = create_labeled_spinbox_row(pixel_layout, "Pixel Size on Sensor (μm):", 0.001, 10.0, decimals=3)
+        self.furthest_distance_mm_spinbox = create_labeled_spinbox_row(pixel_layout, "Furthest Distance (mm):", 0.0, 10000.0, decimals=4)
+        self.animal_pixel_size_spinbox = create_labeled_spinbox_row(pixel_layout, "Animal Pixel Size (pixels):", 0.0, 10000.0, decimals=4)
+        self.focal_length_mm_spinbox = create_labeled_spinbox_row(pixel_layout, "Focal Length (mm):", 0.1, 1000.0)
+
+        self.min_insect_size_mm_spinbox.setValue(3.0)
+        self.pixel_size_on_sensor_um_spinbox.setValue(5.0)
+        self.focal_length_mm_spinbox.setValue(16.0)
 
         #results
         insect_pixel_count_result = QHBoxLayout()
-        self.insect_pixel_count_label = self._create_subsection_title("Insect size:") # to be updated with actual calculation
-        self.insect_pixel_count_value =  QLabel(f"{self.insect_pixel_count} pixels @ furthest distance")
+        self.insect_pixel_count_label = self._create_subsection_title("Insect size:")
+        self.insect_pixel_count_value =  QLabel("Enter either furthest distance or animal pixel size")
         insect_pixel_count_result.addWidget(self.insect_pixel_count_label)
         insect_pixel_count_result.addWidget(self.insect_pixel_count_value)
         pixel_layout.addLayout(insect_pixel_count_result)
@@ -218,11 +231,17 @@ class ArenaSimWidget(QWidget):
 
         furthest_distance_mm_result = QHBoxLayout()
         self.furthest_distance_mm_label = self._create_subsection_title("Furthest Distance:")
-        self.furthest_distance_mm_value = QLabel(f"{self.furthest_distance_mm} mm") # to be updated with actual value, given if entered or calculated from lens parameters
+        self.furthest_distance_mm_value = QLabel("Enter either furthest distance or animal pixel size")
         
         furthest_distance_mm_result.addWidget(self.furthest_distance_mm_label)
         furthest_distance_mm_result.addWidget(self.furthest_distance_mm_value)
         pixel_layout.addLayout(furthest_distance_mm_result)
+
+        pixel_reset_row = QHBoxLayout()
+        pixel_reset_row.addStretch()
+        self.reset_pixel_to_animal_button = QPushButton("Reset")
+        pixel_reset_row.addWidget(self.reset_pixel_to_animal_button)
+        pixel_layout.addLayout(pixel_reset_row)
 
         pixel_layout.addStretch()
         
@@ -435,9 +454,71 @@ class ArenaSimWidget(QWidget):
         self.overlap_visualization_group.idToggled.connect(self._update_overlap_mode)
         self.save_arena_config_button.clicked.connect(self.save_arena_config)
         self.generate_matplotl_graph_button.clicked.connect(self.generate_matplotl_graph)
+        self.furthest_distance_mm_spinbox.valueChanged.connect(self._on_furthest_distance_changed)
+        self.animal_pixel_size_spinbox.valueChanged.connect(self._on_animal_pixel_size_changed)
+        self.min_insect_size_mm_spinbox.valueChanged.connect(self._on_pixel_to_animal_parameter_changed)
+        self.pixel_size_on_sensor_um_spinbox.valueChanged.connect(self._on_pixel_to_animal_parameter_changed)
+        self.focal_length_mm_spinbox.valueChanged.connect(self._on_pixel_to_animal_parameter_changed)
+        self.reset_pixel_to_animal_button.clicked.connect(self._reset_pixel_to_animal_fields)
         self._update_arena_scale(self.arena_scale_depth_cm.value())
         self._update_frustum_depth(self.visualised_frustum_depth.value())
         self._update_overlap_mode(self.overlap_visualization_group.checkedId(), True)
+        self._update_pixel_to_animal_results()
+
+    def _reset_pixel_to_animal_fields(self):
+        self._updating_pixel_to_animal_widgets = True
+        self.furthest_distance_mm_spinbox.setValue(0.0)
+        self.animal_pixel_size_spinbox.setValue(0.0)
+        self._updating_pixel_to_animal_widgets = False
+        self.pixel_to_animal_input_mode = None
+        self.insect_pixel_count = None
+        self.furthest_distance_mm = None
+        self._update_pixel_to_animal_results()
+
+    def _on_furthest_distance_changed(self, _: float):
+        if self._updating_pixel_to_animal_widgets:
+            return
+        self.pixel_to_animal_input_mode = resolve_input_mode_for_distance_change(
+            current_mode=self.pixel_to_animal_input_mode,
+            animal_pixel_size=self.animal_pixel_size_spinbox.value(),
+        )
+        self._update_pixel_to_animal_results()
+
+    def _on_animal_pixel_size_changed(self, _: float):
+        if self._updating_pixel_to_animal_widgets:
+            return
+        self.pixel_to_animal_input_mode = resolve_input_mode_for_pixel_size_change(
+            current_mode=self.pixel_to_animal_input_mode,
+            furthest_distance_mm=self.furthest_distance_mm_spinbox.value(),
+        )
+        self._update_pixel_to_animal_results()
+
+    def _on_pixel_to_animal_parameter_changed(self, _: float):
+        self._update_pixel_to_animal_results()
+
+    def _update_pixel_to_animal_results(self):
+        result = compute_pixel_to_animal_result(
+            PixelToAnimalInputs(
+                min_insect_size_mm=self.min_insect_size_mm_spinbox.value(),
+                pixel_size_on_sensor_um=self.pixel_size_on_sensor_um_spinbox.value(),
+                furthest_distance_mm=self.furthest_distance_mm_spinbox.value(),
+                animal_pixel_size=self.animal_pixel_size_spinbox.value(),
+                focal_length_mm=self.focal_length_mm_spinbox.value(),
+                input_mode=self.pixel_to_animal_input_mode,
+            )
+        )
+
+        self.insect_pixel_count = result.computed_insect_pixel_count
+        self.furthest_distance_mm = result.computed_furthest_distance_mm
+        self.insect_pixel_count_value.setText(result.insect_label_text)
+        self.furthest_distance_mm_value.setText(result.distance_label_text)
+
+        self._updating_pixel_to_animal_widgets = True
+        if result.set_animal_pixel_size is not None:
+            self.animal_pixel_size_spinbox.setValue(float(result.set_animal_pixel_size))
+        if result.set_furthest_distance_mm is not None:
+            self.furthest_distance_mm_spinbox.setValue(float(result.set_furthest_distance_mm))
+        self._updating_pixel_to_animal_widgets = False
 
     def _update_arena_scale(self, depth_cm: float):
         """Update mm-to-scene scaling when arena depth changes."""
@@ -499,6 +580,16 @@ class ArenaSimWidget(QWidget):
             "arena_scale_depth_cm": self.arena_scale_depth_cm.value(),
             "visualised_frustum_depth_cm": self.visualised_frustum_depth.value(),
             "overlap_mode": "max_all" if self.overlap_max_radio.isChecked() else "min_two",
+            "pixel_to_animal": {
+                "min_insect_size_mm": self.min_insect_size_mm_spinbox.value(),
+                "pixel_size_on_sensor_um": self.pixel_size_on_sensor_um_spinbox.value(),
+                "focal_length_mm": self.focal_length_mm_spinbox.value(),
+                "furthest_distance_mm": self.furthest_distance_mm_spinbox.value(),
+                "animal_pixel_size": self.animal_pixel_size_spinbox.value(),
+                "input_mode": self.pixel_to_animal_input_mode,
+                "computed_insect_pixel_count": self.insect_pixel_count,
+                "computed_furthest_distance_mm": self.furthest_distance_mm,
+            },
             "cameras": cameras,
         }
 
@@ -547,6 +638,20 @@ class ArenaSimWidget(QWidget):
             self.overlap_max_radio.setChecked(True)
         else:
             self.overlap_min_radio.setChecked(True)
+
+        pixel_to_animal = config.get("pixel_to_animal", {})
+        if pixel_to_animal:
+            self._updating_pixel_to_animal_widgets = True
+            self.min_insect_size_mm_spinbox.setValue(float(pixel_to_animal.get("min_insect_size_mm", self.min_insect_size_mm_spinbox.value())))
+            self.pixel_size_on_sensor_um_spinbox.setValue(float(pixel_to_animal.get("pixel_size_on_sensor_um", self.pixel_size_on_sensor_um_spinbox.value())))
+            self.focal_length_mm_spinbox.setValue(float(pixel_to_animal.get("focal_length_mm", self.focal_length_mm_spinbox.value())))
+            self.furthest_distance_mm_spinbox.setValue(float(pixel_to_animal.get("furthest_distance_mm", self.furthest_distance_mm_spinbox.value())))
+            self.animal_pixel_size_spinbox.setValue(float(pixel_to_animal.get("animal_pixel_size", self.animal_pixel_size_spinbox.value())))
+            self._updating_pixel_to_animal_widgets = False
+
+            input_mode = pixel_to_animal.get("input_mode")
+            self.pixel_to_animal_input_mode = input_mode if input_mode in {"distance", "pixel_size"} else None
+            self._update_pixel_to_animal_results()
 
         for camera_config in config.get("cameras", []):
             camera_index = int(camera_config.get("camera_index", -1))

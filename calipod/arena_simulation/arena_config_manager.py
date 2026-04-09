@@ -12,6 +12,7 @@ class ArenaConfigManager:
     """Load and save arena simulation config JSON in the workspace arena_sim directory."""
 
     FILE_NAME = "arena_config.json"
+    METADATA_FILE_NAME = "pixel_animal_metadata.json"
 
     def __init__(self, arena_sim_dir: Path):
         self.arena_sim_dir = Path(arena_sim_dir)
@@ -19,6 +20,10 @@ class ArenaConfigManager:
     @property
     def config_path(self) -> Path:
         return self.arena_sim_dir / self.FILE_NAME
+
+    @property
+    def metadata_path(self) -> Path:
+        return self.arena_sim_dir / self.METADATA_FILE_NAME
 
     def load(self) -> dict:
         """Load arena config JSON, returning an empty dict when unavailable."""
@@ -42,5 +47,16 @@ class ArenaConfigManager:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2)
             logger.info(f"Saved arena config to {self.config_path}")
+
+            metadata_payload = {
+                "arena_config_file": str(self.config_path.name),
+                "pixel_to_animal": config.get("pixel_to_animal", {}),
+                "arena_scale_depth_cm": config.get("arena_scale_depth_cm"),
+                "visualised_frustum_depth_cm": config.get("visualised_frustum_depth_cm"),
+                "overlap_mode": config.get("overlap_mode"),
+            }
+            with open(self.metadata_path, "w", encoding="utf-8") as f:
+                json.dump(metadata_payload, f, indent=2)
+            logger.info(f"Saved arena metadata to {self.metadata_path}")
         except Exception as e:
             logger.warning(f"Failed to save arena config to {self.config_path}: {e}")
