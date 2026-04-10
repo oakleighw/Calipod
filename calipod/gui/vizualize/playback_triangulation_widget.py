@@ -31,6 +31,7 @@ from calipod.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
 from calipod.gui.vizualize.interactive_3d_graph_window import Interactive3DGraphWindow
 from calipod.gui.vizualize.filter_parameter_manager import FilterParameterManager
 from calipod.gui.vizualize.metrics_computer import MetricsComputer
+from calipod.gui.utils.grids import adaptive_grid_spacing, build_edge_tick_specs, build_plane_grid_lines
 from calipod.motion_trial import MotionTrial
 from calipod.trackers.motion_models import ConstantVelocity3DModel
 from calipod.export import VideoExporter, FrameCompositor, FilterMetadataManager, VideoExportWorker, CompareVideoExportWorker, GenericWorker
@@ -1242,6 +1243,14 @@ class TriangulationVisualizer:
         self.default_scatter_color = (1, 1, 1, 1) # White
         self.default_mesh_color = (1, 1, 1, 1)    # White
         self.point_size = 0.005  # Shared size for track markers
+
+        # Measurement-grid state must exist before first build_scene call.
+        self.grid_labels = []
+        self.axis_labels = []
+        self.is_measurement_mode_active = False
+        self.measurement_grid_items = []
+        self.measurement_grid_extent_m = 10.0
+
         self.build_scene()
         self.export_video_mode = False
         self.collected_frames = [] 
@@ -1251,12 +1260,6 @@ class TriangulationVisualizer:
         self.locked_export_width: Optional[int] = None
         self.locked_export_height: Optional[int] = None 
 
-        self.grid_labels = []
-        self.axis_labels = []
-        self.is_measurement_mode_active = False 
-        self.xy_grid: Optional[gl.GLGridItem] = None
-        self.xz_grid: Optional[gl.GLGridItem] = None
-        
         # Storage for custom mesh items for special labels
         self.custom_mesh_items = []  # Store references to added mesh items
 
@@ -1276,25 +1279,15 @@ class TriangulationVisualizer:
         
         self.scene.addItem(axis)
 
-        grid_total_extent_m = 10
-        grid_spacing_m = 0.1 
-
-        # Initialize XY and XZ grids with a color visible on both backgrounds
-        # Using a medium grey for visibility against both black and white backgrounds
-        # This initial color will be set upon creation, but we'll change it in toggle_measurement_mode
-        grid_line_initial_color = (0.5, 0.5, 0.5, 0.7) # R, G, B, A (medium grey, semi-transparent)
-
-        self.xy_grid = gl.GLGridItem(size=QVector3D(grid_total_extent_m, grid_total_extent_m, 1), color=grid_line_initial_color)
-        self.xy_grid.setSpacing(grid_spacing_m, grid_spacing_m, grid_spacing_m) # Set spacing after creation
-        
-        self.xz_grid = gl.GLGridItem(size=QVector3D(grid_total_extent_m, grid_total_extent_m, 1), color=grid_line_initial_color)
-        self.xz_grid.setSpacing(grid_spacing_m, grid_spacing_m, grid_spacing_m) # Set spacing after creation
-        self.xz_grid.rotate(90, 1, 0, 0) 
-
-        self.scene.addItem(self.xy_grid)
-        self.scene.addItem(self.xz_grid)
-        self.xy_grid.setVisible(False)
-        self.xz_grid.setVisible(False)
+        self._clear_measurement_grid_items()
+        self.clear_grid_labels()
+        if self.is_measurement_mode_active:
+            self._build_measurement_grid_items()
+            self.add_grid_labels(
+                grid_total_extent_m=self.measurement_grid_extent_m,
+                label_interval_m=self._get_measurement_grid_major_spacing_m(),
+                text_color='white',
+            )
 
         if self.camera_array.all_extrinsics_calibrated():
             self.meshes = {}
@@ -1303,7 +1296,6 @@ class TriangulationVisualizer:
                 mesh, origin_point = mesh_from_camera(cam)
                 mesh: CameraMesh = mesh
                 origin_point: CameraMesh = origin_point
-                mesh.setColor(self.default_mesh_color) # Set initial mesh color
                 origin_point.setColor(cam.color)
                 self.meshes[port] = mesh
                 self.origin_points[port] = origin_point
@@ -1858,56 +1850,98 @@ class TriangulationVisualizer:
         self.grid_labels = []
         logger.info("Cleared existing grid labels.")
 
+    def _clear_measurement_grid_items(self):
+        """Remove explicit measurement grid line items from the scene."""
+        for grid_item in self.measurement_grid_items:
+            try:
+                self.scene.removeItem(grid_item)
+            except Exception:
+                pass
+        self.measurement_grid_items = []
+
+    def _scene_extent_m(self) -> float:
+        """Estimate a reasonable scene extent from the loaded data."""
+        points = []
+        if self.motion_trial is not None and hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
+            xyz = self.motion_trial.xyz_df[['x_coord', 'y_coord', 'z_coord']].to_numpy(dtype=float)
+            if xyz.size:
+                points.append(xyz)
+        if self.camera_array is not None and hasattr(self.camera_array, 'get_world_origins'):
+            origins = self.camera_array.get_world_origins()
+            if origins is not None and np.size(origins):
+                points.append(np.asarray(origins, dtype=float))
+
+        if not points:
+            return self.measurement_grid_extent_m
+
+        stacked = np.vstack(points)
+        span = np.max(stacked, axis=0) - np.min(stacked, axis=0)
+        extent = float(max(span.max() * 1.5, 2.0))
+        return min(max(extent, 2.0), 50.0)
+
+    def _get_measurement_grid_major_spacing_m(self) -> float:
+        """Pick a readable major spacing for the current measurement grid extent."""
+        extent_m = self._scene_extent_m()
+        _, major_spacing_m = adaptive_grid_spacing(extent_m, target_major_intervals=20.0)
+        return major_spacing_m
+
+    def _get_measurement_grid_minor_spacing_m(self) -> float:
+        """Pick a readable minor spacing for the current measurement grid extent."""
+        major_spacing = self._get_measurement_grid_major_spacing_m()
+        minor_spacing = major_spacing / 5.0
+        return max(minor_spacing, 0.05)
+
+    def _add_grid_line_item(self, plane: str, spacing_m: float, half_extent_m: float, color, width: float):
+        """Create and add a grid line item for a plane."""
+        lines = build_plane_grid_lines(plane, spacing_m, half_extent_m)
+        if not lines:
+            return None
+
+        grid_item = gl.GLLinePlotItem(
+            pos=np.asarray(lines, dtype=np.float32).reshape(-1, 3),
+            color=color,
+            width=width,
+            mode="lines",
+            antialias=True,
+        )
+        grid_item.setGLOptions("opaque")
+        self.scene.addItem(grid_item)
+        self.measurement_grid_items.append(grid_item)
+        return grid_item
+
+    def _build_measurement_grid_items(self):
+        """Render the measurement grid as explicit white line grids."""
+        self._clear_measurement_grid_items()
+
+        self.measurement_grid_extent_m = self._scene_extent_m()
+        half_extent_m = self.measurement_grid_extent_m / 2.0
+        minor_spacing_m = self._get_measurement_grid_minor_spacing_m()
+        major_spacing_m = self._get_measurement_grid_major_spacing_m()
+
+        minor_color = (0.82, 0.82, 0.82, 0.35)
+        major_color = (1.0, 1.0, 1.0, 0.75)
+
+        self._add_grid_line_item("xy", minor_spacing_m, half_extent_m, minor_color, width=0.7)
+        self._add_grid_line_item("xz", minor_spacing_m, half_extent_m, minor_color, width=0.7)
+        self._add_grid_line_item("xy", major_spacing_m, half_extent_m, major_color, width=1.3)
+        self._add_grid_line_item("xz", major_spacing_m, half_extent_m, major_color, width=1.3)
+
         
 
-    def add_grid_labels(self, grid_total_extent_m=10, grid_spacing_m=0.1, text_color='white'):
+    def add_grid_labels(self, grid_total_extent_m=10, label_interval_m=0.5, text_color='white'):
         self.clear_grid_labels() # Clear existing labels before adding new ones
-
-        label_interval_m = 0.5 # Label every 0.5 meters (50 cm) for less clutter. Adjust as needed.
 
         # Determine the range for labels based on half the grid extent
         half_extent_m = grid_total_extent_m / 2
 
-        # Iterate for X, Y, and Z axes
-        # Use np.arange for float steps, and round to avoid floating point display issues
-        for i in np.arange(-half_extent_m, half_extent_m + label_interval_m, label_interval_m):
-            i = round(i, 2) 
-            if i == 0.0: # Skip label at origin as axis item provides a visual cue
-                continue
-            
-            # X-axis labels (on XY and XZ planes)
-            # Position for X-axis labels (offset slightly in Y or Z for clarity)
-            text_pos_x = (i, -0.05, 0) # Offset -0.05m in Y
-            text_item_x = gl.GLTextItem(pos=text_pos_x, text=f"{i:.1f} m", color=text_color)
-            self.scene.addItem(text_item_x)
-            self.grid_labels.append(text_item_x)
-
-            # For the XZ grid, we'll place X labels on the XZ plane
-            text_pos_x_xz = (i, 0, -0.05) # Offset -0.05m in Z
-            text_item_x_xz = gl.GLTextItem(pos=text_pos_x_xz, text=f"{i:.1f} m", color=text_color)
-            self.scene.addItem(text_item_x_xz)
-            self.grid_labels.append(text_item_x_xz)
-
-
-        # Y-axis labels (on XY plane)
-        for i in np.arange(-half_extent_m, half_extent_m + label_interval_m, label_interval_m):
-            i = round(i, 2)
-            if i == 0.0:
-                continue
-            text_pos_y = (-0.05, i, 0) # Offset -0.05m in X
-            text_item_y = gl.GLTextItem(pos=text_pos_y, text=f"{i:.1f} m", color=text_color)
-            self.scene.addItem(text_item_y)
-            self.grid_labels.append(text_item_y)
-
-        # Z-axis labels (for XZ plane, which uses global Z)
-        for i in np.arange(-half_extent_m, half_extent_m + label_interval_m, label_interval_m):
-            i = round(i, 2)
-            if i == 0.0:
-                continue
-            text_pos_z = (-0.05, 0, i) # Offset -0.05m in X
-            text_item_z = gl.GLTextItem(pos=text_pos_z, text=f"{i:.1f} m", color=text_color)
-            self.scene.addItem(text_item_z)
-            self.grid_labels.append(text_item_z)
+        for pos, text in build_edge_tick_specs(
+            half_extent=half_extent_m,
+            label_interval=label_interval_m,
+            label_formatter=lambda value: f"{value:.1f} m",
+        ):
+            tick = gl.GLTextItem(pos=pos, text=text, color=text_color)
+            self.scene.addItem(tick)
+            self.grid_labels.append(tick)
 
         logger.info(f"Added {len(self.grid_labels)} grid labels.")
 
@@ -1916,64 +1950,16 @@ class TriangulationVisualizer:
         self.is_measurement_mode_active = not self.is_measurement_mode_active
         logger.info(f"Toggling measurement mode. New state: {self.is_measurement_mode_active}")
 
-        grid_total_extent_m = 10.0 # 10 meters extent
-        grid_spacing_m = 0.1 # 0.1 meters (10 centimeters)
+        self.measurement_grid_extent_m = 10.0 # 10 meters extent
+        major_spacing_m = self._get_measurement_grid_major_spacing_m()
 
         if self.is_measurement_mode_active:
             self.scene.setBackgroundColor(QColorConstants.Black)
             self.scatter.setData(color=self.default_scatter_color)
-            for mesh in self.meshes.values():
-                mesh.setColor(self.default_mesh_color)
-            
-            if self.xy_grid:
-                self.scene.removeItem(self.xy_grid)
-                # --- CORRECTED GLGridItem INSTANTIATION AND SPACING ---
-                self.xy_grid = gl.GLGridItem(size=QVector3D(grid_total_extent_m, grid_total_extent_m, 1), color='white') 
-                self.xy_grid.setSpacing(grid_spacing_m, grid_spacing_m, grid_spacing_m) # Set spacing after creation
-                self.scene.addItem(self.xy_grid)
-                self.xy_grid.setVisible(True)
-                logger.info(f"XY grid recreated (white, size={grid_total_extent_m}m, spacing={grid_spacing_m}m). Visible: {self.xy_grid.visible}")
-                
-            if self.xz_grid:
-                self.scene.removeItem(self.xz_grid)
-                # --- CORRECTED GLGridItem INSTANTIATION AND SPACING ---
-                self.xz_grid = gl.GLGridItem(size=QVector3D(grid_total_extent_m, grid_total_extent_m, 1), color='white') 
-                self.xz_grid.setSpacing(grid_spacing_m, grid_spacing_m, grid_spacing_m) # Set spacing after creation
-                self.xz_grid.rotate(90, 1, 0, 0)
-                self.scene.addItem(self.xz_grid)
-                self.xz_grid.setVisible(True)
-                logger.info(f"XZ grid recreated (white, size={grid_total_extent_m}m, spacing={grid_spacing_m}m). Visible: {self.xz_grid.visible}")
-
-            self.add_grid_labels(grid_total_extent_m=grid_total_extent_m, text_color='white')
+            self._build_measurement_grid_items()
+            self.add_grid_labels(grid_total_extent_m=self.measurement_grid_extent_m, label_interval_m=major_spacing_m, text_color='white')
         else:
             self.scene.setBackgroundColor(QColorConstants.Black)
             self.scatter.setData(color=self.default_scatter_color)
-            for mesh in self.meshes.values():
-                mesh.setColor(self.default_mesh_color)
-
-            if self.xy_grid:
-                self.scene.removeItem(self.xy_grid)
-                grid_total_extent_m = 10.0 
-                grid_spacing_m = 0.1
-                grid_line_initial_color = (0.5, 0.5, 0.5, 0.7)
-                # --- CORRECTED GLGridItem INSTANTIATION AND SPACING ---
-                self.xy_grid = gl.GLGridItem(size=QVector3D(grid_total_extent_m, grid_total_extent_m, 1), color=grid_line_initial_color) 
-                self.xy_grid.setSpacing(grid_spacing_m, grid_spacing_m, grid_spacing_m) # Set spacing after creation
-                self.scene.addItem(self.xy_grid)
-                self.xy_grid.setVisible(False)
-                logger.info(f"XY grid recreated (grey, size={grid_total_extent_m}m, spacing={grid_spacing_m}m) and re-hidden.")
-
-            if self.xz_grid:
-                self.scene.removeItem(self.xz_grid)
-                grid_total_extent_m = 10.0 
-                grid_spacing_m = 0.1
-                grid_line_initial_color = (0.5, 0.5, 0.5, 0.7)
-                # --- CORRECTED GLGridItem INSTANTIATION AND SPACING ---
-                self.xz_grid = gl.GLGridItem(size=QVector3D(grid_total_extent_m, grid_total_extent_m, 1), color=grid_line_initial_color)
-                self.xz_grid.setSpacing(grid_spacing_m, grid_spacing_m, grid_spacing_m) # Set spacing after creation
-                self.xz_grid.rotate(90, 1, 0, 0) 
-                self.scene.addItem(self.xz_grid)
-                self.xz_grid.setVisible(False)
-                logger.info(f"XZ grid recreated (grey, size={grid_total_extent_m}m, spacing={grid_spacing_m}m) and re-hidden.")
-            
+            self._clear_measurement_grid_items()
             self.clear_grid_labels()
