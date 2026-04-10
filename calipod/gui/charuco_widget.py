@@ -88,11 +88,18 @@ class CharucoWidget(QWidget):
 
         self.png_btn.clicked.connect(save_png)
 
-        self.pdf_btn = QPushButton("Save &A4 pdf")
+        # PDF export section with page size dropdown
+        self.pdf_pagesize_label = QLabel("PDF Page Size:")
+        self.pdf_pagesize_combo = QComboBox()
+        self.pdf_pagesize_combo.addItems(["A1", "A2", "A3", "A4", "A5", "A6"])
+        self.pdf_pagesize_combo.setCurrentText("A4")
+        self.pdf_pagesize_combo.setMaximumWidth(80)
+
+        self.pdf_btn = QPushButton("&Export PDF")
         self.pdf_btn.setMaximumSize(100, 30)
 
-        #basic a4 pdf save button
         def save_pdf():
+            pagesize = self.pdf_pagesize_combo.currentText()
             save_file_tuple = QFileDialog.getSaveFileName(
                 self,
                 "Save As",
@@ -102,8 +109,8 @@ class CharucoWidget(QWidget):
             print(save_file_tuple)
             save_file_name = str(Path(save_file_tuple[0]))
             if len(save_file_name) > 1:
-                print(f"Saving board to {save_file_name}")
-                self.charuco.save_pdf(save_file_name)
+                print(f"Saving board to {save_file_name} with page size {pagesize}")
+                self.charuco.save_pdf(save_file_name, pagesize=pagesize)
 
         self.pdf_btn.clicked.connect(save_pdf)
 
@@ -126,11 +133,11 @@ class CharucoWidget(QWidget):
 
         self.png_mirror_btn.clicked.connect(save_mirror_png)
 
-        self.pdf_mirror_btn = QPushButton("Save &A4 mir pdf")
+        self.pdf_mirror_btn = QPushButton("Export &mirror PDF")
         self.pdf_mirror_btn.setMaximumSize(100, 30)
 
-        #additional a4 mirror pdf save button
         def save_mirror_pdf():
+            pagesize = self.pdf_pagesize_combo.currentText()
             save_file_tuple = QFileDialog.getSaveFileName(
                 self,
                 "Save As",
@@ -140,13 +147,14 @@ class CharucoWidget(QWidget):
             print(save_file_tuple)
             save_file_name = str(Path(save_file_tuple[0]))
             if len(save_file_name) > 1:
-                print(f"Saving board to {save_file_name}")
-                self.charuco.save_mirror_pdf(save_file_name)
+                print(f"Saving board to {save_file_name} with page size {pagesize}")
+                self.charuco.save_mirror_pdf(save_file_name, pagesize=pagesize)
 
         self.pdf_mirror_btn.clicked.connect(save_mirror_pdf)
 
-
         self.save_board_hbox.addWidget(self.png_btn)
+        self.save_board_hbox.addWidget(self.pdf_pagesize_label)
+        self.save_board_hbox.addWidget(self.pdf_pagesize_combo)
         self.save_board_hbox.addWidget(self.pdf_btn)
         self.save_board_hbox.addWidget(self.png_mirror_btn)
         self.save_board_hbox.addWidget(self.pdf_mirror_btn)

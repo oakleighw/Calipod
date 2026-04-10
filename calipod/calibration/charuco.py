@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 
 #for pdf saving
-from reportlab.lib.pagesizes import A4
+from reportlab.lib import pagesizes
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm, inch
 import tempfile
@@ -26,6 +26,16 @@ import calipod.logger
 logger = calipod.logger.get(__name__)
 
 INCHES_PER_CM = 0.393701
+
+# Standard page sizes available for PDF export
+PAGE_SIZES = {
+    'A1': pagesizes.A1,
+    'A2': pagesizes.A2,
+    'A3': pagesizes.A3,
+    'A4': pagesizes.A4,
+    'A5': pagesizes.A5,
+    'A6': pagesizes.A6,
+}
 
 class Charuco:
     """
@@ -161,17 +171,30 @@ class Charuco:
         """
         cv2.imwrite(path, self.board_img(pixmap_scale=10000))
 
-    def save_to_pdf(self, scaled_board, path):
-        a4_width, a4_height = A4 # A4 dimensions in points
+    def save_to_pdf(self, scaled_board, path, pagesize='A4'):
+        """
+        Save the charuco board to a PDF file with the specified page size.
+        
+        Args:
+            scaled_board: The scaled board image
+            path: Output file path
+            pagesize: Paper size name (default 'A4'). Options: A3, A4, A5, Letter, Legal, Tabloid
+        """
+        if pagesize not in PAGE_SIZES:
+            logger.warning(f"Unknown pagesize '{pagesize}', using A4")
+            pagesize = 'A4'
+        
+        page_size = PAGE_SIZES[pagesize]
+        page_width, page_height = page_size
 
         img_width_on_pdf = self.board_width_cm * cm
         img_height_on_pdf = self.board_height_cm * cm
 
-        # Calculate the position to center the image on the A4 page
-        x_offset = (a4_width - img_width_on_pdf) / 2
-        y_offset = (a4_height - img_height_on_pdf) / 2
+        # Calculate the position to center the image on the page
+        x_offset = (page_width - img_width_on_pdf) / 2
+        y_offset = (page_height - img_height_on_pdf) / 2
         
-        c = canvas.Canvas(path, pagesize=A4)
+        c = canvas.Canvas(path, pagesize=page_size)
         
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_image_file:
             temp_filename = temp_image_file.name
@@ -194,12 +217,16 @@ class Charuco:
         finally:
             os.remove(temp_filename)
 
-    def save_pdf(self, path):
+    def save_pdf(self, path, pagesize='A4'):
         """
         Saving pdf at 10x higher resolution than used for GUI
+        
+        Args:
+            path: Output file path
+            pagesize: Paper size name (default 'A4'). Options: A3, A4, A5, Letter, Legal, Tabloid
         """
         scaled_board = self.board_img(pixmap_scale=10000)
-        self.save_to_pdf(scaled_board, path)
+        self.save_to_pdf(scaled_board, path, pagesize=pagesize)
 
     def save_mirror_image(self, path):
         """
@@ -208,13 +235,17 @@ class Charuco:
         mirror = cv2.flip(self.board_img(pixmap_scale=10000), 1)
         cv2.imwrite(path, mirror)
 
-    def save_mirror_pdf(self, path):
+    def save_mirror_pdf(self, path, pagesize='A4'):
         """
         Saving pdf at 10x higher resolution than used for GUI
+        
+        Args:
+            path: Output file path
+            pagesize: Paper size name (default 'A4'). Options: A3, A4, A5, Letter, Legal, Tabloid
         """
         mirror = cv2.flip(self.board_img(pixmap_scale=10000), 1)
         scaled_board = mirror
-        self.save_to_pdf(scaled_board, path)
+        self.save_to_pdf(scaled_board, path, pagesize=pagesize)
 
     def get_connected_points(self):
         """
