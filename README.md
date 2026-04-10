@@ -86,15 +86,15 @@ cd path/to/your/project
 uv venv --python 3.11
 ```
 
-### Activate the virtual environment
+### Activate the virtual environment wherever it was created [$\color{green}{\text{Do this each time :) }}$]
 ```
 source .venv/bin/activate
 ```
 
-### Install Caliscope
-With your virtual environment activated, you can now install Caliscope using uv.
+### Install Calipod libraries within the new environment
+With your virtual environment activated, and within the calipod directory, you can now install Caliscope using uv.
 ```
-uv pip install caliscope
+uv pip install -e .
 ```
 Installation may take a moment as some dependencies are large, but uv's performance makes this process significantly faster than traditional tools.
 
@@ -120,7 +120,7 @@ ProjectDirectory/
 # Key Features
 
 ## Calibration board creation
-- Easy creation of `png` files for ChArUco calibration boards 
+- Easy creation of `png` / `pdf` files for ChArUco calibration boards 
 - board definition can be changed across intrinsic and extrinsic calibration allowing greater flexibiltiy
 
 ## Intrinsic Camera Calibration
