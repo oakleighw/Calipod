@@ -105,3 +105,69 @@ def build_edge_tick_specs(
         specs.append(((-half_extent - offset, 0.0, value + sign * diagonal), text))
 
     return specs
+
+
+def build_axis_label_specs(
+    plane: str,
+    half_extent: float,
+    offset_ratio: float = 0.05,
+    interval_offset_ratio: float = 0.25,
+) -> list[tuple[tuple[float, float, float], str]]:
+    """Return axis end label specs for plane-aligned grids.
+
+    Places "X", "Y", or "Z" labels at the end of each axis, parallel to their plane.
+    For xy plane, labels X and Y (z=0). For xz plane, labels Z (y=0).
+    Returns a list of tuples: ((x, y, z), text)
+    """
+    specs = []
+    half_extent = float(half_extent)
+    offset = max(half_extent * offset_ratio, half_extent * interval_offset_ratio)
+
+    if plane == "xy":
+        # X label at the end of x-axis, in xy plane (z=0)
+        specs.append(((half_extent + offset, 0.0, 0.0), "X"))
+        # Y label at the end of y-axis, in xy plane (z=0)
+        specs.append(((0.0, half_extent + offset, 0.0), "Y"))
+    elif plane == "xz":
+        # Z label at the end of z-axis, in xz plane (y=0)
+        specs.append(((0.0, 0.0, half_extent + offset), "Z"))
+    else:
+        raise ValueError(f"Unsupported plane '{plane}'. Expected 'xy' or 'xz'.")
+
+    return specs
+
+
+def build_complete_grid_label_specs(
+    half_extent: float,
+    label_interval: float,
+    label_formatter,
+    offset_ratio: float = 0.03,
+    interval_offset_ratio: float = 0.25,
+    diagonal_ratio: float = 0.35,
+) -> list[tuple[tuple[float, float, float], str]]:
+    """Return complete label specs combining tick specs and axis labels for both xy/xz planes.
+
+    Returns a list of tuples: ((x, y, z), text) with both tick labels and axis end labels.
+    """
+    specs = []
+    
+    # Add edge tick specs
+    specs.extend(build_edge_tick_specs(
+        half_extent=half_extent,
+        label_interval=label_interval,
+        label_formatter=label_formatter,
+        offset_ratio=offset_ratio,
+        interval_offset_ratio=interval_offset_ratio,
+        diagonal_ratio=diagonal_ratio,
+    ))
+    
+    # Add axis labels for both planes
+    for plane in ("xy", "xz"):
+        specs.extend(build_axis_label_specs(
+            plane=plane,
+            half_extent=half_extent,
+            offset_ratio=offset_ratio,
+            interval_offset_ratio=interval_offset_ratio,
+        ))
+    
+    return specs

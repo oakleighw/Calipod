@@ -31,7 +31,7 @@ from calipod.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
 from calipod.gui.vizualize.interactive_3d_graph_window import Interactive3DGraphWindow
 from calipod.gui.vizualize.filter_parameter_manager import FilterParameterManager
 from calipod.gui.vizualize.metrics_computer import MetricsComputer
-from calipod.gui.utils.grids import adaptive_grid_spacing, build_edge_tick_specs, build_plane_grid_lines
+from calipod.gui.utils.grids import adaptive_grid_spacing, build_complete_grid_label_specs, build_plane_grid_lines
 from calipod.motion_trial import MotionTrial
 from calipod.trackers.motion_models import ConstantVelocity3DModel
 from calipod.export import VideoExporter, FrameCompositor, FilterMetadataManager, VideoExportWorker, CompareVideoExportWorker, GenericWorker
@@ -1934,7 +1934,7 @@ class TriangulationVisualizer:
         # Determine the range for labels based on half the grid extent
         half_extent_m = grid_total_extent_m / 2
 
-        for pos, text in build_edge_tick_specs(
+        for pos, text in build_complete_grid_label_specs(
             half_extent=half_extent_m,
             label_interval=label_interval_m,
             label_formatter=lambda value: f"{value:.1f} m",

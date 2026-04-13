@@ -8,7 +8,7 @@ from calipod.gui.vizualize.camera_mesh import (
 	build_camera_frustum_item,
 	build_camera_origin_cube_item,
 )
-from calipod.gui.utils.grids import build_edge_tick_specs, build_plane_grid_lines, format_axis_label, nice_step
+from calipod.gui.utils.grids import build_complete_grid_label_specs, build_plane_grid_lines, format_axis_label, nice_step
 
 
 class ArenaDesignerVisualizer:
@@ -126,12 +126,12 @@ class ArenaDesignerVisualizer:
 		return format_axis_label(scene_value, self.mm_to_scene_scale)
 
 	def _add_scale_tick_labels(self, half: float, label_spacing_scene: float):
-		"""Add edge-only tick labels in mm, centered around 0 mm at the origin."""
+		"""Add edge-only tick labels and axis labels in mm, centered around 0 mm at the origin."""
 		self._clear_scale_tick_labels()
 		if label_spacing_scene <= 0:
 			return
 
-		for pos, text in build_edge_tick_specs(
+		for pos, text in build_complete_grid_label_specs(
 			half_extent=half,
 			label_interval=label_spacing_scene,
 			label_formatter=self._format_mm_label,
