@@ -891,9 +891,14 @@ class PlaybackTriangulationWidget(QWidget):
 
         # Try to load filter metadata if available
         # MotionTrial auto-detects and prefers filtered predictions if they exist
-        self.filter_manager.load_metadata(
+        metadata_loaded = self.filter_manager.load_metadata(
             Path(self.motion_trial.predictions_csv) if self.motion_trial.predictions_csv else None
         )
+
+        # If filter metadata was loaded, automatically enable filtering in the GUI
+        if metadata_loaded:
+            logger.info("Filter metadata was loaded; automatically enabling 'Use Filtered Track' toggle")
+            self.toggle_filtered_button.setChecked(True)
 
     def update_camera_array(self, camera_array: CameraArray):
         self.visualizer.update_camera_array(camera_array)
@@ -935,23 +940,9 @@ class PlaybackTriangulationWidget(QWidget):
             # Enable the "cut video to filter frames" checkbox when filtering is enabled
             self.cut_video_to_filter_frames_checkbox.setEnabled(True)
             try:
-                # Check if an old filtered CSV exists without the new columns; if so, force recomputation
-                force_recompute = False
-                if filtered_path.exists():
-                    try:
-                        existing_filtered = pd.read_csv(filtered_path, nrows=1, engine="pyarrow")
-                        if (
-                            "measurement_source" not in existing_filtered.columns
-                            or "error_mm" not in existing_filtered.columns
-                        ):
-                            logger.info(
-                                "Existing filtered CSV is missing measurement_source/error_mm columns; forcing recomputation"
-                            )
-                            force_recompute = True
-                    except:
-                        force_recompute = True
-                else:
-                    force_recompute = True
+                # Always recompute filtered predictions when user toggles filtering ON
+                # This ensures current UI parameter values are applied, even if a cached CSV exists
+                force_recompute = True
 
                 if force_recompute:
                     # Set spinbox ranges based on actual prediction data
@@ -974,6 +965,9 @@ class PlaybackTriangulationWidget(QWidget):
                     self.kalman_fps_override = int(self.fps_spin.value()) if self.fps_spin.value() > 0 else None
                     self.gap_fill_only = self.gap_fill_only_checkbox.isChecked()
                     self.extend_filtered_track = self.extend_filtered_track_checkbox.isChecked()
+                    logger.debug(
+                        f"In toggle_filtered_track: read extend_filtered_track_checkbox = {self.extend_filtered_track}"
+                    )
                     self.gate_distance_sigma = float(self.gate_distance_slider.value()) / 10.0
                     self.max_distance_threshold = float(self.max_distance_spin.value())  # mm
 

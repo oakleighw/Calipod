@@ -173,6 +173,16 @@ class FilterParameterManager:
         if "use_hybrid_bgs" in self.ui_widgets and self.ui_widgets["use_hybrid_bgs"] is not None:
             use_hybrid_bgs = self.ui_widgets["use_hybrid_bgs"].isChecked()
 
+        # Get extend_filtered_track checkbox state for saving
+        extend_filtered_track_to_save = self.extend_filtered_track
+        if "extend_filtered_track_checkbox" in self.ui_widgets:
+            extend_filtered_track_to_save = self.ui_widgets["extend_filtered_track_checkbox"].isChecked()
+            logger.debug(
+                f"Reading extend_filtered_track_checkbox state for saving: {extend_filtered_track_to_save}"
+            )
+        else:
+            logger.warning("extend_filtered_track_checkbox not in ui_widgets when saving metadata")
+
         # Read filter frame range from spinboxes
         start_frame_to_save = 0
         end_frame_to_save = 0
@@ -192,7 +202,7 @@ class FilterParameterManager:
             "bgs_gate_distance_sigma": float(self.bgs_gate_distance_sigma),
             "bgs_max_distance_threshold_mm": float(self.bgs_max_distance_threshold),
             "gap_fill_only": bool(self.gap_fill_only),
-            "extend_filtered_track": bool(self.extend_filtered_track),
+            "extend_filtered_track": bool(extend_filtered_track_to_save),
             "use_hybrid_bgs": bool(use_hybrid_bgs),
             "filter_start_frame": int(start_frame_to_save),
             "filter_end_frame": int(end_frame_to_save),
@@ -213,16 +223,20 @@ class FilterParameterManager:
             logger.warning(f"Failed to save filter metadata: {e}")
 
     def load_metadata(self, filtered_pred_path: Optional[Path]):
-        """Load filter metadata from JSON file if available and update UI."""
+        """Load filter metadata from JSON file if available and update UI.
+
+        Returns:
+            bool: True if metadata was successfully loaded, False otherwise.
+        """
         if filtered_pred_path is None:
-            return
+            return False
 
         metadata_path = filtered_pred_path.with_stem(filtered_pred_path.stem + "_metadata")
         metadata_path = metadata_path.with_suffix(".json")
 
         if not metadata_path.exists():
             logger.debug(f"No filter metadata found at {metadata_path}; using software defaults")
-            return
+            return False
 
         try:
             with open(metadata_path, "r") as f:
@@ -254,6 +268,10 @@ class FilterParameterManager:
             # Load boolean flags
             self.gap_fill_only = metadata.get("gap_fill_only", self.gap_fill_only)
             self.extend_filtered_track = metadata.get("extend_filtered_track", self.extend_filtered_track)
+            logger.debug(
+                f"Loaded filter flags from metadata: gap_fill_only={self.gap_fill_only}, "
+                f"extend_filtered_track={self.extend_filtered_track}"
+            )
 
             # Load frame range parameters
             start_frame = metadata.get("filter_start_frame", 0)
@@ -294,8 +312,20 @@ class FilterParameterManager:
 
             if "gap_fill_only_checkbox" in self.ui_widgets:
                 self.ui_widgets["gap_fill_only_checkbox"].setChecked(self.gap_fill_only)
+                logger.debug(
+                    f"Set gap_fill_only_checkbox to {self.gap_fill_only}"
+                )
             if "extend_filtered_track_checkbox" in self.ui_widgets:
                 self.ui_widgets["extend_filtered_track_checkbox"].setChecked(self.extend_filtered_track)
+                logger.debug(
+                    f"Set extend_filtered_track_checkbox to {self.extend_filtered_track} "
+                    f"(was loaded from metadata)"
+                )
+            else:
+                logger.warning(
+                    f"extend_filtered_track_checkbox not found in ui_widgets! "
+                    f"Available keys: {list(self.ui_widgets.keys())}"
+                )
 
             # Load use_hybrid_bgs state and apply it
             use_hybrid_bgs = metadata.get("use_hybrid_bgs", False)
@@ -306,5 +336,7 @@ class FilterParameterManager:
             self.toggle_bgs_filter_row()
 
             logger.info(f"Loaded filter metadata from {metadata_path}")
+            return True
         except Exception as e:
             logger.warning(f"Failed to load filter metadata from {metadata_path}: {e}; using software defaults")
+            return False
