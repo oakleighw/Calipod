@@ -34,7 +34,7 @@ from calipod.gui.vizualize.metrics_computer import MetricsComputer
 from calipod.gui.utils.grids import adaptive_grid_spacing, build_complete_grid_label_specs, build_plane_grid_lines
 from calipod.motion_trial import MotionTrial
 from calipod.trackers.motion_models import ConstantVelocity3DModel
-from calipod.export import VideoExporter, FrameCompositor, FilterMetadataManager, VideoExportWorker, CompareVideoExportWorker, GenericWorker
+from calipod.export import VideoExporter, FrameCompositor, FilterMetadataManager, VideoExportWorker, CompareVideoExportWorker, GenericWorker, VideoExportProgressDialog
 
 import cv2
 import rtoml
@@ -346,16 +346,135 @@ class PlaybackTriangulationWidget(QWidget):
         self.toggle_filtered_button.toggled.connect(self.toggle_filtered_track)
 
     def toggle_export_mode(self, checked):
-        """Toggles video export mode based on button state."""
-        self.export_video_mode = checked
-        self.visualizer.set_export_mode(checked) 
-
-        if checked:
-            self.last_exported_video_path = None
-            # Capture viewport size at export start to prevent frame size changes during export
-            self.last_exported_video_path = self._export_motion_video()
+        """Toggles video export mode and launches export on main thread with progress dialog."""
+        if not checked:
+            logger.info("Video export cancelled.")
+            self.export_button.setChecked(False)
+            return
+        
+        # Start export on main thread (GL context required)
+        self._start_motion_video_export()
+    
+    def _start_motion_video_export(self):
+        """Launch motion video export on main thread with modal progress dialog."""
+        export_video_path, _, _ = self._derive_export_paths()
+        
+        # Ensure output directory exists
+        export_video_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Capture viewport dimensions at export start
+        viewport_width = self.visualizer.scene.width()
+        viewport_height = self.visualizer.scene.height()
+        logger.info(f"Export starting with locked viewport dimensions: {viewport_width}x{viewport_height}")
+        
+        self.visualizer.locked_export_width = viewport_width
+        self.visualizer.locked_export_height = viewport_height
+        self.visualizer.set_export_mode(True)
+        self.visualizer.clear_collected_frames()
+        
+        # Determine frame range
+        exporter = VideoExporter(self.video_framerate)
+        export_start_frame = 0
+        export_end_frame = 0 
+        
+        if self._session_start_frame is not None and self._session_end_frame is not None:
+            export_start_frame = self._session_start_frame
+            export_end_frame = self._session_end_frame
+            logger.info(f"Exporting video based on full session frame range: {export_start_frame} to {export_end_frame}.")
+            if self.visualizer.motion_trial is None: 
+                self.visualizer.motion_trial = MotionTrial() 
+            
+        elif self.motion_trial and not self.motion_trial.is_empty:
+            export_start_frame = self.motion_trial.start_index
+            export_end_frame = self.motion_trial.end_index
+            logger.info(f"Exporting video based on loaded motion trial range: {export_start_frame} to {export_end_frame}.")
+            self.visualizer.motion_trial = self.motion_trial
         else:
-            logger.info("Video export mode disabled.")
+            export_start_frame = 0
+            export_end_frame = self.video_framerate * 3 
+            logger.warning(f"No valid motion trial or session range available. Exporting {export_end_frame - export_start_frame + 1} frames of empty scene.")
+            if self.visualizer.motion_trial is None: 
+                self.visualizer.motion_trial = MotionTrial()
+        
+        # Create modal progress dialog
+        self.export_progress_dialog = VideoExportProgressDialog(
+            parent=self,
+            title="Exporting Triangulated Video",
+            allow_cancel=True
+        )
+        
+        # Disable export button during process
+        self.export_button.setEnabled(False)
+        
+        try:
+            logger.info("Starting motion video export on main thread (GL context required)...")
+            self.export_progress_dialog.show()
+            
+            # Run export on main thread with progress updates
+            self._run_motion_video_export_main_thread(
+                exporter,
+                export_start_frame,
+                export_end_frame,
+                export_video_path
+            )
+            
+            # Only show "completed" message if not cancelled and dialog still exists
+            if not self.export_progress_dialog.cancelled and self.export_progress_dialog.isVisible():
+                logger.info("Motion video export completed successfully")
+                self.export_progress_dialog.set_status("Export completed!")
+        except Exception as e:
+            # Only show error if dialog wasn't cancelled and closed
+            if not self.export_progress_dialog.cancelled:
+                logger.error(f"Motion video export failed: {e}")
+                if self.export_progress_dialog.isVisible():
+                    self.export_progress_dialog.set_status(f"ERROR: {e}")
+                QMessageBox.critical(self, "Export Failed", f"Motion video export failed:\n{e}")
+        finally:
+            self.visualizer.locked_export_width = None
+            self.visualizer.locked_export_height = None
+            self.visualizer.set_export_mode(False)
+            self.export_button.setEnabled(True)
+            self.export_button.setChecked(False)
+    
+    def _run_motion_video_export_main_thread(self, exporter, export_start_frame, export_end_frame, output_path):
+        """Execute motion video export on main thread with frequent UI updates."""
+        total_frames = export_end_frame - export_start_frame + 1
+        
+        # Collect frames by iterating through frame range
+        frame_count = 0
+        for i in range(export_start_frame, export_end_frame + 1):
+            # Check if user clicked cancel
+            if self.export_progress_dialog.cancelled:
+                logger.info("Motion video export cancelled by user")
+                self.export_progress_dialog.set_status("Cancelled by user")
+                return
+            
+            self.visualizer.display_points(i)
+            self.visualizer.update_segment_lines(i)
+            
+            frame_count += 1
+            
+            # Update progress dialog
+            self.export_progress_dialog.set_progress(frame_count, total_frames)
+            
+            # Keep UI responsive - process events every 5 frames
+            if frame_count % 5 == 0:
+                QApplication.processEvents()
+        
+        logger.info(f"Collected {frame_count} frames for video encoding")
+        
+        # Render collected frames to video via FFmpeg
+        collected_frames = self.visualizer.get_collected_frames()
+        if not collected_frames:
+            logger.error("No frames were collected")
+            raise RuntimeError("No frames were collected for video export")
+        
+        # Update dialog status while encoding
+        self.export_progress_dialog.set_status("Encoding video (this may take a moment)...")
+        QApplication.processEvents()
+        
+        # Render to video
+        exporter._render_frames_to_video(collected_frames, output_path, self.video_framerate)
 
     def _derive_export_paths(self):
         if self.xyz_history_path:
@@ -370,74 +489,9 @@ class PlaybackTriangulationWidget(QWidget):
 
         return export_video_path, compare_video_path, recording_dir
 
-    def _export_motion_video(self) -> Optional[Path]:
-        """Render the 3D visualization to a video file and return its path."""
-        export_video_path, _, _ = self._derive_export_paths()
-        
-        # Ensure output directory exists
-        export_video_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # CRITICAL: Capture viewport dimensions at export start to ensure consistent frame sizes
-        # User might resize the window during export, which would cause frames to have different dimensions
-        # Lock the viewport to prevent this
-        viewport_width = self.visualizer.scene.width()
-        viewport_height = self.visualizer.scene.height()
-        logger.info(f"Export starting with locked viewport dimensions: {viewport_width}x{viewport_height}")
-        
-        # Store locked dimensions in visualizer to enforce consistent frame sizes
-        self.visualizer.locked_export_width = viewport_width
-        self.visualizer.locked_export_height = viewport_height
-        
-        # Use VideoExporter module to handle video rendering
-        exporter = VideoExporter(self.video_framerate)
-        
-        export_start_frame = 0
-        export_end_frame = 0 
-        
-        if self._session_start_frame is not None and self._session_end_frame is not None:
-            export_start_frame = self._session_start_frame
-            export_end_frame = self._session_end_frame
-            logger.info(f"Exporting video based on full session frame range: {export_start_frame} to {export_end_frame}.")
-            
-            if self.visualizer.motion_trial is None: 
-                self.visualizer.motion_trial = MotionTrial() 
-            
-        elif self.motion_trial and not self.motion_trial.is_empty:
-            export_start_frame = self.motion_trial.start_index
-            export_end_frame = self.motion_trial.end_index
-            logger.info(f"Exporting video based on loaded motion trial range: {export_start_frame} to {export_end_frame}.")
-            # CRITICAL: Set visualizer's motion_trial to the actual data so display_points can access it
-            self.visualizer.motion_trial = self.motion_trial
-        
-        else:
-            export_start_frame = 0
-            export_end_frame = self.video_framerate * 3 
-            logger.warning(f"No valid motion trial or session range available. Exporting {export_end_frame - export_start_frame + 1} frames of empty scene.")
-            if self.visualizer.motion_trial is None: 
-                self.visualizer.motion_trial = MotionTrial()
-        
-        # Disable export button during process
-        self.export_button.setEnabled(False)
-        
-        try:
-            exported_path = exporter.export_motion_video(
-                self.visualizer,
-                self.slider,
-                self.motion_trial,
-                export_start_frame,
-                export_end_frame,
-                export_video_path,
-            )
-            self.last_exported_video_path = exported_path
-            return exported_path
-        finally:
-            # Clear locked dimensions
-            self.visualizer.locked_export_width = None
-            self.visualizer.locked_export_height = None
-            self.export_button.setEnabled(True)
-            self.export_button.setChecked(False)
 
-    def create_quad_split_video_streaming(self, port_video_paths: list[Path], start_frame: int, end_frame: int, output_path: Path):
+
+    def create_quad_split_video_streaming(self, port_video_paths: list[Path], start_frame: int, end_frame: int, output_path: Path, progress_callback=None):
         """Create quad-split video using port videos and on-demand sim frame rendering (no memory pre-collection)."""
         if len(port_video_paths) != 3:
             raise ValueError("Please provide exactly 3 port video paths.")
@@ -503,17 +557,16 @@ class PlaybackTriangulationWidget(QWidget):
                 cap.release()
             raise IOError("FFmpeg is required for video encoding but was not found.")
 
-        reconnect_needed = False
-        try:
-            self.slider.valueChanged.disconnect(self.visualizer.display_points)
-            self.slider.valueChanged.disconnect(self.visualizer.update_segment_lines)
-            reconnect_needed = True
-        except TypeError:
-            pass
-
         frame_count = 0
+        total_frames = end_frame - start_frame + 1
         try:
             for sync_idx in range(start_frame, end_frame + 1):
+                # Check if user clicked cancel
+                if progress_callback and hasattr(self, 'compare_progress_dialog'):
+                    if self.compare_progress_dialog.cancelled:
+                        logger.info("Compare video export cancelled by user")
+                        return
+                
                 port_frames = []
                 for cap in caps:
                     ret, frame = cap.read()
@@ -526,9 +579,6 @@ class PlaybackTriangulationWidget(QWidget):
                     break
                 
                 # Render sim frame on-demand (no memory pre-collection)
-                self.slider.blockSignals(True)
-                self.slider.setValue(sync_idx)
-                self.slider.blockSignals(False)
                 self.visualizer.display_points(sync_idx)
                 self.visualizer.update_segment_lines(sync_idx)
                 
@@ -560,6 +610,10 @@ class PlaybackTriangulationWidget(QWidget):
                     break
 
                 frame_count += 1
+                
+                # Emit progress updates if callback provided
+                if progress_callback:
+                    progress_callback(frame_count, total_frames)
                 
                 # Keep UI responsive during long video processing - call on every frame for compare export
                 # (compare export runs on main thread, so processEvents is essential)
@@ -596,12 +650,8 @@ class PlaybackTriangulationWidget(QWidget):
                     pass
             raise
         finally:
-            if reconnect_needed:
-                self.slider.valueChanged.connect(self.visualizer.display_points)
-                self.slider.valueChanged.connect(self.visualizer.update_segment_lines)
-        
-        for cap in caps:
-            cap.release()
+            for cap in caps:
+                cap.release()
 
         QApplication.processEvents()
 
@@ -619,6 +669,7 @@ class PlaybackTriangulationWidget(QWidget):
         )
 
     def export_real_video_compare(self):
+        """Export compare video (real + sim quad split). Runs on main thread due to GL context requirement."""
         export_video_path, compare_video_path, recording_dir = self._derive_export_paths()
 
         if recording_dir is None or not recording_dir.exists():
@@ -648,29 +699,55 @@ class PlaybackTriangulationWidget(QWidget):
             export_end_frame = self.video_framerate * 3 
             logger.warning(f"Compare export using default 3-second range: {export_start_frame} to {export_end_frame}")
 
-        try:
-            # CRITICAL: Capture viewport dimensions at export start to ensure consistent frame sizes
-            # User might resize the window during export, which would cause frames to have different dimensions
-            viewport_width = self.visualizer.scene.width()
-            viewport_height = self.visualizer.scene.height()
-            logger.info(f"Compare export starting with locked viewport dimensions: {viewport_width}x{viewport_height}")
-            
-            # Store locked dimensions in visualizer to enforce consistent frame sizes
-            self.visualizer.locked_export_width = viewport_width
-            self.visualizer.locked_export_height = viewport_height
+        # CRITICAL: Capture viewport dimensions at export start to ensure consistent frame sizes
+        viewport_width = self.visualizer.scene.width()
+        viewport_height = self.visualizer.scene.height()
+        logger.info(f"Compare export starting with locked viewport dimensions: {viewport_width}x{viewport_height}")
+        
+        # Store locked dimensions in visualizer to enforce consistent frame sizes
+        self.visualizer.locked_export_width = viewport_width
+        self.visualizer.locked_export_height = viewport_height
 
-            logger.info("Starting compare video export (rendering on main thread with frequent UI responsiveness)...")
-            # NOTE: Must run on main thread because it needs Qt/GL context
-            # We use frequent QApplication.processEvents() to keep UI responsive
-            self.create_quad_split_video_streaming(port_videos[:3], export_start_frame, export_end_frame, compare_video_path)
-            logger.info("Compare video export completed successfully")
+        # Create progress dialog (non-modal, updates as export progresses)
+        self.compare_progress_dialog = VideoExportProgressDialog(
+            parent=self,
+            title="Exporting Compare Video",
+            allow_cancel=False  # Compare export can't be cancelled mid-GL operation
+        )
+        self.compare_progress_dialog.show()
+
+        try:
+            logger.info("Starting compare video export (main thread required for GL context)...")
+            # NOTE: Must run on main thread because create_quad_split_video_streaming needs Qt/GL context
+            # We show progress dialog and call periodically during rendering
+            self.create_quad_split_video_streaming(
+                port_videos[:3], 
+                export_start_frame, 
+                export_end_frame, 
+                compare_video_path,
+                progress_callback=self._on_compare_export_progress
+            )
+            
+            # Only show "completed" message if not cancelled and dialog still exists
+            if not self.compare_progress_dialog.cancelled and self.compare_progress_dialog.isVisible():
+                logger.info("Compare video export completed successfully")
+                self.compare_progress_dialog.set_status("Comparison export completed!")
         except Exception as exc:
-            logger.error(f"Failed to export real video compare: {exc}")
+            # Only show error if dialog wasn't cancelled and closed
+            if not self.compare_progress_dialog.cancelled:
+                logger.error(f"Failed to export real video compare: {exc}")
+                if self.compare_progress_dialog.isVisible():
+                    self.compare_progress_dialog.set_status(f"ERROR: {exc}")
+                QMessageBox.critical(self, "Export Failed", f"Compare video export failed:\n{exc}")
         finally:
             # Clear locked dimensions and re-enable button
             self.visualizer.locked_export_width = None
             self.visualizer.locked_export_height = None
             self.export_compare_button.setEnabled(True)
+    
+    def _on_compare_export_progress(self, current_frame, total_frames):
+        """Callback for compare video export progress updates."""
+        self.compare_progress_dialog.set_progress(current_frame, total_frames)
 
 
     def update_motion_trial(self, xyz_history_path):

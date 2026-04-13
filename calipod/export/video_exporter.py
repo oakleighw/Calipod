@@ -18,14 +18,14 @@ class VideoExportWorker(QObject):
     finished = Signal()
     error = Signal(str)
     result = Signal(Path)
-    progress = Signal(str)
+    progress = Signal(str)  # Text status updates
+    progress_update = Signal(int, int)  # (current_frame, total_frames) for progress bar
     
-    def __init__(self, exporter, visualizer, slider, motion_trial, 
+    def __init__(self, exporter, visualizer, motion_trial, 
                  export_start_frame, export_end_frame, output_path):
         super().__init__()
         self.exporter = exporter
         self.visualizer = visualizer
-        self.slider = slider
         self.motion_trial = motion_trial
         self.export_start_frame = export_start_frame
         self.export_end_frame = export_end_frame
@@ -34,17 +34,21 @@ class VideoExportWorker(QObject):
     def run(self):
         """Execute the export in this worker thread."""
         try:
-            self.progress.emit("Starting video export...")
+            total_frames = self.export_end_frame - self.export_start_frame + 1
+            self.progress.emit(f"Starting video export... ({total_frames} frames)")
+            self.progress_update.emit(0, total_frames)
+            
             exported_path = self.exporter.export_motion_video(
                 self.visualizer,
-                self.slider,
                 self.motion_trial,
                 self.export_start_frame,
                 self.export_end_frame,
                 self.output_path,
+                progress_callback=self._on_frame_processed
             )
             if exported_path:
                 self.progress.emit(f"Export complete: {exported_path}")
+                self.progress_update.emit(total_frames, total_frames)
                 self.result.emit(exported_path)
             else:
                 self.error.emit("Export failed - check logs for details")
@@ -53,6 +57,11 @@ class VideoExportWorker(QObject):
             self.error.emit(f"Export failed: {e}")
         finally:
             self.finished.emit()
+    
+    def _on_frame_processed(self, current_frame, total_frames):
+        """Callback for frame processing progress."""
+        self.progress_update.emit(current_frame, total_frames)
+
 
 
 class CompareVideoExportWorker(QObject):
@@ -60,7 +69,8 @@ class CompareVideoExportWorker(QObject):
     finished = Signal()
     error = Signal(str)
     result = Signal(str)  # Returns message, not path
-    progress = Signal(str)
+    progress = Signal(str)  # Text status updates
+    progress_update = Signal(int, int)  # (current_frame, total_frames) for progress bar
     
     def __init__(self, widget_method, port_video_paths, start_frame, end_frame, output_path):
         """
@@ -81,15 +91,31 @@ class CompareVideoExportWorker(QObject):
     def run(self):
         """Execute the compare video export in this worker thread."""
         try:
-            self.progress.emit("Starting compare video export (this may take a minute)...")
-            self.widget_method(self.port_video_paths, self.start_frame, self.end_frame, self.output_path)
+            total_frames = self.end_frame - self.start_frame + 1
+            self.progress.emit(f"Starting compare video export... ({total_frames} frames, this may take a minute)")
+            self.progress_update.emit(0, total_frames)
+            
+            # Pass progress callback to the widget method
+            self.widget_method(
+                self.port_video_paths, 
+                self.start_frame, 
+                self.end_frame, 
+                self.output_path,
+                progress_callback=self._on_frame_processed
+            )
             self.progress.emit("Compare video export complete!")
+            self.progress_update.emit(total_frames, total_frames)
             self.result.emit("Compare video export completed successfully")
         except Exception as e:
             logger.error(f"Compare export worker error: {e}", exc_info=True)
             self.error.emit(f"Compare export failed: {e}")
         finally:
             self.finished.emit()
+    
+    def _on_frame_processed(self, current_frame, total_frames):
+        """Callback for frame processing progress."""
+        self.progress_update.emit(current_frame, total_frames)
+
 
 
 class GenericWorker(QObject):
@@ -155,11 +181,11 @@ class VideoExporter:
     def export_motion_video(
         self, 
         visualizer,
-        slider,
         motion_trial,
         export_start_frame: int,
         export_end_frame: int,
         output_path: Path,
+        progress_callback=None,
     ) -> Optional[Path]:
         """
         Render visualization frames to MP4 video using FFmpeg.
@@ -169,11 +195,11 @@ class VideoExporter:
         
         Args:
             visualizer: TriangulationVisualizer with display_points() and update_segment_lines()
-            slider: QSlider for frame control
             motion_trial: MotionTrial data object
             export_start_frame: First frame index to export
             export_end_frame: Last frame index to export
             output_path: Path to save MP4 output
+            progress_callback: Optional callback(current_frame, total_frames) for progress updates
             
         Returns:
             Path to exported video if successful, None otherwise
@@ -199,30 +225,22 @@ class VideoExporter:
         
         logger.info("Starting video export process (collecting frames in memory)...")
         
-        # Temporarily disconnect slider signals to avoid UI updates
-        reconnect_needed = False
-        try:
-            slider.valueChanged.disconnect(visualizer.display_points)
-            slider.valueChanged.disconnect(visualizer.update_segment_lines)
-            reconnect_needed = True
-        except TypeError:
-            pass
-        
         exported_path: Optional[Path] = None
+        total_frames = export_end_frame - export_start_frame + 1
         
         try:
-            # Collect frames by stepping through slider
+            # Collect frames by iterating through frame range (slider-independent)
             frame_count = 0
             for i in range(export_start_frame, export_end_frame + 1):
-                slider.blockSignals(True)
-                slider.setValue(i)
-                slider.blockSignals(False)
-                
                 visualizer.display_points(i)
                 visualizer.update_segment_lines(i)
                 
                 QApplication.processEvents()
                 frame_count += 1
+                
+                # Emit progress updates if callback provided
+                if progress_callback:
+                    progress_callback(frame_count, total_frames)
             
             logger.info(f"Stepped through {frame_count} frame indices")
             
@@ -276,11 +294,6 @@ class VideoExporter:
             return exported_path
             
         finally:
-            # Restore slider connections
-            if reconnect_needed:
-                slider.valueChanged.connect(visualizer.display_points)
-                slider.valueChanged.connect(visualizer.update_segment_lines)
-            
             visualizer.set_export_mode(False)
     
     def _render_frames_to_video(
