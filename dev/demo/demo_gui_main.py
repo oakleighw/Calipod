@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QApplication
 import sys
 from pathlib import Path
-from caliscope.gui.main_widget import MainWindow
+from calipod.gui.main_widget import MainWindow
 import qdarktheme
 
 app = QApplication(sys.argv)

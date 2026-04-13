@@ -1,8 +1,8 @@
 from PySide6.QtWidgets import QApplication
 import sys
 from pathlib import Path
-from caliscope.controller import Controller
-from caliscope.gui.post_processing_widget import PostProcessingWidget
+from calipod.controller import Controller
+from calipod.gui.post_processing_widget import PostProcessingWidget
 
 app = QApplication(sys.argv)
 workspace_dir = Path(

@@ -3,14 +3,14 @@ from pathlib import Path
 
 import pandas as pd
 
-import caliscope.logger
-from caliscope import __root__
-from caliscope.configurator import Configurator
-from caliscope.helper import copy_contents
-from caliscope.synchronized_stream_manager import SynchronizedStreamManager
-from caliscope.trackers.charuco_tracker import CharucoTracker
+from calipod.core import logger as calipod_logger
+from calipod import __root__
+from calipod.core.configurator import Configurator
+from calipod.core.helper import copy_contents
+from calipod.synchronized_stream_manager import SynchronizedStreamManager
+from calipod.trackers.charuco_tracker import CharucoTracker
 
-logger = caliscope.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def assert_almost_equal(val1, val2, delta, msg):

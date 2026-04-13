@@ -2,6 +2,7 @@
 *.log
 *.json
 *.pyc
+**/__pycache__/
 .vscode*
 .idea*
 *.bz2
@@ -24,3 +25,10 @@ caliscope/_version.py
 caliscope.code-workspace
 site/*
 _version.py
+cali_env/*
+bin/*
+lib/*
+pyvenv.cfg
+lib64
+share/
+.lock

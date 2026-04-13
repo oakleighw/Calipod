@@ -2,12 +2,12 @@
 import json
 from pathlib import Path
 
-import caliscope.logger
-from caliscope import __root__
-from caliscope.post_processing.blender_tools import generate_metarig_config
-from caliscope.trackers.tracker_enum import TrackerEnum
+from calipod.core import logger as calipod_logger
+from calipod import __root__
+from calipod.post_processing.metarig_config import generate_metarig_config
+from calipod.trackers.tracker_enum import TrackerEnum
 
-logger = caliscope.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def test_metarig_config_generation():

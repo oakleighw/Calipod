@@ -1,11 +1,11 @@
 from PySide6.QtWidgets import QApplication
 import sys
 from pathlib import Path
-from caliscope.controller import Controller
-from caliscope.gui.vizualize.calibration.capture_volume_widget import CaptureVolumeWidget
-import caliscope.logger
+from calipod.controller import Controller
+from calipod.gui.vizualize.calibration.capture_volume_widget import CaptureVolumeWidget
+import calipod.logger
 
-logger = caliscope.logger.get(__name__)
+logger = calipod.logger.get(__name__)
 
 app = QApplication(sys.argv)
 workspace_dir = Path(r"C:\Users\Mac Prible\repos\caliscope\tests\sessions_copy_delete\larger_calibration_post_monocal")

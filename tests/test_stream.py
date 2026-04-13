@@ -4,13 +4,13 @@ from time import sleep
 
 import cv2
 
-import caliscope.logger
-from caliscope import __root__
-from caliscope.calibration.charuco import Charuco
-from caliscope.recording.recorded_stream import RecordedStream
-from caliscope.trackers.charuco_tracker import CharucoTracker
+from calipod.core import logger as calipod_logger
+from calipod import __root__
+from calipod.calibration.charuco import Charuco
+from calipod.recording.recorded_stream import RecordedStream
+from calipod.trackers.charuco_tracker import CharucoTracker
 
-logger = caliscope.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def test_stream():

@@ -1,11 +1,11 @@
 from pathlib import Path
 
-import caliscope.logger
-from caliscope import __root__
-from caliscope.motion_trial import MotionTrial
-from caliscope.packets import XYZPacket
+from calipod.core import logger as calipod_logger
+from calipod import __root__
+from calipod.motion_trial import MotionTrial
+from calipod.core.packets import XYZPacket
 
-logger = caliscope.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def test_motion_trial():

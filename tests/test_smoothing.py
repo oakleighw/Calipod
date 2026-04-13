@@ -5,16 +5,16 @@ import pandas as pd
 from PySide6.QtWidgets import QApplication
 from scipy.stats import pearsonr
 
-import caliscope.logger
-from caliscope import __root__
-from caliscope.configurator import Configurator
-from caliscope.gui.vizualize.playback_triangulation_widget import PlaybackTriangulationWidget
+from calipod.core import logger as calipod_logger
+from calipod import __root__
+from calipod.core.configurator import Configurator
+from calipod.gui.vizualize.playback_triangulation_widget import PlaybackTriangulationWidget
 
 # specify a source directory (with recordings)
-from caliscope.helper import copy_contents
-from caliscope.post_processing.smoothing import smooth_xyz
+from calipod.core.helper import copy_contents
+from calipod.post_processing.smoothing import smooth_xyz
 
-logger = caliscope.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 original_base_data_directory = Path(__root__, "tests", "reference", "base_data")
 base_data_directory = Path(original_base_data_directory.parent.parent, "reference_delete", "base_data")
 copy_contents(original_base_data_directory, base_data_directory)
