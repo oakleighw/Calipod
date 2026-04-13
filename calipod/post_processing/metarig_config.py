@@ -1,39 +1,11 @@
 import json
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-
 from calipod.core import logger as calipod_logger
 from calipod.trackers.tracker_enum import TrackerEnum
+from calipod.post_processing.distance_metrics import calculate_distance
 
 logger = calipod_logger.get(__name__)
-
-
-def calculate_distance(xyz_trajectory_data: pd.DataFrame, point1: str, point2: str):
-    """
-    Given a set of xyz trajectories from tracked and triangulated landmarks, calculate the
-    mean distance between two named points, excluding outlier points for data cleanliness
-
-    """
-    # calculate the distance
-    distances = np.sqrt(
-        (xyz_trajectory_data[point1 + "_x"] - xyz_trajectory_data[point2 + "_x"]) ** 2
-        + (xyz_trajectory_data[point1 + "_y"] - xyz_trajectory_data[point2 + "_y"]) ** 2
-        + (xyz_trajectory_data[point1 + "_z"] - xyz_trajectory_data[point2 + "_z"]) ** 2
-    )
-
-    # calculate Q1, Q3 and IQR for outlier detection
-    Q1 = distances.quantile(0.25)
-    Q3 = distances.quantile(0.75)
-    IQR = Q3 - Q1
-
-    # filter out the outliers
-    filtered_distances = distances[(distances >= Q1 - 1.5 * IQR) & (distances <= Q3 + 1.5 * IQR)]
-
-    # calculate the average length
-    average_length = filtered_distances.mean()
-    return average_length
 
 
 def generate_metarig_config(tracker_enum: TrackerEnum, xyz_csv_path: Path):
@@ -42,6 +14,7 @@ def generate_metarig_config(tracker_enum: TrackerEnum, xyz_csv_path: Path):
     """
     tracker = tracker_enum.value()
 
+    import pandas as pd
     xyz_trajectories = pd.read_csv(xyz_csv_path)
     json_path = Path(xyz_csv_path.parent, f"metarig_config_{tracker.name}.json")
 
@@ -73,5 +46,3 @@ def generate_metarig_config(tracker_enum: TrackerEnum, xyz_csv_path: Path):
     # save output to file that will be in same folder as the associated xy_csv data
     with open(json_path, "w") as f:
         json.dump(autorig_config, f, indent=4)
-
-
