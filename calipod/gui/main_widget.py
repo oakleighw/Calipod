@@ -24,7 +24,7 @@ from calipod.core.controller import Controller
 from calipod.gui.camera_management.multiplayback_widget import (
     MultiIntrinsicPlaybackWidget,
 )
-from calipod.circuit_management_widget import CircuitManagementWidget
+from calipod.gui.circuit_management_widget import CircuitManagementWidget
 from calipod.gui.annotation_widget import AnnotationWidget
 from calipod.gui.arena_sim_widget import ArenaSimWidget
 from calipod.gui.capture_widget import CameraCaptureWidget

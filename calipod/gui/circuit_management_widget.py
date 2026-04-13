@@ -21,4 +21,3 @@ class CircuitManagementWidget(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(temp_to_do_widget)
         self.setLayout(layout)
-
