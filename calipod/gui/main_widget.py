@@ -4,7 +4,6 @@ import sys
 from enum import Enum
 from pathlib import Path
 
-from calipod.gui.arena_sim_widget import ArenaSimWidget
 import rtoml
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QIcon
@@ -25,6 +24,11 @@ from calipod.controller import Controller
 from calipod.gui.camera_management.multiplayback_widget import (
     MultiIntrinsicPlaybackWidget,
 )
+from calipod.circuit_management_widget import CircuitManagementWidget
+from calipod.gui.annotation_widget import AnnotationWidget
+from calipod.gui.arena_sim_widget import ArenaSimWidget
+from calipod.gui.capture_widget import CameraCaptureWidget
+from calipod.gui.detection_widget import DetectionWidget
 from calipod.gui.bgs_processing_widget import BGSProcessingWidget
 from calipod.gui.charuco_widget import CharucoWidget
 from calipod.gui.log_widget import LogWidget
@@ -107,6 +111,14 @@ class MainWindow(QMainWindow):
         self.arena_sim_widget = ArenaSimWidget(self.controller)
         self.central_tab.addTab(self.arena_sim_widget, "Arena Sim")
 
+        logger.info("Circuit Management widget")
+        self.circuit_management_widget = CircuitManagementWidget(self.controller)
+        self.central_tab.addTab(self.circuit_management_widget, "Circuit Management")
+
+        logger.info("Building camera capture widget")
+        self.camera_capture_widget = CameraCaptureWidget(self.controller)
+        self.central_tab.addTab(self.camera_capture_widget, "Camera Capture")
+
         logger.info("Building Charuco widget")
         self.charuco_widget = CharucoWidget(self.controller)
         self.central_tab.addTab(self.charuco_widget, "Charuco")
@@ -135,6 +147,14 @@ class MainWindow(QMainWindow):
         self.central_tab.setTabEnabled(
             self.find_tab_index_by_title("Capture Volume"), self.controller.capture_volume_loaded
         )
+
+        logger.info("Building annotation widget")
+        self.annotation_widget = AnnotationWidget(self.controller)
+        self.central_tab.addTab(self.annotation_widget, "Annotation")
+
+        logger.info("Building detection widget")
+        self.detection_widget = DetectionWidget(self.controller)
+        self.central_tab.addTab(self.detection_widget, "Detection")
 
         logger.info("About to load post-processing tab")
         if self.controller.capture_volume_loaded and self.controller.recordings_available():
