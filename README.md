@@ -5,11 +5,9 @@
 
 *Multicamera Planning, Calibration & Triangulation Gui for Insect Tracking, Derived from Caliscope - Open Source Motion Capture*
 
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/calipod?color=blue)](https://pypi.org/project/calipod/)
-[![PyPI - License](https://img.shields.io/pypi/l/calipod?color=blue)](https://opensource.org/license/bsd-2-clause/)
-[![PyPI - Version](https://img.shields.io/pypi/v/calipod?color=blue)](https://pypi.org/project/calipod/)
 [![GitHub last commit](https://img.shields.io/github/last-commit/oakleighw/calipod.svg)](https://github.com/oakleighw/calipod/commits)
 [![GitHub stars](https://img.shields.io/github/stars/oakleighw/calipod.svg?style=social&label=Star)](https://github.com/oakleighw/calipod/stargazers)
+[![License: BSD 2-Clause](https://img.shields.io/badge/License-BSD%202--Clause-orange.svg)](https://opensource.org/licenses/BSD-2-Clause)
 ![pytest](https://github.com/oakleighw/calipod/actions/workflows/pytest.yml/badge.svg)
 </div>
 
