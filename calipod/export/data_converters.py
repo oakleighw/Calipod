@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pandas as pd
 
-import calipod.logger
-from calipod.packets import Tracker
+from calipod.core import logger as calipod_logger
+from calipod.core.packets import Tracker
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def xyz_to_wide_labelled(xyz: pd.DataFrame, tracker: Tracker) -> pd.DataFrame:
@@ -175,3 +175,6 @@ def xyz_to_trc(xyz: pd.DataFrame, tracker: Tracker, time_history_path: Path, tar
             tsv_writer.writerow(row_data)
     
     logger.info(f"TRC file saved to {trc_path}")
+
+
+

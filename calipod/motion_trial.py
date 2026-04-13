@@ -1,13 +1,13 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional # <--- ADD THIS IMPORT
+from typing import Optional 
 
 import numpy as np
 import pandas as pd
 
-from calipod.packets import XYZPacket
+from calipod.core.packets import XYZPacket
 from calipod.trackers.tracker_enum import TrackerEnum
-from calipod import logger
+from calipod.core import logger
 
 
 @dataclass
@@ -262,3 +262,4 @@ class MotionTrial:
 
         logger.get(__name__).debug(f"Computed performance metrics: RMSE={rmse_mm:.2f}mm, MOTP={motp_mm:.2f}mm, MOTA={mota:.4f}")
         return metrics
+

@@ -38,10 +38,10 @@ from calipod.arena_simulation.pixel_to_animal import (
 from calipod.arena_simulation.arena_designer import ArenaDesignerVisualizer
 from calipod.arena_simulation.arena_config_manager import ArenaConfigManager
 from calipod.arena_simulation.arena_matplotlib_graph import ArenaMatplotlibGraphWindow
-import calipod.logger
-from calipod.controller import Controller
+from calipod.core import logger as calipod_logger
+from calipod.core.controller import Controller
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 # Arena sim widget - this is a widget that simulates the camera arrangement to check for frustum overlap (triangulatable) and ensures the arena is within this overlap.
 class ArenaSimWidget(QWidget):
@@ -687,3 +687,5 @@ class ArenaSimWidget(QWidget):
 
         self._update_optical_centres_distances()
         
+
+

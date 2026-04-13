@@ -2,10 +2,10 @@ from pathlib import Path
 
 import rtoml
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.tracker import Segment, WireFrameView
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def get_wireframe(toml_spec_path: Path, point_names: dict) -> WireFrameView:
@@ -29,3 +29,5 @@ def get_wireframe(toml_spec_path: Path, point_names: dict) -> WireFrameView:
     wireframe = WireFrameView(segments=segments, point_names=point_names)
 
     return wireframe
+
+

@@ -24,3 +24,4 @@ class TrackerEnum(Enum):
 if __name__ == "__main__":
     tracker_factories = [enum_member.name for enum_member in TrackerEnum]
     print(tracker_factories)
+

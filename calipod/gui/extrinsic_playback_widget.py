@@ -15,12 +15,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.synchronizer import Synchronizer
-from calipod.controller import Controller
-from calipod.packets import FramePacket
+from calipod.core.controller import Controller
+from calipod.core.packets import FramePacket
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class ExtrinsicPlaybackWidget(QWidget):
@@ -268,3 +268,6 @@ def cv2_to_qimage(frame):
     )
 
     return qt_frame
+
+
+

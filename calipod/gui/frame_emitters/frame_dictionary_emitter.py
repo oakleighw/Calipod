@@ -5,12 +5,12 @@ import numpy as np
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraData
 from calipod.cameras.synchronizer import Synchronizer
 from calipod.gui.frame_emitters.tools import apply_rotation, cv2_to_qlabel, resize_to_square
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class FrameDictionaryEmitter(QThread):
@@ -82,3 +82,5 @@ class FrameDictionaryEmitter(QThread):
     def stop(self):
         self.keep_collecting = False
         self.quit()
+
+

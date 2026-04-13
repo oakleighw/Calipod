@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
-from calipod.configurator import Configurator
-from calipod.helper import copy_contents
+from calipod.core.configurator import Configurator
+from calipod.core.helper import copy_contents
 from calipod.synchronized_stream_manager import SynchronizedStreamManager
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def test_synchronizer():

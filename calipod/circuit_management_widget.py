@@ -2,10 +2,10 @@
 
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
-import calipod.logger
-from calipod.controller import Controller
+from calipod.core import logger as calipod_logger
+from calipod.core.controller import Controller
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 
@@ -21,3 +21,4 @@ class CircuitManagementWidget(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(temp_to_do_widget)
         self.setLayout(layout)
+

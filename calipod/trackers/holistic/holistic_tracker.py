@@ -6,15 +6,15 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
 # cap = cv2.VideoCapture(0)
-from calipod.packets import PointPacket
+from calipod.core.packets import PointPacket
 from calipod.tracker import Tracker
 from calipod.trackers.helper import apply_rotation, unrotate_points
 from calipod.trackers.wireframe_builder import get_wireframe
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 DRAW_IGNORE_LIST = [
     "nose",
@@ -247,3 +247,6 @@ class HolisticTracker(Tracker):
 
     def get_connected_points(self) -> set[tuple[int, int]]:
         return super().get_connected_points()
+
+
+

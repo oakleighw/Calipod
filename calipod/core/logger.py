@@ -105,3 +105,4 @@ def get(name):  # as in __name__
     # logger.addHandler(qt_handler)
 
     return logger
+

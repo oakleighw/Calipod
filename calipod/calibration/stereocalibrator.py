@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 import rtoml
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class StereoCalibrator:
@@ -346,3 +346,5 @@ class StereoCalibrator:
             obj_locs.append(board_x_y_z[same_frame])
 
         return img_locs, obj_locs
+
+

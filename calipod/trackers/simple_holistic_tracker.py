@@ -5,12 +5,12 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-import calipod.logger
-from calipod.packets import PointPacket
+from calipod.core import logger as calipod_logger
+from calipod.core.packets import PointPacket
 from calipod.tracker import Tracker
 from calipod.trackers.helper import apply_rotation, unrotate_points
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 MIN_DETECTION_CONFIDENCE = 0.5
 MIN_TRACKING_CONFIDENCE = 0.95
@@ -323,3 +323,6 @@ class SimpleHolisticTracker(Tracker):
             rules = {"radius": 3, "color": (0, 220, 220), "thickness": 3}
 
         return rules
+
+
+

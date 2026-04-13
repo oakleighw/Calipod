@@ -11,11 +11,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.gui.frame_emitters.frame_dictionary_emitter import FrameDictionaryEmitter
 from calipod.synchronized_stream_manager import SynchronizedStreamManager
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class SynchedFramesDisplay(QWidget):
@@ -122,3 +122,5 @@ class SynchedFramesDisplay(QWidget):
             self.frame_dictionary_emitter.wait(1000)
         logger.info("SynchedFramesDisplay cleanup complete")
         event.accept()
+
+

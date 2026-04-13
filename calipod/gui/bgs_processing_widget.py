@@ -22,11 +22,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtCore import Qt, QTimer
 
-import calipod.logger
-from calipod.controller import Controller
+from calipod.core import logger as calipod_logger
+from calipod.core.controller import Controller
 from calipod.background_subtraction import BGSProcessor
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 # Region class mapping for YOLO labels (from fly_tracker)
 # Labels 9 (fruit) and 10 (leaves) are used for 3D object visualization
@@ -813,3 +813,6 @@ class BGSProcessingWidget(QWidget):
             
             # Expand recording items by default
             self.recording_tree.expandItem(recording_item)
+
+
+

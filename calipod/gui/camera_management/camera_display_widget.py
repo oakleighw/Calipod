@@ -3,10 +3,10 @@ from collections import OrderedDict
 
 from PySide6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
-import calipod.logger
-from calipod.controller import Controller
+from calipod.core import logger as calipod_logger
+from calipod.core.controller import Controller
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class CameraDataDisplayWidget(QWidget):
@@ -124,3 +124,6 @@ if __name__ == "__main__":
     controller.new_camera_data.emit(0, camera_data)
     ex.show()
     sys.exit(app.exec())
+
+
+

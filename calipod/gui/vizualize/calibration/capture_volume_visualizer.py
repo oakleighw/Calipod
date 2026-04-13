@@ -1,12 +1,12 @@
 import numpy as np
 import pyqtgraph.opengl as gl
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.cameras.camera_array import CameraArray
 from calipod.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class CaptureVolumeVisualizer:
@@ -92,3 +92,5 @@ class CaptureVolumeVisualizer:
 
 
 # %%
+
+

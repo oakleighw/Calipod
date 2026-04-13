@@ -36,3 +36,4 @@ def unrotate_points(xy: np.ndarray, rotation_count: int, frame_width: int, frame
         xy_unrotated[:, 0], xy_unrotated[:, 1] = frame_height - xy[:, 1], xy[:, 0]
 
     return xy_unrotated
+

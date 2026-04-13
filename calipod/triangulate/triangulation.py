@@ -6,10 +6,10 @@ import pandas as pd
 from numba import jit
 from numba.typed import Dict, List
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraArray, CameraData
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 # helper function to avoid use of np.unique(return_counts=True) which doesn't work with jit
@@ -256,7 +256,7 @@ def triangulate_from_files(
     """
 
     # Import inside function to avoid circular dependency
-    from calipod.configurator import Configurator
+    from calipod.core.configurator import Configurator
 
     logger.info(f"Loading configuration from {config_path}")
     config = Configurator(config_path.parent)
@@ -276,3 +276,6 @@ def triangulate_from_files(
 
     logger.info("Triangulation complete")
     return xyz_data
+
+
+

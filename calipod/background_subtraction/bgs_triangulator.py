@@ -16,10 +16,10 @@ import numpy as np
 from pathlib import Path
 from typing import Tuple, Optional
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.triangulate.triangulation import triangulate_from_files
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class BGSTriangulator:
@@ -210,4 +210,6 @@ class BGSTriangulator:
         logger.info(f"Saved BGS triangulated predictions to {output_path}")
         
         return output_path
+
+
 

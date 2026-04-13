@@ -10,14 +10,14 @@ import cv2
 import numpy as np
 import rtoml
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.charuco import Charuco
 from calipod.cameras.camera import Camera
 from calipod.cameras.camera_array import CameraArray, CameraData
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class ConfigSettings(Enum):
@@ -341,3 +341,5 @@ if __name__ == "__main__":
     config = Configurator(session_path)
 
 # %%
+
+

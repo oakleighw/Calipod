@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def gap_fill_xy(xy_base: pd.DataFrame, max_gap_size=3) -> pd.DataFrame:
@@ -126,3 +126,5 @@ def gap_fill_xyz(xyz_base: pd.DataFrame, max_gap_size=3) -> pd.DataFrame:
         xyz_filled = pd.concat([xyz_filled, merged])
 
     return xyz_filled
+
+

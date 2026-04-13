@@ -12,11 +12,11 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraArray
 from calipod.motion_trial import MotionTrial
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class Interactive3DGraphWindow(QWidget):
@@ -302,3 +302,5 @@ class Interactive3DGraphWindow(QWidget):
                 logger.info(f"Graph exported to: {file_path}")
             except Exception as e:
                 logger.error(f"Failed to export graph: {e}")
+
+

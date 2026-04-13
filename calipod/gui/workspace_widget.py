@@ -5,12 +5,12 @@ import sys
 from PySide6.QtCore import QFileSystemWatcher, Qt
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QSpinBox, QTextBrowser, QWidget
 
-import calipod.logger
-from calipod.controller import Controller
+from calipod.core import logger as calipod_logger
+from calipod.core.controller import Controller
 from calipod.gui.synched_frames_display import SynchedFramesDisplay
 from calipod.gui.utils.spinbox_utils import setup_spinbox_sizing
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class WorkspaceSummaryWidget(QWidget):
@@ -84,3 +84,6 @@ class WorkspaceSummaryWidget(QWidget):
 
     def update_status(self):
         self.status_HTML.setHtml(self.controller.workspace_guide.get_html_summary())
+
+
+

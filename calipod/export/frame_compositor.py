@@ -7,9 +7,9 @@ import numpy as np
 import cv2
 from PySide6.QtWidgets import QApplication
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class FrameCompositor:
@@ -333,3 +333,5 @@ class FrameCompositor:
         except FileNotFoundError:
             logger.error("FFmpeg not found. Install FFmpeg or add it to PATH.")
             raise IOError("FFmpeg is required for video encoding but was not found.")
+
+

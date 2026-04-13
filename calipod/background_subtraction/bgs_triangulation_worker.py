@@ -5,10 +5,10 @@ BGS Triangulation Worker - triangulates BGS detections to 3D in background threa
 from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.background_subtraction.bgs_triangulator import BGSTriangulator
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class BGSTriangulationWorker(QThread):
@@ -76,3 +76,5 @@ class BGSTriangulationWorker(QThread):
             self.progress_updated.emit(f"[ERROR] {error_msg}")
             logger.error(error_msg)
             self.triangulation_error.emit(error_msg)
+
+

@@ -7,10 +7,10 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.gui.vizualize.metrics_computer import MetricsComputer
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class FilterMetadataManager:
@@ -205,3 +205,5 @@ class FilterMetadataManager:
         except Exception as e:
             logger.warning(f"Failed to load filter metadata from {metadata_path}: {e}")
             return {}
+
+

@@ -1,9 +1,9 @@
 from pathlib import Path
 
-import calipod.logger
-from calipod.configurator import Configurator
+from calipod.core import logger as calipod_logger
+from calipod.core.configurator import Configurator
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class WorkspaceGuide:
@@ -134,3 +134,4 @@ if __name__ == "__main__":
     workflow_guide = WorkspaceGuide(workspace_dir, camera_count)
 
     logger.info(workflow_guide.get_html_summary())
+

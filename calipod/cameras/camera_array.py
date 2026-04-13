@@ -8,9 +8,9 @@ import numpy as np
 from numba.typed import Dict
 import colorsys
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 CAMERA_PARAM_COUNT = 6
 
 
@@ -318,3 +318,5 @@ class CameraArray:
             proj_mat[port] = cam.projection_matrix
 
         return proj_mat
+
+

@@ -94,3 +94,4 @@ def create_labeled_spinbox_row(parent_layout, label_text, min_value, max_value, 
     h_box.addStretch()
     parent_layout.addLayout(h_box)
     return spinbox
+

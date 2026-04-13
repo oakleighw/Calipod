@@ -9,7 +9,7 @@ import colorsys
 import numpy as np
 import rtoml
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.calibration.capture_volume.helper_functions.get_point_estimates import (
@@ -18,7 +18,7 @@ from calipod.calibration.capture_volume.helper_functions.get_point_estimates imp
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.cameras.camera_array import CameraArray, CameraData
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 @dataclass
@@ -322,3 +322,5 @@ if __name__ == "__main__":
 
 
 # %%
+
+

@@ -6,11 +6,11 @@ import cv2
 import numpy as np
 
 import calipod.calibration.draw_charuco
-import calipod.logger
-from calipod.packets import PointPacket
+from calipod.core import logger as calipod_logger
+from calipod.core.packets import PointPacket
 from calipod.tracker import Tracker
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class CharucoTracker(Tracker):
@@ -111,3 +111,6 @@ class CharucoTracker(Tracker):
     def scatter_draw_instructions(self, point_id: int) -> dict:
         rules = {"radius": 5, "color": (0, 0, 220), "thickness": 3}
         return rules
+
+
+

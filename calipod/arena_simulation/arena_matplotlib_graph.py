@@ -18,14 +18,14 @@ from PySide6.QtWidgets import (
 from scipy.spatial import ConvexHull, QhullError
 from scipy.optimize import linprog
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.arena_simulation.arena_overlap import (
     get_camera_world_frustum_geometry,
     halfspaces_from_convex_mesh,
     intersection_vertices_from_halfspaces,
 )
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class ArenaMatplotlibGraphWindow(QWidget):
@@ -613,3 +613,5 @@ class ArenaMatplotlibGraphWindow(QWidget):
             logger.info(f"Saved arena graph image to {file_path}")
         except Exception as e:
             logger.error(f"Failed to save arena graph image: {e}")
+
+

@@ -5,9 +5,9 @@ from itertools import combinations
 
 import cv2
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def grid_history(frame, ids, img_locs, connected_corners):
@@ -31,3 +31,5 @@ def grid_history(frame, ids, img_locs, connected_corners):
         cv2.line(frame, point_1, point_2, (255, 165, 0), 3)
 
     return frame
+
+

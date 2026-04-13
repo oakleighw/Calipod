@@ -4,10 +4,10 @@ import numpy as np
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraData
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def build_mesh_item_from_geometry(
@@ -393,3 +393,5 @@ if __name__ == "__main__":
                         scene.addItem(cams[other_port].origin_point)
 
     pg.exec()
+
+

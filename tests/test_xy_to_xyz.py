@@ -3,15 +3,15 @@ from pathlib import Path
 
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
-from calipod.helper import copy_contents
+from calipod.core.helper import copy_contents
 from calipod.trackers.tracker_enum import TrackerEnum
 
 # from calipod.post_processing.post_processor import PostProcessor
 from calipod.triangulate.triangulation import triangulate_from_files
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def test_xy_to_xyz_postprocessing():

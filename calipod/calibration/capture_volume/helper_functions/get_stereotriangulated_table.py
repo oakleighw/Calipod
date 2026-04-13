@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraArray
-from calipod.packets import FramePacket, PointPacket, SyncPacket
+from calipod.core.packets import FramePacket, PointPacket, SyncPacket
 from calipod.triangulate.array_stereo_triangulator import ArrayStereoTriangulator
 from calipod.triangulate.stereo_points_builder import (
     StereoPointsBuilder,
@@ -17,7 +17,7 @@ from calipod.triangulate.stereo_points_builder import (
     SynchedStereoPointsPacket,
 )
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def get_stereotriangulated_table_original(camera_array: CameraArray, point_data_path: Path) -> pd.DataFrame:
@@ -248,3 +248,5 @@ def get_stereotriangulated_table(camera_array: CameraArray, point_data_path: Pat
     stereotriangulated_table.to_csv(Path(point_data_path.parent, "stereotriangulated_points.csv"))
 
     return stereotriangulated_table
+
+

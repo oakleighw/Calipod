@@ -5,13 +5,13 @@ from threading import Event, Thread
 import numpy as np
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraArray
 from calipod.cameras.synchronizer import Synchronizer, SyncPacket
-from calipod.packets import XYZPacket
+from calipod.core.packets import XYZPacket
 from calipod.triangulate.triangulation import triangulate_sync_index
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class SyncPacketTriangulator:
@@ -137,3 +137,6 @@ class SyncPacketTriangulator:
             else:
                 filename = f"xyz_{self.tracker_name}.csv"
                 df_xyz.to_csv(Path(self.recording_directory, filename))
+
+
+

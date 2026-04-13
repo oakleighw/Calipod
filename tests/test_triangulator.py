@@ -15,18 +15,18 @@ from time import sleep
 import numpy as np
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.charuco import Charuco
 from calipod.cameras.camera_array import CameraArray
 from calipod.cameras.synchronizer import Synchronizer
-from calipod.configurator import Configurator
-from calipod.helper import copy_contents
+from calipod.core.configurator import Configurator
+from calipod.core.helper import copy_contents
 from calipod.recording.recorded_stream import RecordedStream
 from calipod.trackers.charuco_tracker import CharucoTracker
 from calipod.triangulate.sync_packet_triangulator import SyncPacketTriangulator
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def test_triangulator():

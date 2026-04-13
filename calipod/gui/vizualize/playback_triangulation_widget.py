@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QImage, QColorConstants, QColor, QVector3D
 
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraArray
 from calipod.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
 from calipod.gui.vizualize.interactive_3d_graph_window import Interactive3DGraphWindow
@@ -43,7 +43,7 @@ import subprocess
 from typing import Optional
 
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class PlaybackTriangulationWidget(QWidget):
@@ -1963,3 +1963,5 @@ class TriangulationVisualizer:
             self.scatter.setData(color=self.default_scatter_color)
             self._clear_measurement_grid_items()
             self.clear_grid_labels()
+
+

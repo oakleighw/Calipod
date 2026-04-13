@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (
 import numpy as np
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class MetricsComputer:
@@ -336,3 +336,5 @@ class MetricsComputer:
         
         dialog.setLayout(layout)
         dialog.exec()
+
+

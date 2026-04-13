@@ -1,9 +1,9 @@
 import cv2
 from PySide6.QtGui import QImage
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def resize_to_square(frame):
@@ -54,3 +54,5 @@ def cv2_to_qlabel(frame):
         QImage.Format.Format_RGB888,
     )
     return qt_frame
+
+

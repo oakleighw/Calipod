@@ -4,12 +4,12 @@ from threading import Event, Thread
 
 import cv2
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraData
-from calipod.packets import FramePacket
+from calipod.core.packets import FramePacket
 from calipod.recording.recorded_stream import RecordedStream
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class IntrinsicCalibrator:
@@ -241,3 +241,5 @@ class IntrinsicCalibrator:
         self.camera.matrix = self.mtx
         self.camera.distortions = self.dist
         self.camera.grid_count = self.grid_count
+
+

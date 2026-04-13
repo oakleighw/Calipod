@@ -4,10 +4,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.trackers.tracker_enum import TrackerEnum
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def calculate_distance(xyz_trajectory_data: pd.DataFrame, point1: str, point2: str):
@@ -73,3 +73,5 @@ def generate_metarig_config(tracker_enum: TrackerEnum, xyz_csv_path: Path):
     # save output to file that will be in same folder as the associated xy_csv data
     with open(json_path, "w") as f:
         json.dump(autorig_config, f, indent=4)
+
+

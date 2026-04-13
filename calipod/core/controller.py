@@ -5,7 +5,7 @@ from time import sleep, time
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.calibration.capture_volume.helper_functions.get_point_estimates import (
     get_point_estimates,
@@ -16,7 +16,7 @@ from calipod.calibration.charuco import Charuco
 from calipod.calibration.stereocalibrator import StereoCalibrator
 from calipod.cameras.camera_array import CameraArray, CameraData
 from calipod.cameras.camera_array_initializer import CameraArrayInitializer
-from calipod.configurator import Configurator
+from calipod.core.configurator import Configurator
 from calipod.intrinsic_stream_manager import IntrinsicStreamManager
 from calipod.post_processing.post_processor import PostProcessor
 from calipod.synchronized_stream_manager import (
@@ -27,7 +27,7 @@ from calipod.trackers.charuco_tracker import CharucoTracker
 from calipod.trackers.tracker_enum import TrackerEnum
 from calipod.workspace_guide import WorkspaceGuide
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 FILTERED_FRACTION = (
@@ -464,3 +464,5 @@ class Controller(QObject):
         self.autocalibrate_threads[port] = QThread()
         self.autocalibrate_threads[port].run = worker
         self.autocalibrate_threads[port].start()
+
+

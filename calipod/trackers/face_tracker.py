@@ -5,14 +5,14 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
 # cap = cv2.VideoCapture(0)
-from calipod.packets import PointPacket
+from calipod.core.packets import PointPacket
 from calipod.tracker import Tracker
 from calipod.trackers.helper import apply_rotation, unrotate_points
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class FaceTracker(Tracker):
@@ -212,3 +212,6 @@ POINT_ID2NAME = [None for _ in range(478)]
 for i_n, name in enumerate(NAMES):
     for id in NAME2KEYPOINTS[name]:
         POINT_ID2NAME[id] = name
+
+
+

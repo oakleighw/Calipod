@@ -3,13 +3,13 @@ from pathlib import Path
 
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
-from calipod.helper import copy_contents
+from calipod.core.helper import copy_contents
 from calipod.post_processing.gap_filling import gap_fill_xy, gap_fill_xyz
 from calipod.trackers.tracker_enum import TrackerEnum
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 original_recording_directory = Path(__root__, "tests", "reference", "base_data")
 tracker_enum = TrackerEnum.SIMPLE_HOLISTIC

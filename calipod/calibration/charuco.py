@@ -20,10 +20,10 @@ from reportlab.lib.units import cm, inch
 import tempfile
 import os
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 INCHES_PER_CM = 0.393701
 
@@ -347,3 +347,5 @@ if __name__ == "__main__":
     #         break
 
 # %%
+
+

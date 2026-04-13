@@ -8,10 +8,10 @@ import cv2
 import numpy as np
 import pandas as pd
 
-import calipod.logger
-from calipod.packets import FramePacket, Tracker
+from calipod.core import logger as calipod_logger
+from calipod.core.packets import FramePacket, Tracker
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 logger.setLevel(logging.INFO)
 
 
@@ -280,3 +280,6 @@ class RecordedStream:
                 self.frame_index = self._jump_q.get()
                 logger.info(f"Setting port {self.port} capture object to frame index {self.frame_index}")
                 self.capture.set(cv2.CAP_PROP_POS_FRAMES, self.frame_index)
+
+
+

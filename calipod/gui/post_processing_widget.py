@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
     QCheckBox,
 )
 
-import calipod.logger
-from calipod.configurator import Configurator
-from calipod.controller import Controller
+from calipod.core import logger as calipod_logger
+from calipod.core.configurator import Configurator
+from calipod.core.controller import Controller
 from calipod.gui.vizualize.playback_triangulation_widget import (
     PlaybackTriangulationWidget,
     TriangulationVisualizer
@@ -25,7 +25,7 @@ from calipod.gui.vizualize.playback_triangulation_widget import (
 from calipod.post_processing.blender_tools import generate_metarig_config
 from calipod.trackers.tracker_enum import TrackerEnum
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class PostProcessingWidget(QWidget):
@@ -377,3 +377,6 @@ class PostProcessingWidget(QWidget):
         xyz_csv_path = Path(self.processed_subfolder, f"xyz_{tracker_enum.name}_labelled.csv")
         generate_metarig_config(tracker_enum, xyz_csv_path)
         self.update_enabled_disabled()
+
+
+

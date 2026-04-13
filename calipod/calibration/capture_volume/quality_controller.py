@@ -6,12 +6,12 @@ import numpy as np
 import pandas as pd
 import rtoml
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume, xy_reprojection_error
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.charuco import Charuco
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class QualityController:
@@ -363,3 +363,5 @@ if __name__ == "__main__":
         logger.info("Filtering out worst fitting point estimates")
         quality_controller.filter_point_estimates(0.95)
         quality_controller.capture_volume.optimize()
+
+

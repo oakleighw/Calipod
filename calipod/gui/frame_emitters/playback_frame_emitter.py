@@ -7,11 +7,11 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap
 
 import calipod.calibration.draw_charuco as draw_charuco
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.gui.frame_emitters.tools import apply_rotation, cv2_to_qlabel, resize_to_square
 from calipod.recording.recorded_stream import RecordedStream
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class PlaybackFrameEmitter(QThread):
@@ -190,3 +190,5 @@ class PlaybackFrameEmitter(QThread):
             )
         else:
             logger.info("Not enough points....grid not added...")
+
+

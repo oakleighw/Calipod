@@ -7,10 +7,10 @@ import json
 import numpy as np
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.gui.vizualize.metrics_computer import MetricsComputer
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class FilterParameterManager:
@@ -316,3 +316,5 @@ class FilterParameterManager:
             logger.info(f"Loaded filter metadata from {metadata_path}")
         except Exception as e:
             logger.warning(f"Failed to load filter metadata from {metadata_path}: {e}; using software defaults")
+
+

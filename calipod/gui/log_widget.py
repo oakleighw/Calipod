@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from calipod.logger import XStream, get
+from calipod.core.logger import XStream, get
 
 logger = get(__name__)
 
@@ -72,3 +72,5 @@ if __name__ == "__main__":
     dlg.show()
 
     app.exec()
+
+

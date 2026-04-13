@@ -2,12 +2,12 @@
 from pathlib import Path
 from time import sleep
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
-from calipod.controller import Controller, read_video_properties
-from calipod.helper import copy_contents
+from calipod.core.controller import Controller, read_video_properties
+from calipod.core.helper import copy_contents
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def test_extrinsic_calibration():

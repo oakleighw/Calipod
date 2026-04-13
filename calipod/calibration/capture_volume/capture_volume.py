@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from scipy.optimize import least_squares
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.capture_volume.set_origin_functions import (
     get_board_origin_transform,
@@ -18,7 +18,7 @@ from calipod.cameras.camera_array import CameraArray
 
 from PySide6.QtGui import QFont, QFontDatabase
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 CAMERA_PARAM_COUNT = 6
 
@@ -329,3 +329,5 @@ def rms_reproj_error(xy_reproj_error, camera_indices):
 #     # capture_volume.origin_sync_index = config["capture_volume"]["origin_sync_index"]
 
 #     return capture_volume
+
+

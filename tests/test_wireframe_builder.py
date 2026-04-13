@@ -1,12 +1,12 @@
 from pathlib import Path
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.tracker import Segment, WireFrameView
 from calipod.trackers.holistic.holistic_tracker import POINT_NAMES, HolisticTracker
 from calipod.trackers.wireframe_builder import get_wireframe
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def test_wireframe_builder():
@@ -14,7 +14,7 @@ def test_wireframe_builder():
     Simple test to aid with development of integrating the wireframe
     """
 
-    test_path = Path(__root__, "caliscope", "trackers", "holistic", "holistic_wireframe.toml")
+    test_path = Path(__root__, "calipod", "trackers", "holistic", "holistic_wireframe.toml")
     logger.info(f"Testing wireframe build of {test_path}")
     wireframe = get_wireframe(test_path, point_names=POINT_NAMES)
 

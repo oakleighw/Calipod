@@ -1,9 +1,9 @@
 import sys
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.gui.main_widget import launch_main
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def CLI_parser():
@@ -19,3 +19,5 @@ def CLI_parser():
         if launch_widget in ["record", "rec", "-r"]:
             pass
             # launch_recording_widget(session_path)
+
+

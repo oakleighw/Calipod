@@ -343,3 +343,4 @@ class ArenaDesignerVisualizer:
 	def reset_scene(self):
 		"""Reset to the default empty scene baseline and rebuild camera cubes."""
 		self.refresh_scene()
+

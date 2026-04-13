@@ -18,14 +18,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
-from calipod.controller import Controller
+from calipod.core.controller import Controller
 from calipod.gui.camera_management.camera_display_widget import (
     CameraDataDisplayWidget,
 )
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def svg_to_pixmap(svg_path: Path, size):
@@ -338,3 +338,6 @@ if __name__ == "__main__":
     logger.info("About to show window")
     window.show()
     sys.exit(app.exec())
+
+
+

@@ -11,9 +11,9 @@ from pathlib import Path
 from tqdm import tqdm
 from PySide6.QtCore import QThread, Signal
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class BGSProcessor(QThread):
@@ -522,3 +522,5 @@ def process_bgs_silent(video_path: str, output_dir: str, alpha: float, n_sigma: 
     
     logger.info(f"Processing complete: {output_path}")
     return output_path
+
+

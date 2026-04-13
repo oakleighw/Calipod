@@ -6,7 +6,7 @@ import pandas as pd
 import cv2
 import numpy as np
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraArray
 from calipod.export import xyz_to_trc, xyz_to_wide_labelled
 from calipod.post_processing.gap_filling import gap_fill_xy, gap_fill_xyz
@@ -15,7 +15,7 @@ from calipod.synchronized_stream_manager import SynchronizedStreamManager
 from calipod.trackers.tracker_enum import TrackerEnum
 from calipod.triangulate.triangulation import triangulate_xy
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 # gap filling and filtering is outside the current scope of the project so I'm toggling this off for now
 APPLY_EXPERIMENTAL_POST_PROCESSING = False
@@ -371,7 +371,7 @@ class PostProcessor:
 
 
 if __name__ == "__main__":
-    from calipod.controller import Controller
+    from calipod.core.controller import Controller
 
     workspace_dir = Path(r"C:\Users\Mac Prible\OneDrive - The University of Texas at Austin\research\caliscope\demo")
     controller = Controller(workspace_dir)
@@ -387,3 +387,6 @@ if __name__ == "__main__":
     )
 
     post_processor.create_xyz()
+
+
+

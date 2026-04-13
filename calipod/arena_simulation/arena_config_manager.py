@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class ArenaConfigManager:
@@ -60,3 +60,5 @@ class ArenaConfigManager:
             logger.info(f"Saved arena metadata to {self.metadata_path}")
         except Exception as e:
             logger.warning(f"Failed to save arena config to {self.config_path}: {e}")
+
+

@@ -8,13 +8,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import calipod.logger
-from calipod.controller import Controller
+from calipod.core import logger as calipod_logger
+from calipod.core.controller import Controller
 from calipod.gui.camera_management.playback_widget import (
     IntrinsicCalibrationWidget,
 )
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class MultiIntrinsicPlaybackWidget(QWidget):
@@ -52,3 +52,6 @@ if __name__ == "__main__":
     mainWin = MultiIntrinsicPlaybackWidget(controller)
     mainWin.show()
     sys.exit(app.exec())
+
+
+

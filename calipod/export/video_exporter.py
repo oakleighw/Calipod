@@ -8,9 +8,9 @@ import numpy as np
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QThread, Signal, QObject
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class VideoExportWorker(QObject):
@@ -481,3 +481,5 @@ class VideoExporter:
             except:
                 pass
             return None
+
+

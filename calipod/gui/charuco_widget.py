@@ -18,12 +18,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.calibration.charuco import Charuco
-from calipod.controller import Controller
+from calipod.core.controller import Controller
 from calipod.gui.utils.spinbox_utils import setup_spinbox_sizing
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class CharucoWidget(QWidget):
@@ -325,7 +325,7 @@ class CharucoConfigGroup(QWidget):
 if __name__ == "__main__":
     from calipod import __root__
     from calipod.calibration.charuco import Charuco
-    from calipod.helper import copy_contents
+    from calipod.core.helper import copy_contents
     app = QApplication(sys.argv)
 
     # Define the input file path here.
@@ -342,3 +342,6 @@ if __name__ == "__main__":
     logger.info("About to show window")
     window.show()
     sys.exit(app.exec())
+
+
+

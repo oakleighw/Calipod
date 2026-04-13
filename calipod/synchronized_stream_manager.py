@@ -3,14 +3,14 @@ from pathlib import Path
 
 import cv2
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraData
 from calipod.cameras.synchronizer import Synchronizer
-from calipod.packets import Tracker
+from calipod.core.packets import Tracker
 from calipod.recording.recorded_stream import RecordedStream
 from calipod.recording.video_recorder import VideoRecorder
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class SynchronizedStreamManager:
@@ -143,3 +143,4 @@ def read_video_properties(source_path: Path) -> dict:
     video.release()
 
     return properties
+

@@ -12,13 +12,13 @@ from PySide6.QtWidgets import (
     QSizePolicy
 )
 
-import calipod.logger
-from calipod.controller import Controller
+from calipod.core import logger as calipod_logger
+from calipod.core.controller import Controller
 from calipod.gui.vizualize.calibration.capture_volume_visualizer import (
     CaptureVolumeVisualizer,
 )
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class CaptureVolumeWidget(QWidget):
@@ -131,3 +131,6 @@ class CaptureVolumeWidget(QWidget):
         logger.info(f"Updating board to sync index {sync_index}")
 
         self.visualizer.display_points(sync_index)
+
+
+

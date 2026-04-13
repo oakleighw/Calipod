@@ -5,7 +5,7 @@ import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.opengl import GLLinePlotItem
 
-from calipod.packets import PointPacket, XYZPacket
+from calipod.core.packets import PointPacket, XYZPacket
 
 
 class Tracker(ABC):
@@ -136,3 +136,5 @@ class WireFrameView:
             A_id = self.point_ids[segment.point_A]
             B_id = self.point_ids[segment.point_B]
             self.line_plots[segment.name].setData(pos=xyz_packet.get_segment_ends(A_id, B_id))
+
+

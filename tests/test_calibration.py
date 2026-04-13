@@ -1,7 +1,7 @@
 from pathlib import Path
 from time import sleep
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.calibration.capture_volume.helper_functions.get_point_estimates import (
@@ -12,13 +12,13 @@ from calipod.calibration.capture_volume.quality_controller import QualityControl
 from calipod.calibration.stereocalibrator import StereoCalibrator
 from calipod.cameras.camera_array import CameraArray
 from calipod.cameras.camera_array_initializer import CameraArrayInitializer
-from calipod.configurator import Configurator
-from calipod.controller import FILTERED_FRACTION
-from calipod.helper import copy_contents
+from calipod.core.configurator import Configurator
+from calipod.core.controller import FILTERED_FRACTION
+from calipod.core.helper import copy_contents
 from calipod.synchronized_stream_manager import SynchronizedStreamManager
 from calipod.trackers.charuco_tracker import CharucoTracker
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def test_xy_charuco_creation():

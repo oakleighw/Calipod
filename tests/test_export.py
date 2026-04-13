@@ -6,7 +6,7 @@ import pandas as pd
 
 from calipod import __root__
 from calipod.export import xyz_to_trc, xyz_to_wide_labelled
-from calipod.helper import copy_contents
+from calipod.core.helper import copy_contents
 from calipod.trackers.holistic.holistic_tracker import HolisticTracker
 
 original_data_path = Path(__root__, "tests", "sessions",

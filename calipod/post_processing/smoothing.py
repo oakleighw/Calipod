@@ -1,9 +1,9 @@
 import pandas as pd
 from scipy.signal import butter, filtfilt
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 # Define Butterworth filter functions
@@ -70,3 +70,5 @@ def smooth_xyz(xyz: pd.DataFrame, order, fps, cutoff) -> pd.DataFrame:
     coord_names = ["x_coord", "y_coord", "z_coord"]
 
     return _smooth(xyz, order, fps, cutoff, coord_names, index_name)
+
+

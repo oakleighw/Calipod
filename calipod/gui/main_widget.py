@@ -17,10 +17,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __log_dir__, __root__, __settings_path__
 from calipod.cameras.camera_array import CameraArray
-from calipod.controller import Controller
+from calipod.core.controller import Controller
 from calipod.gui.camera_management.multiplayback_widget import (
     MultiIntrinsicPlaybackWidget,
 )
@@ -37,7 +37,7 @@ from calipod.gui.vizualize.calibration.capture_volume_visualizer import CaptureV
 from calipod.gui.vizualize.calibration.capture_volume_widget import CaptureVolumeWidget
 from calipod.gui.workspace_widget import WorkspaceSummaryWidget
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class TabTypes(Enum):
@@ -352,3 +352,5 @@ def launch_main():
 if __name__ == "__main__":
     launch_main()
     # pass
+
+

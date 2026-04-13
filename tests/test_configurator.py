@@ -5,15 +5,15 @@ from pathlib import Path
 
 import numpy as np
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.charuco import Charuco
 from calipod.cameras.camera_array import CameraArray, CameraData
-from calipod.configurator import Configurator
-from calipod.helper import copy_contents
+from calipod.core.configurator import Configurator
+from calipod.core.helper import copy_contents
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 def point_estimates_are_equal(pe1: PointEstimates, pe2: PointEstimates) -> bool:

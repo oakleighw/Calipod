@@ -5,10 +5,10 @@ from threading import Event, Thread
 
 import numpy as np
 
-import calipod.logger
-from calipod.packets import SyncPacket
+from calipod.core import logger as calipod_logger
+from calipod.core.packets import SyncPacket
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 DROPPED_FRAME_TRACK_WINDOW = 100  # trailing frames tracked for reporting purposes
 
@@ -274,3 +274,5 @@ class Synchronizer:
             self.fps_mean = self.average_fps()
 
         logger.info("Frame synch worker successfully ended")
+
+

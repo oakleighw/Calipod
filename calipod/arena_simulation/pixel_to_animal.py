@@ -160,3 +160,4 @@ def compute_pixel_to_animal_result(inputs: PixelToAnimalInputs) -> PixelToAnimal
         computed_insect_pixel_count=None,
         computed_furthest_distance_mm=None,
     )
+

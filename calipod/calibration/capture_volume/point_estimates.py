@@ -3,9 +3,9 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.sparse import lil_matrix
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 CAMERA_PARAM_COUNT = 6
 
@@ -93,3 +93,5 @@ def load_point_estimates(config: dict) -> PointEstimates:
 
     point_estimates = PointEstimates(**point_estimates_dict)
     return point_estimates
+
+

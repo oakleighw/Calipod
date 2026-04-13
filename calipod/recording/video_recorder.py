@@ -6,11 +6,11 @@ from threading import Event, Thread
 import cv2
 import pandas as pd
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 from calipod.cameras.synchronizer import Synchronizer
-from calipod.packets import SyncPacket
+from calipod.core.packets import SyncPacket
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 
 class VideoRecorder:
@@ -225,3 +225,6 @@ def find_config_file(start_dir):
         current_dir = current_dir.parent
 
     return None
+
+
+

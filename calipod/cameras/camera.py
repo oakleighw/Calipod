@@ -22,9 +22,9 @@ import time
 
 import cv2
 
-import calipod.logger
+from calipod.core import logger as calipod_logger
 
-logger = calipod.logger.get(__name__)
+logger = calipod_logger.get(__name__)
 
 TEST_FRAME_COUNT = 10
 MIN_RESOLUTION_CHECK = 200
@@ -306,3 +306,5 @@ if __name__ == "__main__":
             break
 
 # %%
+
+

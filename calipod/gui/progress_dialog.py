@@ -25,3 +25,4 @@ class ProgressDialog(QDialog):
         else:
             self.display_text.setText(data["stage"])
             self.progress_bar.setValue(data["percent"])
+
