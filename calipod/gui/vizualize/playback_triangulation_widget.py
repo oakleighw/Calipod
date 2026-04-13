@@ -252,6 +252,7 @@ class PlaybackTriangulationWidget(QWidget):
             filter_end_spin=self.filter_end_spin,
             gap_fill_only_checkbox=self.gap_fill_only_checkbox,
             extend_filtered_track_checkbox=self.extend_filtered_track_checkbox,
+            cut_video_to_filter_frames_checkbox=self.cut_video_to_filter_frames_checkbox,
         )
 
         self.place_widgets()
@@ -896,19 +897,47 @@ class PlaybackTriangulationWidget(QWidget):
         )
 
         # If filter metadata was loaded, automatically enable filtering in the GUI
+        # and capture the loaded parameters so we don't unnecessarily recompute
         if metadata_loaded:
             logger.info("Filter metadata was loaded; automatically enabling 'Use Filtered Track' toggle")
+            # Capture the loaded parameters so we know they match the cached filtered CSV
+            self._last_computed_params = {
+                "kalman_process_noise_scale": self.filter_manager.kalman_process_noise_scale,
+                "kalman_measurement_noise_std": self.filter_manager.kalman_measurement_noise_std,
+                "kalman_fps_override": None,  # Not stored in metadata
+                "gap_fill_only": self.filter_manager.gap_fill_only,
+                "extend_filtered_track": self.filter_manager.extend_filtered_track,
+                "gate_distance_sigma": self.filter_manager.gate_distance_sigma,
+                "max_distance_threshold": self.filter_manager.max_distance_threshold,
+                "bgs_kalman_process_noise_scale": self.filter_manager.bgs_kalman_process_noise_scale,
+                "bgs_kalman_measurement_noise_std": self.filter_manager.bgs_kalman_measurement_noise_std,
+                "bgs_gate_distance_sigma": self.filter_manager.bgs_gate_distance_sigma,
+                "bgs_max_distance_threshold": self.filter_manager.bgs_max_distance_threshold,
+            }
+            # Enable the toggle, which will trigger apply the extend logic and update metadata
             self.toggle_filtered_button.setChecked(True)
 
     def update_camera_array(self, camera_array: CameraArray):
         self.visualizer.update_camera_array(camera_array)
 
     def compute_and_show_metrics(self):
-        """Display metrics from MotionTrial.performance_metrics in a scrollable dialog."""
+        """Display metrics from MotionTrial.performance_metrics in a scrollable dialog, and save metadata."""
         if self.motion_trial is None:
             return
         use_filtered = self.toggle_filtered_button.isChecked()
         self.metrics_computer.compute_and_display(self.motion_trial, use_filtered)
+        
+        # Save metadata after computing metrics
+        # This ensures metadata only gets updated when explicitly computing performance metrics
+        if use_filtered and self.motion_trial.predictions_csv:
+            try:
+                filtered_path = Path(self.motion_trial.predictions_csv)
+                # Read the filtered CSV that was just computed
+                filtered_df = pd.read_csv(filtered_path, engine="pyarrow") if filtered_path.exists() else None
+                self.filter_manager.save_metadata(filtered_path, self.motion_trial, filtered_df=filtered_df)
+                logger.info(f"Saved filter metadata after metrics computation: {filtered_path.with_stem(filtered_path.stem + '_metadata')}")
+            except Exception as e:
+                logger.warning(f"Failed to save metadata after metrics computation: {e}")
 
     def toggle_filtered_track(self, checked: bool):
         """Toggle use of filtered predictions cached alongside the predictions CSV."""
@@ -940,9 +969,35 @@ class PlaybackTriangulationWidget(QWidget):
             # Enable the "cut video to filter frames" checkbox when filtering is enabled
             self.cut_video_to_filter_frames_checkbox.setEnabled(True)
             try:
-                # Always recompute filtered predictions when user toggles filtering ON
-                # This ensures current UI parameter values are applied, even if a cached CSV exists
+                # Capture current UI parameter values to check if recomputation is needed
+                current_params = {
+                    "kalman_process_noise_scale": float(self.process_noise_spin.value()),
+                    "kalman_measurement_noise_std": float(self.meas_noise_spin.value()) / 1000.0,
+                    "kalman_fps_override": int(self.fps_spin.value()) if self.fps_spin.value() > 0 else None,
+                    "gap_fill_only": self.gap_fill_only_checkbox.isChecked(),
+                    "extend_filtered_track": self.extend_filtered_track_checkbox.isChecked(),
+                    "gate_distance_sigma": float(self.gate_distance_slider.value()) / 10.0,
+                    "max_distance_threshold": float(self.max_distance_spin.value()),
+                    "bgs_kalman_process_noise_scale": float(self.bgs_process_noise_spin.value()),
+                    "bgs_kalman_measurement_noise_std": float(self.bgs_meas_noise_spin.value()) / 1000.0,
+                    "bgs_gate_distance_sigma": float(self.bgs_gate_distance_slider.value()) / 10.0,
+                    "bgs_max_distance_threshold": float(self.bgs_max_distance_spin.value()),
+                }
+
+                # Check if we should recompute or just load cached filtered CSV
+                # If metadata was loaded (params already exist) and filtered CSV exists on disk and params match,
+                # just load the cached CSV instead of recomputing to avoid metric variance
                 force_recompute = True
+                if filtered_path.exists() and hasattr(self, '_last_computed_params') and self._last_computed_params:
+                    # Check if current params match the loaded params
+                    params_match = all(
+                        current_params.get(key) == self._last_computed_params.get(key)
+                        for key in current_params.keys()
+                    )
+                    if params_match:
+                        # Parameters haven't changed - just load the cached filtered CSV
+                        force_recompute = False
+                        logger.info("Filtered CSV already cached with matching parameters; loading from disk instead of recomputing")
 
                 if force_recompute:
                     # Set spinbox ranges based on actual prediction data
@@ -976,6 +1031,13 @@ class PlaybackTriangulationWidget(QWidget):
                     self.bgs_kalman_measurement_noise_std = float(self.bgs_meas_noise_spin.value()) / 1000.0  # mm -> m
                     self.bgs_gate_distance_sigma = float(self.bgs_gate_distance_slider.value()) / 10.0
                     self.bgs_max_distance_threshold = float(self.bgs_max_distance_spin.value())  # mm
+
+                    # Capture filter start/end frame spinbox values
+                    self.filter_start_frame = self.filter_start_spin.value()
+                    self.filter_end_frame = self.filter_end_spin.value()
+                    logger.debug(
+                        f"Captured filter frame range from spinboxes: start={self.filter_start_frame}, end={self.filter_end_frame}"
+                    )
 
                     msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std * 1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, max_dist={self.max_distance_threshold:.1f}mm, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'}, extend_past_pred={'yes' if self.extend_filtered_track else 'no'})"
                     logger.info(msg)
@@ -1013,8 +1075,12 @@ class PlaybackTriangulationWidget(QWidget):
                     logger.info(saved_msg)
                     print(saved_msg)
 
-                    # Save filter metadata
-                    self.filter_manager.save_metadata(filtered_path, self.motion_trial)
+                    # Note: Metadata is NOT saved here anymore. 
+                    # Metadata is only saved when computing performance metrics explicitly.
+                    # This prevents unintended overwrites of the metadata file.
+
+                    # Store the parameters we just computed so we can detect changes next time
+                    self._last_computed_params = current_params
 
                     self.motion_trial.predictions_csv = filtered_path
                     self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
@@ -1022,12 +1088,16 @@ class PlaybackTriangulationWidget(QWidget):
                     using_msg = f"Using filtered predictions from {filtered_path}"
                     logger.info(using_msg)
                     print(using_msg)
+
                 else:
-                    # Already have correct filtered CSV, just load it
+                    # Use cached filtered CSV - parameters match what was previously computed
+                    logger.info(f"Loading cached filtered predictions from {filtered_path}")
                     self.motion_trial.predictions_csv = filtered_path
                     self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
                     self.filtered_predictions_path = filtered_path
-                    logger.info(f"Using existing filtered predictions from {filtered_path}")
+                    cached_msg = f"Using cached filtered predictions from {filtered_path}"
+                    logger.info(cached_msg)
+                    print(cached_msg)
 
                 # Refresh display with filtered predictions
                 if hasattr(self.visualizer, "update_motion_trial"):
@@ -1085,6 +1155,10 @@ class PlaybackTriangulationWidget(QWidget):
         if pred_df is None or pred_df.empty:
             return None
 
+        # Ensure point_id is numeric to avoid string comparison errors
+        pred_df = pred_df.copy()
+        pred_df["point_id"] = pd.to_numeric(pred_df["point_id"], errors="coerce")
+
         fly_df = pred_df[pred_df["point_id"] == 0].copy()
         if fly_df.empty:
             logger.warning("No point_id==0 rows in predictions; skipping filter.")
@@ -1120,11 +1194,19 @@ class PlaybackTriangulationWidget(QWidget):
         # Apply optional start/end frame filtering only if explicitly set
         start_frame = self.filter_start_spin.value()
         end_frame = self.filter_end_spin.value()
+        logger.info(
+            f"Filter frame range being applied: start={start_frame}, end={end_frame}, "
+            f"before filtering had {len(frames)} frames"
+        )
 
         if start_frame > 0:
             frames = [f for f in frames if f >= start_frame]
         if end_frame > 0:
             frames = [f for f in frames if f <= end_frame]
+        
+        logger.info(
+            f"After applying frame range filters (start={start_frame}, end={end_frame}): {len(frames)} frames"
+        )
 
         fps_used = self.kalman_fps_override or self.video_framerate or 60
         base_dt = 1.0 / fps_used
@@ -1153,6 +1235,8 @@ class PlaybackTriangulationWidget(QWidget):
                     bgs_path = self.xyz_history_path.parent / "bgs" / "xyz_FLY_bgs_predictions.csv"
                     if bgs_path.exists():
                         bgs_df = pd.read_csv(bgs_path, engine="pyarrow")
+                        # Ensure point_id is numeric
+                        bgs_df["point_id"] = pd.to_numeric(bgs_df["point_id"], errors="coerce")
                         bgs_fly = bgs_df[bgs_df["point_id"] == 0]
                         bgs_measurements = {
                             int(r.sync_index): np.array([r.x_coord, r.y_coord, r.z_coord])

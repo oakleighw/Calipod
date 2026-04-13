@@ -85,8 +85,15 @@ class FilterParameterManager:
             if widget_name in self.ui_widgets:
                 self.ui_widgets[widget_name].setEnabled(is_hybrid_enabled)
 
-    def save_metadata(self, filtered_csv_path: Path, motion_trial=None):
-        """Save filter parameters as JSON metadata alongside the filtered predictions CSV."""
+    def save_metadata(self, filtered_csv_path: Path, motion_trial=None, filtered_df: Optional[pd.DataFrame] = None):
+        """Save filter parameters as JSON metadata alongside the filtered predictions CSV.
+        
+        Args:
+            filtered_csv_path: Path where filtered CSV is/will be saved
+            motion_trial: MotionTrial object (optional, for ground truth data)
+            filtered_df: Optional dataframe of filtered predictions to use for counts/metrics
+                        If not provided, will read from filtered_csv_path if it exists
+        """
         # Compute performance metrics for the filtered predictions
         overall_metrics = {}
         metrics_by_source = {}
@@ -94,59 +101,74 @@ class FilterParameterManager:
         try:
             if motion_trial is not None and not motion_trial.is_empty:
                 computer = MetricsComputer(None)
-                metrics = computer._compute_metrics_from_dataframes(motion_trial.predictions_df, motion_trial.xyz_df)
+                # Determine which predictions dataframe to use for metrics
+                # Priority: 1) passed filtered_df, 2) filtered CSV on disk, 3) motion_trial.predictions_df
+                pred_df_for_metrics = filtered_df
+                if pred_df_for_metrics is None and filtered_csv_path.exists():
+                    pred_df_for_metrics = pd.read_csv(filtered_csv_path, engine="pyarrow")
+                if pred_df_for_metrics is None:
+                    pred_df_for_metrics = motion_trial.predictions_df
+                    
+                metrics = computer._compute_metrics_from_dataframes(pred_df_for_metrics, motion_trial.xyz_df)
                 # Convert numpy types to native Python types for JSON serialization
                 overall_metrics = {
                     k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()
                 }
 
                 # Compute separate metrics for each measurement source
-                if filtered_csv_path.exists():
-                    filtered_df = pd.read_csv(filtered_csv_path, engine="pyarrow")
-                    if "measurement_source" in filtered_df.columns:
-                        for source in ["YOLO", "BGS", "filter_only"]:
-                            source_df = filtered_df[filtered_df["measurement_source"] == source]
-                            if not source_df.empty:
-                                # Temporarily swap in source data to compute metrics
-                                orig_pred_df = motion_trial.predictions_df
-                                orig_gt_df = motion_trial.xyz_df
-                                # Filter both to only point_id == 0 (the tracked fly)
-                                motion_trial.predictions_df = (
-                                    source_df[source_df["point_id"] == 0]
-                                    if "point_id" in source_df.columns
-                                    else source_df
+                # Use provided filtered_df if available, otherwise read from disk
+                if filtered_df is not None:
+                    filtered_data = filtered_df
+                elif filtered_csv_path.exists():
+                    filtered_data = pd.read_csv(filtered_csv_path, engine="pyarrow")
+                else:
+                    filtered_data = None
+                    
+                if filtered_data is not None and "measurement_source" in filtered_data.columns:
+                    for source in ["YOLO", "BGS", "filter_only"]:
+                        source_df = filtered_data[filtered_data["measurement_source"] == source]
+                        if not source_df.empty:
+                            # Temporarily swap in source data to compute metrics
+                            orig_pred_df = motion_trial.predictions_df
+                            orig_gt_df = motion_trial.xyz_df
+                            # Filter both to only point_id == 0 (the tracked fly)
+                            motion_trial.predictions_df = (
+                                source_df[source_df["point_id"] == 0]
+                                if "point_id" in source_df.columns
+                                else source_df
+                            )
+                            motion_trial.xyz_df = (
+                                orig_gt_df[orig_gt_df["point_id"] == 0] if not orig_gt_df.empty else orig_gt_df
+                            )
+                            try:
+                                source_metrics = computer._compute_metrics_from_dataframes(
+                                    motion_trial.predictions_df, motion_trial.xyz_df
                                 )
-                                motion_trial.xyz_df = (
-                                    orig_gt_df[orig_gt_df["point_id"] == 0] if not orig_gt_df.empty else orig_gt_df
+                                # Convert numpy types to native Python types
+                                source_data = {
+                                    k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)
+                                    for k, v in source_metrics.items()
+                                }
+                                # Add point and frame counts for context
+                                source_data["point_count"] = int(
+                                    len(
+                                        source_df[source_df["point_id"] == 0]
+                                        if "point_id" in source_df.columns
+                                        else source_df
+                                    )
                                 )
-                                try:
-                                    source_metrics = computer._compute_metrics_from_dataframes(
-                                        motion_trial.predictions_df, motion_trial.xyz_df
-                                    )
-                                    # Convert numpy types to native Python types
-                                    source_data = {
-                                        k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)
-                                        for k, v in source_metrics.items()
-                                    }
-                                    # Add point and frame counts for context
-                                    source_data["point_count"] = int(
-                                        len(
-                                            source_df[source_df["point_id"] == 0]
-                                            if "point_id" in source_df.columns
-                                            else source_df
-                                        )
-                                    )
-                                    source_data["frame_count"] = int(source_df["sync_index"].nunique())
-                                    metrics_by_source[source] = source_data
-                                except:
-                                    pass
-                                finally:
-                                    motion_trial.predictions_df = orig_pred_df
-                                    motion_trial.xyz_df = orig_gt_df
+                                source_data["frame_count"] = int(source_df["sync_index"].nunique())
+                                metrics_by_source[source] = source_data
+                            except:
+                                pass
+                            finally:
+                                motion_trial.predictions_df = orig_pred_df
+                                motion_trial.xyz_df = orig_gt_df
         except Exception as e:
             logger.debug(f"Could not compute performance metrics for metadata: {e}")
 
         # Get frame and point counts
+        # Priority: 1) passed filtered_df, 2) filtered CSV on disk, 3) motion_trial.predictions_df
         total_gt_frames = 0
         total_gt_fly_points = 0
         total_pred_frames = 0
@@ -160,9 +182,17 @@ class FilterParameterManager:
                 else pd.DataFrame()
             )
             total_gt_fly_points = len(gt_fly_df) if not gt_fly_df.empty else 0
+            
+            # Use filtered_df for prediction counts if available, otherwise read from disk
+            predictions_to_count = filtered_df
+            if predictions_to_count is None and filtered_csv_path.exists():
+                predictions_to_count = pd.read_csv(filtered_csv_path, engine="pyarrow")
+            if predictions_to_count is None:
+                predictions_to_count = motion_trial.predictions_df
+                
             pred_fly_df = (
-                motion_trial.predictions_df[motion_trial.predictions_df["point_id"] == 0]
-                if not motion_trial.predictions_df.empty
+                predictions_to_count[predictions_to_count["point_id"] == 0]
+                if not predictions_to_count.empty
                 else pd.DataFrame()
             )
             total_pred_frames = pred_fly_df["sync_index"].nunique() if not pred_fly_df.empty else 0
@@ -182,6 +212,14 @@ class FilterParameterManager:
             )
         else:
             logger.warning("extend_filtered_track_checkbox not in ui_widgets when saving metadata")
+
+        # Get cut_video_to_filter_frames checkbox state for saving
+        cut_video_to_filter_frames_to_save = False
+        if "cut_video_to_filter_frames_checkbox" in self.ui_widgets:
+            cut_video_to_filter_frames_to_save = self.ui_widgets["cut_video_to_filter_frames_checkbox"].isChecked()
+            logger.debug(
+                f"Reading cut_video_to_filter_frames_checkbox state for saving: {cut_video_to_filter_frames_to_save}"
+            )
 
         # Read filter frame range from spinboxes
         start_frame_to_save = 0
@@ -203,6 +241,7 @@ class FilterParameterManager:
             "bgs_max_distance_threshold_mm": float(self.bgs_max_distance_threshold),
             "gap_fill_only": bool(self.gap_fill_only),
             "extend_filtered_track": bool(extend_filtered_track_to_save),
+            "cut_video_to_filter_frames": bool(cut_video_to_filter_frames_to_save),
             "use_hybrid_bgs": bool(use_hybrid_bgs),
             "filter_start_frame": int(start_frame_to_save),
             "filter_end_frame": int(end_frame_to_save),
@@ -325,6 +364,19 @@ class FilterParameterManager:
                 logger.warning(
                     f"extend_filtered_track_checkbox not found in ui_widgets! "
                     f"Available keys: {list(self.ui_widgets.keys())}"
+                )
+            
+            # Load cut_video_to_filter_frames state
+            cut_video_to_filter_frames = metadata.get("cut_video_to_filter_frames", False)
+            if "cut_video_to_filter_frames_checkbox" in self.ui_widgets:
+                self.ui_widgets["cut_video_to_filter_frames_checkbox"].setChecked(cut_video_to_filter_frames)
+                logger.debug(
+                    f"Set cut_video_to_filter_frames_checkbox to {cut_video_to_filter_frames} "
+                    f"(was loaded from metadata)"
+                )
+            else:
+                logger.debug(
+                    f"cut_video_to_filter_frames_checkbox not found in ui_widgets; will use default (False)"
                 )
 
             # Load use_hybrid_bgs state and apply it
