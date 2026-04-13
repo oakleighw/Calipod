@@ -6,8 +6,8 @@ from threading import Event, Thread
 import cv2
 import pandas as pd
 
-from calipod.core import logger as calipod_logger
 from calipod.cameras.synchronizer import Synchronizer
+from calipod.core import logger as calipod_logger
 from calipod.core.packets import SyncPacket
 
 logger = calipod_logger.get(__name__)
@@ -225,6 +225,3 @@ def find_config_file(start_dir):
         current_dir = current_dir.parent
 
     return None
-
-
-

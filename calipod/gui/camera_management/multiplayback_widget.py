@@ -52,6 +52,3 @@ if __name__ == "__main__":
     mainWin = MultiIntrinsicPlaybackWidget(controller)
     mainWin.show()
     sys.exit(app.exec())
-
-
-

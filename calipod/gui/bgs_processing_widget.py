@@ -1,30 +1,29 @@
-from pathlib import Path
 import re
-import cv2
-import numpy as np
+from pathlib import Path
 
+import cv2
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSlider,
     QSpinBox,
-    QDoubleSpinBox,
-    QComboBox,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
-    QScrollArea,
-    QMessageBox,
-    QSlider,
-    QCheckBox,
 )
-from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtCore import Qt, QTimer
 
+from calipod.background_subtraction import BGSProcessor
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
-from calipod.background_subtraction import BGSProcessor
 
 logger = calipod_logger.get(__name__)
 
@@ -34,6 +33,7 @@ REGION_CLASS_MAP = {
     "leaves": 10,
     "fruit": 9,
 }
+
 
 # BGS Processing Widget - generates parallel background subtraction detections and triangulates to 3D for hybrid filtering.
 class BGSProcessingWidget(QWidget):
@@ -56,53 +56,53 @@ class BGSProcessingWidget(QWidget):
         # Create process button
         self.process_btn = QPushButton("&Process")
         self.process_btn.setMaximumHeight(35)
-        
+
         # Create triangulation button
         self.triangulate_btn = QPushButton("Triangulate BGS Points")
         self.triangulate_btn.setMaximumHeight(35)
         self.triangulate_btn.setEnabled(False)  # Enable only after processing
-        
+
         # Create output display title
         self.output_title = QLabel()
         self.update_output_title()
-        
+
         # Video player components
         self.video_frames = []  # Store loaded frames
         self.current_frame_idx = 0
-        
+
         # Create video display label
         self.video_display_label = QLabel()
         self.video_display_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_display_label.setMinimumHeight(400)
         self.video_display_label.setText("Processing output will display here when complete")
-        
+
         # Create scroll area for video display
         self.output_scroll = QScrollArea()
         self.output_scroll.setWidgetResizable(True)
         self.output_scroll.setWidget(self.video_display_label)
-        
+
         # Create frame slider for video navigation
         self.frame_slider = QSlider(Qt.Orientation.Horizontal)
         self.frame_slider.setMinimum(0)
         self.frame_slider.setValue(0)
         self.frame_slider.setVisible(False)
         self.frame_slider.sliderMoved.connect(self.on_frame_slider_moved)
-        
+
         # Create frame info label
         self.frame_info_label = QLabel()
         self.frame_info_label.setText("No video loaded")
         self.frame_info_label.setVisible(False)
-        
+
         # Store FPS for display
         self.current_fps = None
-        
+
         # Create play/pause button
         self.play_btn = QPushButton("Play")
         self.play_btn.setMaximumWidth(80)
         self.play_btn.setVisible(False)
         self.play_btn.clicked.connect(self.toggle_playback)
         self.is_playing = False
-        
+
         # Create timer for playback animation
         self.playback_timer = QTimer()
         self.playback_timer.timeout.connect(self.advance_frame)
@@ -110,7 +110,7 @@ class BGSProcessingWidget(QWidget):
 
         # Set up the layout with tree on left and content on right
         main_layout = QHBoxLayout(self)
-        
+
         left_vbox = QVBoxLayout()
         left_vbox.addWidget(QLabel("Select Recording & Video:"))
         left_vbox.addWidget(self.recording_tree)
@@ -119,30 +119,30 @@ class BGSProcessingWidget(QWidget):
         left_vbox.addWidget(self.process_btn)
         left_vbox.addWidget(self.triangulate_btn)
         left_vbox.addStretch()
-        
+
         right_vbox = QVBoxLayout()
         right_vbox.addWidget(self.output_title)
         right_vbox.addWidget(self.output_scroll, stretch=1)
         right_vbox.addWidget(self.frame_info_label)
-        
+
         # Layout for slider and play button
         slider_layout = QHBoxLayout()
         slider_layout.addWidget(self.play_btn)
         slider_layout.addWidget(self.frame_slider)
         right_vbox.addLayout(slider_layout)
-        
+
         main_layout.addLayout(left_vbox, stretch=1)
         main_layout.addLayout(right_vbox, stretch=2)
-        
+
         self.setLayout(main_layout)
-        
+
         # Connect signals
         self.connect_widgets()
 
     def _create_parameter_controls(self):
         """Create the parameter input controls"""
         layout = QVBoxLayout()
-        
+
         # Region selection
         region_layout = QHBoxLayout()
         region_layout.addWidget(QLabel("Region:"))
@@ -152,7 +152,7 @@ class BGSProcessingWidget(QWidget):
         self.region_combo.addItem("Fruit", "fruit")
         region_layout.addWidget(self.region_combo)
         layout.addLayout(region_layout)
-        
+
         # Alpha (learning rate)
         alpha_layout = QHBoxLayout()
         alpha_layout.addWidget(QLabel("Alpha:"))
@@ -164,7 +164,7 @@ class BGSProcessingWidget(QWidget):
         self.alpha_spinbox.setDecimals(4)
         alpha_layout.addWidget(self.alpha_spinbox)
         layout.addLayout(alpha_layout)
-        
+
         # N_Sigma (sensitivity)
         nsigma_layout = QHBoxLayout()
         nsigma_layout.addWidget(QLabel("N-Sigma:"))
@@ -175,7 +175,7 @@ class BGSProcessingWidget(QWidget):
         self.nsigma_spinbox.setValue(3.0)
         nsigma_layout.addWidget(self.nsigma_spinbox)
         layout.addLayout(nsigma_layout)
-        
+
         # Bright Cutoff
         bright_layout = QHBoxLayout()
         bright_layout.addWidget(QLabel("Bright Cutoff:"))
@@ -185,7 +185,7 @@ class BGSProcessingWidget(QWidget):
         self.bright_spinbox.setValue(200)
         bright_layout.addWidget(self.bright_spinbox)
         layout.addLayout(bright_layout)
-        
+
         # Replacement value
         repl_layout = QHBoxLayout()
         repl_layout.addWidget(QLabel("Replacement:"))
@@ -195,7 +195,7 @@ class BGSProcessingWidget(QWidget):
         self.replacement_spinbox.setValue(0)
         repl_layout.addWidget(self.replacement_spinbox)
         layout.addLayout(repl_layout)
-        
+
         # Warmup frames
         warmup_layout = QHBoxLayout()
         warmup_layout.addWidget(QLabel("Warmup (s):"))
@@ -206,7 +206,7 @@ class BGSProcessingWidget(QWidget):
         self.warmup_spinbox.setValue(5.0)
         warmup_layout.addWidget(self.warmup_spinbox)
         layout.addLayout(warmup_layout)
-        
+
         # Opening size (morphological kernel)
         opening_layout = QHBoxLayout()
         opening_layout.addWidget(QLabel("Opening Size:"))
@@ -216,7 +216,7 @@ class BGSProcessingWidget(QWidget):
         self.opening_spinbox.setValue(2)
         opening_layout.addWidget(self.opening_spinbox)
         layout.addLayout(opening_layout)
-        
+
         # Start time with unit selector
         start_layout = QHBoxLayout()
         start_layout.addWidget(QLabel("Start:"))
@@ -231,7 +231,7 @@ class BGSProcessingWidget(QWidget):
         self.start_unit_combo.addItem("Frames", "frames")
         start_layout.addWidget(self.start_unit_combo)
         layout.addLayout(start_layout)
-        
+
         # End time with unit selector
         end_layout = QHBoxLayout()
         end_layout.addWidget(QLabel("End:"))
@@ -246,21 +246,21 @@ class BGSProcessingWidget(QWidget):
         self.end_unit_combo.addItem("Frames", "frames")
         end_layout.addWidget(self.end_unit_combo)
         layout.addLayout(end_layout)
-        
+
         # Ground truth display checkbox
         gt_layout = QHBoxLayout()
         self.show_gt_checkbox = QCheckBox("Show Ground Truth")
         self.show_gt_checkbox.setChecked(False)
         gt_layout.addWidget(self.show_gt_checkbox)
         layout.addLayout(gt_layout)
-        
+
         # Save detections as YOLO format checkbox
         save_layout = QHBoxLayout()
         self.save_detections_checkbox = QCheckBox("Save Detections (YOLO format)")
         self.save_detections_checkbox.setChecked(False)
         save_layout.addWidget(self.save_detections_checkbox)
         layout.addLayout(save_layout)
-        
+
         return layout
 
     def connect_widgets(self):
@@ -296,14 +296,14 @@ class BGSProcessingWidget(QWidget):
             self.video_display_label.setText("Select a video to process")
             self.triangulate_btn.setEnabled(False)
             return
-        
+
         # Check for processed video in FLY/bgs directory
         recording_path = Path(video_path).parent
         video_stem = Path(video_path).stem
         processed_video_path = recording_path / "FLY" / "bgs" / f"{video_stem}_bgs.mp4"
-        
+
         logger.info(f"Checking for processed video: {processed_video_path}")
-        
+
         # Also check if BGS labels exist (for triangulation)
         bgs_labels_exist = False
         bgs_dir = recording_path / "FLY" / "bgs"
@@ -315,14 +315,14 @@ class BGSProcessingWidget(QWidget):
                     bgs_labels_exist = True
                     logger.info(f"Found BGS labels in {port_dir.name}")
                     break
-        
+
         if processed_video_path.exists():
             logger.info(f"Found existing processed video, loading: {processed_video_path}")
             self.load_video_for_display(str(processed_video_path))
             # Enable triangulation button if BGS labels exist
             self.triangulate_btn.setEnabled(bgs_labels_exist)
         else:
-            logger.info(f"No processed video found. Please process this video first.")
+            logger.info("No processed video found. Please process this video first.")
             self.video_frames = []
             self.frame_slider.setVisible(False)
             self.play_btn.setVisible(False)
@@ -338,21 +338,21 @@ class BGSProcessingWidget(QWidget):
         """
         if region == "full":
             return None
-        
+
         region_class = REGION_CLASS_MAP.get(region)
         if region_class is None:
             return None
-        
+
         # Extract port number from video filename (e.g., "port_0.mp4" -> "0")
         video_name = Path(video_path).stem
         match = re.search(r"port_(\d+)", video_name)
         if not match:
             logger.warning(f"Could not extract port number from video name: {video_name}")
             return None
-        
+
         port = match.group(1)
         logger.info(f"Extracted port {port} from video filename")
-        
+
         # Get annotations directory from workspace guide (calibration project)
         try:
             annotations_root = self.controller.workspace_guide.annotations_dir
@@ -360,62 +360,62 @@ class BGSProcessingWidget(QWidget):
         except Exception as e:
             logger.error(f"Could not get annotations directory from controller: {str(e)}")
             return None
-        
+
         if not annotations_root or not annotations_root.exists():
             logger.warning(f"Annotations directory does not exist: {annotations_root}")
             return None
-        
+
         # Build path: {annotations_dir}/port_{port}/labels/train/
         label_path = annotations_root / f"port_{port}" / "labels" / "train"
         logger.info(f"Looking for labels in: {label_path}")
-        
+
         if not label_path.exists():
             logger.warning(f"Label path does not exist: {label_path}")
             return None
-        
+
         # Get any label file from the directory (they should all have the same object)
         label_files = list(label_path.glob("frame_*.txt"))
         if not label_files:
             logger.warning(f"No label files found in {label_path}")
             return None
-        
+
         # Parse the first label file to get bounding box
         try:
             logger.info(f"Found {len(label_files)} label files, checking first one: {label_files[0]}")
-            with open(label_files[0], 'r') as f:
+            with open(label_files[0], "r") as f:
                 for line in f:
                     parts = line.strip().split()
                     if not parts:
                         continue
-                    
+
                     class_id = int(parts[0])
                     logger.info(f"Found label class {class_id}, looking for {region_class}")
-                    
+
                     if class_id == region_class:
                         # YOLO format: class_id center_x center_y width height (normalized 0.0-1.0)
                         center_x = float(parts[1])
                         center_y = float(parts[2])
                         width = float(parts[3])
                         height = float(parts[4])
-                        
+
                         # Convert to pixel coordinates
                         cap = cv2.VideoCapture(str(video_path))
                         frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                         frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         cap.release()
-                        
+
                         # Convert normalized to pixel coordinates
-                        x1 = max(0, int((center_x - width/2) * frame_w))
-                        y1 = max(0, int((center_y - height/2) * frame_h))
-                        x2 = min(frame_w, int((center_x + width/2) * frame_w))
-                        y2 = min(frame_h, int((center_y + height/2) * frame_h))
-                        
+                        x1 = max(0, int((center_x - width / 2) * frame_w))
+                        y1 = max(0, int((center_y - height / 2) * frame_h))
+                        x2 = min(frame_w, int((center_x + width / 2) * frame_w))
+                        y2 = min(frame_h, int((center_y + height / 2) * frame_h))
+
                         logger.info(f"Found {region.upper()} bounding box: ({x1}, {y1}, {x2}, {y2})")
                         return (x1, y1, x2, y2)
         except Exception as e:
             logger.error(f"Error parsing label file: {str(e)}")
             return None
-        
+
         logger.warning(f"No {region.upper()} annotations (class {region_class}) found for port {port}")
         return None
 
@@ -434,10 +434,10 @@ class BGSProcessingWidget(QWidget):
         if not video_path:
             QMessageBox.warning(self, "Warning", "Please select a video to process")
             return
-        
+
         # Get selected region
         region = self.region_combo.currentData()
-        
+
         # Find bounding box if region is not "full"
         bbox = None
         if region != "full":
@@ -447,23 +447,23 @@ class BGSProcessingWidget(QWidget):
                     self,
                     "Bounding Box Not Found",
                     f"No {region.upper()} bounding box annotations found for this video.\n\n"
-                    "Please ensure ground truth labels are available in the recording directory."
+                    "Please ensure ground truth labels are available in the recording directory.",
                 )
                 return
-        
+
         # Disable button during processing
         self.process_btn.setEnabled(False)
-        
+
         try:
             # Determine output directory (FLY/bgs folder in recording)
             recording_path = Path(video_path).parent
             fly_dir = recording_path / "FLY" / "bgs"
             fly_dir.mkdir(parents=True, exist_ok=True)
-            
+
             logger.info(f"Beginning BGS processing for {video_path}")
             logger.info(f"Region: {region}, Bounding box: {bbox}")
             logger.info(f"Output directory: {fly_dir}")
-            
+
             # Get parameters from GUI
             alpha = self.alpha_spinbox.value()
             n_sigma = self.nsigma_spinbox.value()
@@ -471,18 +471,18 @@ class BGSProcessingWidget(QWidget):
             replacement = self.replacement_spinbox.value()
             warmup_secs = self.warmup_spinbox.value()
             opening_size = self.opening_spinbox.value()
-            
+
             # Get start and end times, converting from frames if needed
             start_value = self.start_spinbox.value()
             end_value = self.end_spinbox.value()
             start_unit = self.start_unit_combo.currentData()
             end_unit = self.end_unit_combo.currentData()
-            
+
             # Get video FPS from the actual video file
             cap = cv2.VideoCapture(video_path)
             fps = cap.get(cv2.CAP_PROP_FPS)
             cap.release()
-            
+
             # Ensure fps is valid
             if fps <= 0:
                 logger.warning(f"Could not read FPS from video {video_path}, using config value")
@@ -493,27 +493,29 @@ class BGSProcessingWidget(QWidget):
             else:
                 # Save the detected FPS to config for future reference
                 try:
-                    self.controller.config.dict['fps_recording'] = int(fps)
+                    self.controller.config.dict["fps_recording"] = int(fps)
                     self.controller.config.update_config_toml()
                     logger.info(f"Saved detected video FPS ({fps}) to config")
                 except Exception as e:
                     logger.warning(f"Could not save FPS to config: {e}")
-            
+
             # Convert to seconds if unit is frames
             if start_unit == "frames":
                 start_sec = start_value / fps
             else:
                 start_sec = start_value
-            
+
             if end_unit == "frames":
                 end_sec = end_value / fps
             else:
                 end_sec = end_value
-            
-            logger.info(f"BGS Parameters: alpha={alpha}, n_sigma={n_sigma}, bright_cutoff={bright_cutoff}, "
-                       f"replacement={replacement}, warmup={warmup_secs}s, opening_size={opening_size}, "
-                       f"start={start_sec}s (from {start_value} {start_unit}), end={end_sec}s (from {end_value} {end_unit})")
-            
+
+            logger.info(
+                f"BGS Parameters: alpha={alpha}, n_sigma={n_sigma}, bright_cutoff={bright_cutoff}, "
+                f"replacement={replacement}, warmup={warmup_secs}s, opening_size={opening_size}, "
+                f"start={start_sec}s (from {start_value} {start_unit}), end={end_sec}s (from {end_value} {end_unit})"
+            )
+
             # Create processor
             self.bgs_processor = BGSProcessor(
                 video_path=video_path,
@@ -529,17 +531,17 @@ class BGSProcessingWidget(QWidget):
                 bounding_box=bbox,
                 show_ground_truth=self.show_gt_checkbox.isChecked(),
                 annotations_dir=self.controller.workspace_guide.annotations_dir,
-                save_detections=self.save_detections_checkbox.isChecked()
+                save_detections=self.save_detections_checkbox.isChecked(),
             )
-            
+
             # Connect signals
             self.bgs_processor.progress_updated.connect(self.on_progress_update)
             self.bgs_processor.processing_complete.connect(self.on_processing_complete)
             self.bgs_processor.processing_error.connect(self.on_processing_error)
-            
+
             # Start processing
             self.bgs_processor.start()
-            
+
         except Exception as e:
             logger.error(f"Error starting BGS processing: {str(e)}")
             QMessageBox.critical(self, "Error", f"Error starting processing: {str(e)}")
@@ -554,33 +556,33 @@ class BGSProcessingWidget(QWidget):
         try:
             logger.info(f"Loading video for display: {video_path}")
             cap = cv2.VideoCapture(video_path)
-            
+
             if not cap.isOpened():
                 logger.error(f"Could not open video: {video_path}")
                 return
-            
+
             fps = cap.get(cv2.CAP_PROP_FPS)
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
+
             self.current_fps = fps
             logger.info(f"Video properties: {total_frames} frames, {fps} fps")
-            
+
             # Load all frames (no sampling)
             self.video_frames = []
             frame_count = 0
-            
+
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
-                
+
                 self.video_frames.append(frame)
                 frame_count += 1
-            
+
             cap.release()
-            
+
             logger.info(f"Loaded {len(self.video_frames)} frames for display (sampled from {total_frames})")
-            
+
             if self.video_frames:
                 # Set up slider
                 self.frame_slider.setMaximum(len(self.video_frames) - 1)
@@ -591,11 +593,11 @@ class BGSProcessingWidget(QWidget):
                 self.play_btn.setText("Play")
                 self.is_playing = False
                 self.playback_timer.stop()
-                
+
                 # Display first frame
                 self.current_frame_idx = 0
                 self.display_frame(0)
-            
+
         except Exception as e:
             logger.error(f"Error loading video for display: {str(e)}")
 
@@ -603,34 +605,35 @@ class BGSProcessingWidget(QWidget):
         """Display a specific frame from the loaded video"""
         if not self.video_frames or frame_idx >= len(self.video_frames):
             return
-        
+
         frame = self.video_frames[frame_idx]
-        
+
         # Convert to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_frame.shape
-        
+
         # Scale to fit display (max 800 width)
         max_width = 800
         if w > max_width:
             scale = max_width / w
             rgb_frame = cv2.resize(rgb_frame, (int(w * scale), int(h * scale)))
-        
+
         # Convert to QPixmap
         bytes_per_line = rgb_frame.shape[1] * 3
-        qt_image = QImage(rgb_frame.data, rgb_frame.shape[1], rgb_frame.shape[0], 
-                         bytes_per_line, QImage.Format.Format_RGB888)
+        qt_image = QImage(
+            rgb_frame.data, rgb_frame.shape[1], rgb_frame.shape[0], bytes_per_line, QImage.Format.Format_RGB888
+        )
         pixmap = QPixmap.fromImage(qt_image)
-        
+
         # Display
         self.video_display_label.setPixmap(pixmap)
-        
+
         # Update slider and info
         self.current_frame_idx = frame_idx
         self.frame_slider.blockSignals(True)
         self.frame_slider.setValue(frame_idx)
         self.frame_slider.blockSignals(False)
-        
+
         # Display frame info with FPS
         fps_str = f" @ {self.current_fps:.1f} fps" if self.current_fps else ""
         self.frame_info_label.setText(f"Frame {frame_idx + 1} / {len(self.video_frames)}{fps_str}")
@@ -643,7 +646,7 @@ class BGSProcessingWidget(QWidget):
         """Toggle play/pause"""
         if not self.video_frames:
             return
-        
+
         self.is_playing = not self.is_playing
         if self.is_playing:
             self.play_btn.setText("Pause")
@@ -656,7 +659,7 @@ class BGSProcessingWidget(QWidget):
         """Advance to next frame during playback"""
         if not self.video_frames:
             return
-        
+
         next_idx = self.current_frame_idx + 1
         if next_idx >= len(self.video_frames):
             # Loop back to start
@@ -664,7 +667,7 @@ class BGSProcessingWidget(QWidget):
             self.is_playing = False
             self.play_btn.setText("Play")
             self.playback_timer.stop()
-        
+
         self.frame_slider.blockSignals(True)
         self.frame_slider.setValue(next_idx)
         self.frame_slider.blockSignals(False)
@@ -676,7 +679,7 @@ class BGSProcessingWidget(QWidget):
         QMessageBox.information(self, "Success", f"Processing complete!\n\nOutput saved to:\n{output_path}")
         self.process_btn.setEnabled(True)
         self.triangulate_btn.setEnabled(True)  # Enable triangulation button after processing
-        
+
         # Load and display the output video
         self.load_video_for_display(output_path)
 
@@ -693,7 +696,7 @@ class BGSProcessingWidget(QWidget):
             if not video_path:
                 QMessageBox.warning(self, "Warning", "Please select a video first")
                 return
-            
+
             # Get selected region and bounding box
             region = self.region_combo.currentData()
             bbox = None
@@ -703,75 +706,74 @@ class BGSProcessingWidget(QWidget):
                     QMessageBox.warning(
                         self,
                         "Bounding Box Not Found",
-                        f"No {region.upper()} bounding box annotations found for triangulation."
+                        f"No {region.upper()} bounding box annotations found for triangulation.",
                     )
                     return
-            
+
             # Get recording path and configuration
             recording_path = Path(video_path).parent
             # config.toml is in the workspace directory
             config_path = Path(self.controller.workspace_guide.workspace_dir) / "config.toml"
-            
+
             # Path to YOLO predictions (should exist in FLY directory)
             yolo_xyz_path = recording_path / "FLY" / "xyz_FLY_predictions.csv"
-            
+
             if not yolo_xyz_path.exists():
                 QMessageBox.warning(
                     self,
                     "Warning",
                     f"YOLO predictions file not found at:\n{yolo_xyz_path}\n\n"
-                    "Please ensure post-processing has been completed to generate predictions."
+                    "Please ensure post-processing has been completed to generate predictions.",
                 )
                 return
-            
+
             logger.info("Starting BGS triangulation in background thread...")
             logger.info(f"Recording: {recording_path}")
             logger.info(f"Region: {region}, Bbox: {bbox}")
-            
+
             # Import worker
             from calipod.background_subtraction.bgs_triangulation_worker import BGSTriangulationWorker
-            
+
             # Create and start worker thread
             self.triangulation_worker = BGSTriangulationWorker(
                 recording_path=recording_path,
                 config_path=config_path,
                 yolo_xyz_path=yolo_xyz_path,
                 bbox=bbox,
-                region=region
+                region=region,
             )
-            
+
             # Connect signals
             self.triangulation_worker.progress_updated.connect(self.on_triangulation_progress)
             self.triangulation_worker.triangulation_complete.connect(self.on_triangulation_complete)
             self.triangulation_worker.triangulation_error.connect(self.on_triangulation_error)
-            
+
             # Disable button and start
             self.triangulate_btn.setEnabled(False)
             self.triangulate_btn.setText("Triangulating...")
             self.triangulation_worker.start()
-            
+
         except Exception as e:
             logger.error(f"Error starting triangulation: {str(e)}")
             QMessageBox.critical(self, "Error", f"Error starting triangulation:\n{str(e)}")
             self.triangulate_btn.setEnabled(True)
             self.triangulate_btn.setText("Triangulate BGS Points")
-    
+
     def on_triangulation_progress(self, message: str):
         """Handle triangulation progress updates"""
         logger.info(f"[Triangulation] {message}")
-    
+
     def on_triangulation_complete(self, output_path: str):
         """Handle successful triangulation completion"""
         logger.info(f"[SUCCESS] Triangulation complete! Output: {output_path}")
         QMessageBox.information(
             self,
             "Success",
-            f"YOLO predictions successfully supplemented with BGS detections!\n\n"
-            f"Saved to:\n{output_path}"
+            f"YOLO predictions successfully supplemented with BGS detections!\n\nSaved to:\n{output_path}",
         )
         self.triangulate_btn.setEnabled(True)
         self.triangulate_btn.setText("Triangulate BGS Points")
-    
+
     def on_triangulation_error(self, error_msg: str):
         """Handle triangulation errors"""
         logger.error(f"[ERROR] Triangulation error: {error_msg}")
@@ -782,25 +784,22 @@ class BGSProcessingWidget(QWidget):
     def populate_recording_tree(self):
         """Populate tree with recordings and their associated camera video files"""
         self.recording_tree.clear()
-        
+
         # Get list of recording directories
         recording_dirs = self.controller.workspace_guide.valid_recording_dirs()
-        
+
         for recording_name in recording_dirs:
-            recording_path = Path(
-                self.controller.workspace_guide.recording_dir,
-                recording_name
-            )
-            
+            recording_path = Path(self.controller.workspace_guide.recording_dir, recording_name)
+
             # Create recording root item
             recording_item = QTreeWidgetItem()
             recording_item.setText(0, recording_name)
             self.recording_tree.addTopLevelItem(recording_item)
-            
+
             # Find all port_*.mp4 files in the recording directory
             if recording_path.exists():
                 video_files = sorted(recording_path.glob("port_*.mp4"))
-                
+
                 for video_file in video_files:
                     # Extract port number from filename (e.g., "port_0.mp4" -> "0")
                     match = re.search(r"port_(\d+)\.mp4", video_file.name)
@@ -810,9 +809,6 @@ class BGSProcessingWidget(QWidget):
                         video_item.setText(0, f"Camera {port_num}")
                         video_item.setData(0, 32, str(video_file))  # Store full path in role 32 (user role)
                         recording_item.addChild(video_item)
-            
+
             # Expand recording items by default
             self.recording_tree.expandItem(recording_item)
-
-
-

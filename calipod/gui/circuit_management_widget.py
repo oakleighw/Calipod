@@ -1,12 +1,12 @@
 """This widget acts as a guide for creating a camera trigger circuit and wiring guidelines"""
 
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 
 logger = calipod_logger.get(__name__)
-
 
 
 class CircuitManagementWidget(QWidget):

@@ -6,17 +6,16 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from PySide6.QtGui import QFontDatabase
 from scipy.optimize import least_squares
 
-from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.capture_volume.set_origin_functions import (
     get_board_origin_transform,
 )
 from calipod.calibration.charuco import Charuco
 from calipod.cameras.camera_array import CameraArray
-
-from PySide6.QtGui import QFont, QFontDatabase
+from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
 
@@ -51,7 +50,7 @@ class CaptureVolume:
         combined = np.hstack((camera_params.ravel(), self.point_estimates.obj.ravel()))
 
         return combined
-    
+
     def get_cam_origins(self):
         """
         Gets the camera origins (optical centres) in the world plane
@@ -73,88 +72,99 @@ class CaptureVolume:
             rmse = rms_reproj_error(xy_reproj_error, self.point_estimates.camera_indices)
 
         return rmse
-    
-    def cam_distances(self,type = None):
+
+    def cam_distances(self, type=None):
         """
         Returns a dictionary that shows the distance between each optical centre
         """
-        #get camera origins
+        # get camera origins
         interdist = {}
         cam_origins = self.get_cam_origins()
-        
+
         for i, port in enumerate(np.unique(self.point_estimates.camera_indices)):
-            
-            if i ==0: #log first port number
+            if i == 0:  # log first port number
                 first_port = port
 
             logger.info(f"port, i, len unique -1 {port} {i} {len(np.unique(self.point_estimates.camera_indices))}")
-            if i == len(np.unique(self.point_estimates.camera_indices))-1: #if end of list (last port), get distance between last port (current) and first port
-                interdist[f"{str(port)} {str(first_port)}"] = self.cam_dist(cam_origins[i],cam_origins[0],type)
-            else:#get distance between current and next port cam origin
-                interdist[f"{str(port)} {str(port+1)}"] = self.cam_dist(cam_origins[i],cam_origins[i+1],type)
-                
+            if (
+                i == len(np.unique(self.point_estimates.camera_indices)) - 1
+            ):  # if end of list (last port), get distance between last port (current) and first port
+                interdist[f"{str(port)} {str(first_port)}"] = self.cam_dist(cam_origins[i], cam_origins[0], type)
+            else:  # get distance between current and next port cam origin
+                interdist[f"{str(port)} {str(port + 1)}"] = self.cam_dist(cam_origins[i], cam_origins[i + 1], type)
+
         return interdist
 
     def get_rmse_summary(self):
-        rmse_string = f"<pre>RMSE of Reprojection Overall: {round(self.rmse['overall'],2)}\n"
+        rmse_string = f"<pre>RMSE of Reprojection Overall: {round(self.rmse['overall'], 2)}\n"
         rmse_string += "    by camera:\n</pre>"
         for key, value in self.rmse.items():
             if key == "overall":
                 pass
             else:
-                rmse_string += f"<pre>    <font color='{self.camera_array.cameras[int(key)].color_hex}'>{key: >9}</font>: {round(float(value),2)}\n</pre>"
+                rmse_string += f"<pre>    <font color='{self.camera_array.cameras[int(key)].color_hex}'>{key: >9}</font>: {round(float(value), 2)}\n</pre>"
 
         return rmse_string
-    
-    def cam_dist(self,origin1,origin2, type = None): #distance between two 3d points
-        if type == 'vertical': #z
+
+    def cam_dist(self, origin1, origin2, type=None):  # distance between two 3d points
+        if type == "vertical":  # z
             p1 = np.array(origin1[2])
             p2 = np.array(origin2[2])
-        elif type == 'horizontal': #xy
+        elif type == "horizontal":  # xy
             p1 = np.array(origin1[0:2])
             p2 = np.array(origin2[0:2])
-        else: #full 3D distance
+        else:  # full 3D distance
             p1 = origin1
             p2 = origin2
-        cam_dist = np.linalg.norm(p1-p2)
+        cam_dist = np.linalg.norm(p1 - p2)
         return cam_dist
-    
+
     def get_cam_distance_summary(self):
         preferred_monospace_font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
         font_family = preferred_monospace_font.family()
-        default_app_font_size = preferred_monospace_font.pointSize()
-        TARGET_KEY_WIDTH = 9
-        cam_dist_string = f"<pre>Distance between lens optical centres (Total): \n"
+        preferred_monospace_font.pointSize()
+        cam_dist_string = "<pre>Distance between lens optical centres (Total): \n"
         cam_dist_string += "    by camera pairs:\n</pre>"
-        for key, value in self.cam_distances().items(): #key[0] is first camera and key [2] is second camera in string pair (minus '-')
+        for (
+            key,
+            value,
+        ) in (
+            self.cam_distances().items()
+        ):  # key[0] is first camera and key [2] is second camera in string pair (minus '-')
             cam_ports = key.split()
             cam_1_port = cam_ports[0]
             cam_2_port = cam_ports[1]
-            cam_dist_string += (f"<pre>    <font face='{font_family}' color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
-                                f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
-                                f"{round(float(value)*100,3)} cm\n</pre>")# x100 for cm
+            cam_dist_string += (
+                f"<pre>    <font face='{font_family}' color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
+                f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
+                f"{round(float(value) * 100, 3)} cm\n</pre>"
+            )  # x100 for cm
 
-        cam_dist_string += f"<pre>(xy): \n"
+        cam_dist_string += "<pre>(xy): \n"
         cam_dist_string += "    by camera pairs:\n</pre>"
-        
-        for key, value in self.cam_distances('horizontal').items():
+
+        for key, value in self.cam_distances("horizontal").items():
             cam_ports = key.split()
             cam_1_port = cam_ports[0]
             cam_2_port = cam_ports[1]
-            cam_dist_string += (f"<pre>    <font color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
-                                f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
-                                f"{round(float(value)*100,3)} cm\n</pre>")# x100 for cm
+            cam_dist_string += (
+                f"<pre>    <font color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
+                f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
+                f"{round(float(value) * 100, 3)} cm\n</pre>"
+            )  # x100 for cm
 
-        cam_dist_string += f"<pre>(z): \n"
+        cam_dist_string += "<pre>(z): \n"
         cam_dist_string += "    by camera pairs:\n</pre>"
 
-        for key, value in self.cam_distances('vertical').items():
+        for key, value in self.cam_distances("vertical").items():
             cam_ports = key.split()
             cam_1_port = cam_ports[0]
             cam_2_port = cam_ports[1]
-            cam_dist_string += (f"<pre>    <font color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
-                                f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
-                                f"{round(float(value)*100,3)} cm\n</pre>")# x100 for cm
+            cam_dist_string += (
+                f"<pre>    <font color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
+                f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
+                f"{round(float(value) * 100, 3)} cm\n</pre>"
+            )  # x100 for cm
 
         return cam_dist_string
 
@@ -175,7 +185,7 @@ class CaptureVolume:
         # logger.info(
         #     f"Prior to bundle adjustment (stage {str(self.stage)}), RMSE is: {self.rmse}"
         # )
-        logger.info(f"Beginning bundle adjustment to calculated stage {self.stage+1}")
+        logger.info(f"Beginning bundle adjustment to calculated stage {self.stage + 1}")
         self.least_sq_result = least_squares(
             xy_reprojection_error,
             initial_param_estimate,
@@ -315,9 +325,6 @@ def rms_reproj_error(xy_reproj_error, camera_indices):
     return rmse
 
 
-
-
-
 # def load_capture_volume(session_path:Path):
 #     config = get_config(session_directory)
 
@@ -329,5 +336,3 @@ def rms_reproj_error(xy_reproj_error, camera_indices):
 #     # capture_volume.origin_sync_index = config["capture_volume"]["origin_sync_index"]
 
 #     return capture_volume
-
-

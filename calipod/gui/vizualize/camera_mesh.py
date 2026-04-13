@@ -4,8 +4,8 @@ import numpy as np
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 
-from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraData
+from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
 
@@ -214,7 +214,7 @@ class CameraMesh:
 
         self.colors = np.array(self.colors)
 
-    def build_camera_origin_mesh(self): #new camera mesh (square)
+    def build_camera_origin_mesh(self):  # new camera mesh (square)
         return build_camera_origin_cube_geometry()
 
 
@@ -264,7 +264,7 @@ def mesh_from_camera(camera_data: CameraData):
     camera_origin_world = -np.dot(R.T, t)
     x, y, z = [p for p in camera_origin_world]
     mesh.translate(x, y, z)
-    origin_point.translate(x,y,z)
+    origin_point.translate(x, y, z)
 
     return mesh, origin_point
 
@@ -383,7 +383,6 @@ if __name__ == "__main__":
                         cams[other_port].mesh.rotate(y, 0, 1, 0, local=True)
                         cams[other_port].mesh.rotate(z, 0, 0, 1, local=True)
 
-
                         cams[other_port].origin_point.rotate(x, 1, 0, 0, local=True)
                         cams[other_port].origin_point.rotate(y, 0, 1, 0, local=True)
                         cams[other_port].origin_point.rotate(z, 0, 0, 1, local=True)
@@ -393,5 +392,3 @@ if __name__ == "__main__":
                         scene.addItem(cams[other_port].origin_point)
 
     pg.exec()
-
-

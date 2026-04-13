@@ -1,47 +1,48 @@
 # caliscope/gui/vizualize/playback_triangulation_widget.py
 
+import subprocess
 from pathlib import Path
 from time import time
-import os
-
-import numpy as np
-import pyqtgraph.opengl as gl
-import pyqtgraph as pg 
-from PySide6.QtCore import Qt, QThread
-from PySide6.QtWidgets import (
-    QSlider,
-    QVBoxLayout,
-    QHBoxLayout,
-    QWidget,
-    QPushButton,
-    QApplication,
-    QFileDialog,
-    QMessageBox,
-    QDoubleSpinBox,
-    QSpinBox,
-    QLabel,
-    QAbstractSpinBox,
-)
-from PySide6.QtGui import QImage, QColorConstants, QColor, QVector3D
-
-
-from calipod.core import logger as calipod_logger
-from calipod.cameras.camera_array import CameraArray
-from calipod.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
-from calipod.gui.vizualize.interactive_3d_graph_window import Interactive3DGraphWindow
-from calipod.gui.vizualize.filter_parameter_manager import FilterParameterManager
-from calipod.gui.vizualize.metrics_computer import MetricsComputer
-from calipod.gui.utils.grids import adaptive_grid_spacing, build_complete_grid_label_specs, build_plane_grid_lines
-from calipod.motion_trial import MotionTrial
-from calipod.trackers.motion_models import ConstantVelocity3DModel
-from calipod.export import VideoExporter, FrameCompositor, FilterMetadataManager, VideoExportWorker, CompareVideoExportWorker, GenericWorker, VideoExportProgressDialog
-
-import cv2
-import rtoml
-import pandas as pd
-import subprocess
 from typing import Optional
 
+import cv2
+import numpy as np
+import pandas as pd
+import pyqtgraph.opengl as gl
+import rtoml
+from PySide6.QtCore import Qt, QThread
+from PySide6.QtGui import QColorConstants, QImage
+from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from calipod.cameras.camera_array import CameraArray
+from calipod.core import logger as calipod_logger
+from calipod.export import (
+    CompareVideoExportWorker,
+    FrameCompositor,
+    GenericWorker,
+    VideoExporter,
+    VideoExportProgressDialog,
+    VideoExportWorker,
+)
+from calipod.gui.utils.grids import adaptive_grid_spacing, build_complete_grid_label_specs, build_plane_grid_lines
+from calipod.gui.vizualize.camera_mesh import CameraMesh, mesh_from_camera
+from calipod.gui.vizualize.filter_parameter_manager import FilterParameterManager
+from calipod.gui.vizualize.interactive_3d_graph_window import Interactive3DGraphWindow
+from calipod.gui.vizualize.metrics_computer import MetricsComputer
+from calipod.motion_trial import MotionTrial
+from calipod.trackers.motion_models import ConstantVelocity3DModel
 
 logger = calipod_logger.get(__name__)
 
@@ -60,7 +61,7 @@ class PlaybackTriangulationWidget(QWidget):
 
         self.export_compare_button = QPushButton("Export Real Video Compare")
 
-        self.measurement_view_button = QPushButton("Measurement View") 
+        self.measurement_view_button = QPushButton("Measurement View")
 
         self.generate_graph_button = QPushButton("Generate Graph")
 
@@ -71,7 +72,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.compute_metrics_button = QPushButton("Compute Performance Metrics")
         self.toggle_filtered_button = QPushButton("Use Filtered Track")
         self.toggle_filtered_button.setCheckable(True)
-        
+
         # Reference to hybrid checkbox (will be set from post_processing_widget)
         self.use_hybrid_bgs = None  # Will be assigned the checkbox from post_processing_widget
 
@@ -87,7 +88,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.max_distance_threshold = 10.0  # Fixed distance gating threshold in mm (hybrid gating)
         self.filter_start_frame: Optional[int] = None  # Optional start frame for filtering
         self.filter_end_frame: Optional[int] = None  # Optional end frame for filtering
-        
+
         # BGS-specific filter parameters (for extended frames with only BGS measurements)
         self.bgs_kalman_process_noise_scale = 0.2
         self.bgs_kalman_measurement_noise_std = 0.0002  # meters (0.2 mm)
@@ -107,7 +108,7 @@ class PlaybackTriangulationWidget(QWidget):
             gap_fill_only=self.gap_fill_only,
             extend_filtered_track=False,
         )
-        
+
         # Create metrics computer for handling metrics computation and display
         self.metrics_computer = MetricsComputer(self)
 
@@ -135,7 +136,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.gate_distance_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.gate_distance_slider.setTickInterval(10)  # Tick every 1.0 sigma
         self.gate_distance_slider.setMaximumWidth(150)
-        
+
         self.gate_distance_label = QLabel(f"{self.gate_distance_sigma:.1f}σ")
         self.gate_distance_slider.valueChanged.connect(self.filter_manager.update_gate_label)
 
@@ -148,8 +149,9 @@ class PlaybackTriangulationWidget(QWidget):
 
         # Checkbox for gap-fill only mode
         from PySide6.QtWidgets import QCheckBox
+
         self.gap_fill_only_checkbox = QCheckBox("Gap-fill only (don't smooth existing)")
-        
+
         # Checkbox for extending filtered track using available measurements (BGS or continuity)
         self.extend_filtered_track_checkbox = QCheckBox("Extend filter past predictions (using BGS/continuity)")
         self.extend_filtered_track_checkbox.setToolTip(
@@ -170,6 +172,13 @@ class PlaybackTriangulationWidget(QWidget):
         self.filter_end_spin.setMinimumWidth(80)
         self.filter_end_spin.setMaximumWidth(150)
         self.filter_end_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+
+        # Checkbox to cut exported video to filter frame range
+        self.cut_video_to_filter_frames_checkbox = QCheckBox("Cut video to start & end frames")
+        self.cut_video_to_filter_frames_checkbox.setEnabled(False)
+        self.cut_video_to_filter_frames_checkbox.setToolTip(
+            "When enabled, export will only include frames between the specified start and end frame values"
+        )
 
         # BGS-specific filter parameter controls (disabled until hybrid mode is enabled)
         self.bgs_process_noise_spin = QDoubleSpinBox()
@@ -194,7 +203,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.bgs_gate_distance_slider.setTickInterval(10)  # Tick every 1.0 sigma
         self.bgs_gate_distance_slider.setMaximumWidth(150)
         self.bgs_gate_distance_slider.setEnabled(False)
-        
+
         self.bgs_gate_distance_label = QLabel(f"{self.bgs_gate_distance_sigma:.1f}σ")
         self.bgs_gate_distance_slider.valueChanged.connect(self.filter_manager.update_bgs_gate_label)
 
@@ -222,7 +231,7 @@ class PlaybackTriangulationWidget(QWidget):
 
         self._session_start_frame: Optional[int] = None
         self._session_end_frame: Optional[int] = None
-        self.xyz_history_path: Optional[Path] = None 
+        self.xyz_history_path: Optional[Path] = None
 
         self.setMinimumSize(500, 500)
 
@@ -252,7 +261,7 @@ class PlaybackTriangulationWidget(QWidget):
         else:
             self.motion_trial = None
             self.slider.setMinimum(0)
-            self.slider.setMaximum(0) 
+            self.slider.setMaximum(0)
             self.slider.setValue(0)
 
     def place_widgets(self):
@@ -288,7 +297,7 @@ class PlaybackTriangulationWidget(QWidget):
         filter_row.addWidget(self.max_distance_spin)
         filter_row.addStretch()
         self.layout().addLayout(filter_row)
-        
+
         # Additional filter options row (gap-fill, frame range, extend, and hybrid mode)
         filter_options_row = QHBoxLayout()
         filter_options_row.addWidget(self.gap_fill_only_checkbox)
@@ -296,16 +305,17 @@ class PlaybackTriangulationWidget(QWidget):
         filter_options_row.addWidget(self.filter_start_spin)
         filter_options_row.addWidget(QLabel("End frame"))
         filter_options_row.addWidget(self.filter_end_spin)
+        filter_options_row.addWidget(self.cut_video_to_filter_frames_checkbox)
         filter_options_row.addWidget(self.extend_filtered_track_checkbox)
-        
+
         # Add hybrid checkbox if available (will be set from post_processing_widget)
         if self.use_hybrid_bgs is not None:
             filter_options_row.addWidget(self.use_hybrid_bgs)
-        
+
         filter_options_row.addStretch()
         self.filter_options_layout = filter_options_row  # Store reference for updating later
         self.layout().addLayout(filter_options_row)
-        
+
         # BGS-specific filter parameters row (only enabled when hybrid mode is active)
         bgs_filter_row = QHBoxLayout()
         bgs_filter_row.addWidget(QLabel("BGS Filter Params (YOLO+BGS only):"))
@@ -351,73 +361,80 @@ class PlaybackTriangulationWidget(QWidget):
             logger.info("Video export cancelled.")
             self.export_button.setChecked(False)
             return
-        
+
         # Start export on main thread (GL context required)
         self._start_motion_video_export()
-    
+
     def _start_motion_video_export(self):
         """Launch motion video export on main thread with modal progress dialog."""
         export_video_path, _, _ = self._derive_export_paths()
-        
+
         # Ensure output directory exists
         export_video_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Capture viewport dimensions at export start
         viewport_width = self.visualizer.scene.width()
         viewport_height = self.visualizer.scene.height()
         logger.info(f"Export starting with locked viewport dimensions: {viewport_width}x{viewport_height}")
-        
+
         self.visualizer.locked_export_width = viewport_width
         self.visualizer.locked_export_height = viewport_height
         self.visualizer.set_export_mode(True)
         self.visualizer.clear_collected_frames()
-        
+
         # Determine frame range
         exporter = VideoExporter(self.video_framerate)
         export_start_frame = 0
-        export_end_frame = 0 
-        
+        export_end_frame = 0
+
         if self._session_start_frame is not None and self._session_end_frame is not None:
             export_start_frame = self._session_start_frame
             export_end_frame = self._session_end_frame
-            logger.info(f"Exporting video based on full session frame range: {export_start_frame} to {export_end_frame}.")
-            if self.visualizer.motion_trial is None: 
-                self.visualizer.motion_trial = MotionTrial() 
-            
+            logger.info(
+                f"Exporting video based on full session frame range: {export_start_frame} to {export_end_frame}."
+            )
+            if self.visualizer.motion_trial is None:
+                self.visualizer.motion_trial = MotionTrial()
+
         elif self.motion_trial and not self.motion_trial.is_empty:
             export_start_frame = self.motion_trial.start_index
             export_end_frame = self.motion_trial.end_index
-            logger.info(f"Exporting video based on loaded motion trial range: {export_start_frame} to {export_end_frame}.")
+            logger.info(
+                f"Exporting video based on loaded motion trial range: {export_start_frame} to {export_end_frame}."
+            )
             self.visualizer.motion_trial = self.motion_trial
         else:
             export_start_frame = 0
-            export_end_frame = self.video_framerate * 3 
-            logger.warning(f"No valid motion trial or session range available. Exporting {export_end_frame - export_start_frame + 1} frames of empty scene.")
-            if self.visualizer.motion_trial is None: 
+            export_end_frame = self.video_framerate * 3
+            logger.warning(
+                f"No valid motion trial or session range available. Exporting {export_end_frame - export_start_frame + 1} frames of empty scene."
+            )
+            if self.visualizer.motion_trial is None:
                 self.visualizer.motion_trial = MotionTrial()
-        
+
+        # Override frame range if "cut video to filter frames" is checked
+        if self.cut_video_to_filter_frames_checkbox.isChecked():
+            filter_start = self.filter_start_spin.value()
+            filter_end = self.filter_end_spin.value()
+            export_start_frame = filter_start
+            export_end_frame = filter_end
+            logger.info(f"Overriding export frame range with filter frames: {export_start_frame} to {export_end_frame}")
+
         # Create modal progress dialog
         self.export_progress_dialog = VideoExportProgressDialog(
-            parent=self,
-            title="Exporting Triangulated Video",
-            allow_cancel=True
+            parent=self, title="Exporting Triangulated Video", allow_cancel=True
         )
-        
+
         # Disable export button during process
         self.export_button.setEnabled(False)
-        
+
         try:
             logger.info("Starting motion video export on main thread (GL context required)...")
             self.export_progress_dialog.show()
-            
+
             # Run export on main thread with progress updates
-            self._run_motion_video_export_main_thread(
-                exporter,
-                export_start_frame,
-                export_end_frame,
-                export_video_path
-            )
-            
+            self._run_motion_video_export_main_thread(exporter, export_start_frame, export_end_frame, export_video_path)
+
             # Only show "completed" message if not cancelled and dialog still exists
             if not self.export_progress_dialog.cancelled and self.export_progress_dialog.isVisible():
                 logger.info("Motion video export completed successfully")
@@ -435,11 +452,11 @@ class PlaybackTriangulationWidget(QWidget):
             self.visualizer.set_export_mode(False)
             self.export_button.setEnabled(True)
             self.export_button.setChecked(False)
-    
+
     def _run_motion_video_export_main_thread(self, exporter, export_start_frame, export_end_frame, output_path):
         """Execute motion video export on main thread with frequent UI updates."""
         total_frames = export_end_frame - export_start_frame + 1
-        
+
         # Collect frames by iterating through frame range
         frame_count = 0
         for i in range(export_start_frame, export_end_frame + 1):
@@ -448,31 +465,31 @@ class PlaybackTriangulationWidget(QWidget):
                 logger.info("Motion video export cancelled by user")
                 self.export_progress_dialog.set_status("Cancelled by user")
                 return
-            
+
             self.visualizer.display_points(i)
             self.visualizer.update_segment_lines(i)
-            
+
             frame_count += 1
-            
+
             # Update progress dialog
             self.export_progress_dialog.set_progress(frame_count, total_frames)
-            
+
             # Keep UI responsive - process events every 5 frames
             if frame_count % 5 == 0:
                 QApplication.processEvents()
-        
+
         logger.info(f"Collected {frame_count} frames for video encoding")
-        
+
         # Render collected frames to video via FFmpeg
         collected_frames = self.visualizer.get_collected_frames()
         if not collected_frames:
             logger.error("No frames were collected")
             raise RuntimeError("No frames were collected for video export")
-        
+
         # Update dialog status while encoding
         self.export_progress_dialog.set_status("Encoding video (this may take a moment)...")
         QApplication.processEvents()
-        
+
         # Render to video
         exporter._render_frames_to_video(collected_frames, output_path, self.video_framerate)
 
@@ -489,9 +506,9 @@ class PlaybackTriangulationWidget(QWidget):
 
         return export_video_path, compare_video_path, recording_dir
 
-
-
-    def create_quad_split_video_streaming(self, port_video_paths: list[Path], start_frame: int, end_frame: int, output_path: Path, progress_callback=None):
+    def create_quad_split_video_streaming(
+        self, port_video_paths: list[Path], start_frame: int, end_frame: int, output_path: Path, progress_callback=None
+    ):
         """Create quad-split video using port videos and on-demand sim frame rendering (no memory pre-collection)."""
         if len(port_video_paths) != 3:
             raise ValueError("Please provide exactly 3 port video paths.")
@@ -530,27 +547,32 @@ class PlaybackTriangulationWidget(QWidget):
         # Use FFmpeg for compressed output via pipe
         ffmpeg_cmd = [
             "ffmpeg",
-            "-f", "rawvideo",
-            "-pix_fmt", "bgr24",
-            "-s", f"{output_resolution[0]}x{output_resolution[1]}",
-            "-r", str(target_fps),
-            "-i", "-",
-            "-c:v", "libx264",
-            "-b:v", "8000k",  # 8 Mbps bitrate (adjust as needed)
-            "-preset", "medium",  # medium speed/quality tradeoff
-            "-pix_fmt", "yuv420p",  # Ensure compatibility
-            "-movflags", "+faststart",  # Make mp4 streamable
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            f"{output_resolution[0]}x{output_resolution[1]}",
+            "-r",
+            str(target_fps),
+            "-i",
+            "-",
+            "-c:v",
+            "libx264",
+            "-b:v",
+            "8000k",  # 8 Mbps bitrate (adjust as needed)
+            "-preset",
+            "medium",  # medium speed/quality tradeoff
+            "-pix_fmt",
+            "yuv420p",  # Ensure compatibility
+            "-movflags",
+            "+faststart",  # Make mp4 streamable
             "-y",  # Overwrite output
-            str(output_path)
+            str(output_path),
         ]
 
         try:
-            proc = subprocess.Popen(
-                ffmpeg_cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except FileNotFoundError:
             logger.error("FFmpeg not found. Install FFmpeg or add it to PATH.")
             for cap in caps:
@@ -562,11 +584,11 @@ class PlaybackTriangulationWidget(QWidget):
         try:
             for sync_idx in range(start_frame, end_frame + 1):
                 # Check if user clicked cancel
-                if progress_callback and hasattr(self, 'compare_progress_dialog'):
+                if progress_callback and hasattr(self, "compare_progress_dialog"):
                     if self.compare_progress_dialog.cancelled:
                         logger.info("Compare video export cancelled by user")
                         return
-                
+
                 port_frames = []
                 for cap in caps:
                     ret, frame = cap.read()
@@ -577,27 +599,28 @@ class PlaybackTriangulationWidget(QWidget):
 
                 if len(port_frames) < 3:
                     break
-                
+
                 # Render sim frame on-demand (no memory pre-collection)
                 self.visualizer.display_points(sync_idx)
                 self.visualizer.update_segment_lines(sync_idx)
-                
+
                 # Grab framebuffer
                 qimage = self.visualizer.scene.grabFramebuffer()
                 sim_frame = self.visualizer.qimage_to_cv2(qimage) if not qimage.isNull() else None
-                
+
                 if sim_frame is None or sim_frame.size == 0:
                     logger.warning(f"Failed to grab sim frame at sync_idx {sync_idx}, skipping")
                     continue
 
                 # Stitch: resize real videos without crop, crop only sim
                 resized_frames = [
-                    cv2.resize(port_frames[i], (quad_width, quad_height)) if i < 3 
-                    else FrameCompositor.resize_and_center_crop(sim_frame, quad_width, quad_height) 
+                    cv2.resize(port_frames[i], (quad_width, quad_height))
+                    if i < 3
+                    else FrameCompositor.resize_and_center_crop(sim_frame, quad_width, quad_height)
                     for i in range(3)
                 ]
                 resized_frames.append(FrameCompositor.resize_and_center_crop(sim_frame, quad_width, quad_height))
-                
+
                 top_row = np.hstack((resized_frames[0], resized_frames[1]))
                 bottom_row = np.hstack((resized_frames[2], resized_frames[3]))
                 combined_frame = np.vstack((top_row, bottom_row))
@@ -610,11 +633,11 @@ class PlaybackTriangulationWidget(QWidget):
                     break
 
                 frame_count += 1
-                
+
                 # Emit progress updates if callback provided
                 if progress_callback:
                     progress_callback(frame_count, total_frames)
-                
+
                 # Keep UI responsive during long video processing - call on every frame for compare export
                 # (compare export runs on main thread, so processEvents is essential)
                 if frame_count % 5 == 0:
@@ -624,7 +647,7 @@ class PlaybackTriangulationWidget(QWidget):
             logger.info(f"Finished processing {frame_count} frames, finalizing video file...")
             proc.stdin.close()
             QApplication.processEvents()
-            
+
             # Wait for FFmpeg to finish
             stdout, stderr = proc.communicate(timeout=300)
             if proc.returncode != 0:
@@ -684,8 +707,8 @@ class PlaybackTriangulationWidget(QWidget):
 
         # Determine frame range
         export_start_frame = 0
-        export_end_frame = 0 
-        
+        export_end_frame = 0
+
         if self._session_start_frame is not None and self._session_end_frame is not None:
             export_start_frame = self._session_start_frame
             export_end_frame = self._session_end_frame
@@ -696,14 +719,24 @@ class PlaybackTriangulationWidget(QWidget):
             logger.info(f"Compare export using motion trial range: {export_start_frame} to {export_end_frame}")
         else:
             export_start_frame = 0
-            export_end_frame = self.video_framerate * 3 
+            export_end_frame = self.video_framerate * 3
             logger.warning(f"Compare export using default 3-second range: {export_start_frame} to {export_end_frame}")
+
+        # Override frame range if "cut video to filter frames" is checked
+        if self.cut_video_to_filter_frames_checkbox.isChecked():
+            filter_start = self.filter_start_spin.value()
+            filter_end = self.filter_end_spin.value()
+            export_start_frame = filter_start
+            export_end_frame = filter_end
+            logger.info(
+                f"Overriding compare export frame range with filter frames: {export_start_frame} to {export_end_frame}"
+            )
 
         # CRITICAL: Capture viewport dimensions at export start to ensure consistent frame sizes
         viewport_width = self.visualizer.scene.width()
         viewport_height = self.visualizer.scene.height()
         logger.info(f"Compare export starting with locked viewport dimensions: {viewport_width}x{viewport_height}")
-        
+
         # Store locked dimensions in visualizer to enforce consistent frame sizes
         self.visualizer.locked_export_width = viewport_width
         self.visualizer.locked_export_height = viewport_height
@@ -712,7 +745,7 @@ class PlaybackTriangulationWidget(QWidget):
         self.compare_progress_dialog = VideoExportProgressDialog(
             parent=self,
             title="Exporting Compare Video",
-            allow_cancel=False  # Compare export can't be cancelled mid-GL operation
+            allow_cancel=False,  # Compare export can't be cancelled mid-GL operation
         )
         self.compare_progress_dialog.show()
 
@@ -721,13 +754,13 @@ class PlaybackTriangulationWidget(QWidget):
             # NOTE: Must run on main thread because create_quad_split_video_streaming needs Qt/GL context
             # We show progress dialog and call periodically during rendering
             self.create_quad_split_video_streaming(
-                port_videos[:3], 
-                export_start_frame, 
-                export_end_frame, 
+                port_videos[:3],
+                export_start_frame,
+                export_end_frame,
                 compare_video_path,
-                progress_callback=self._on_compare_export_progress
+                progress_callback=self._on_compare_export_progress,
             )
-            
+
             # Only show "completed" message if not cancelled and dialog still exists
             if not self.compare_progress_dialog.cancelled and self.compare_progress_dialog.isVisible():
                 logger.info("Compare video export completed successfully")
@@ -744,45 +777,44 @@ class PlaybackTriangulationWidget(QWidget):
             self.visualizer.locked_export_width = None
             self.visualizer.locked_export_height = None
             self.export_compare_button.setEnabled(True)
-    
+
     def _on_compare_export_progress(self, current_frame, total_frames):
         """Callback for compare video export progress updates."""
         self.compare_progress_dialog.set_progress(current_frame, total_frames)
 
-
     def update_motion_trial(self, xyz_history_path):
         tic = time()
         logger.info(f"Beginning to load in motion trial: {time()}")
-        
+
         self.xyz_history_path = xyz_history_path
-        self.motion_trial = MotionTrial(xyz_history_path) 
+        self.motion_trial = MotionTrial(xyz_history_path)
         logger.info(f"Motion trial loading complete: {time()} ")
         toc = time()
-        logger.info(f"Elapsed time to load: {toc-tic}")
+        logger.info(f"Elapsed time to load: {toc - tic}")
 
         self.visualizer.update_motion_trial(self.motion_trial)
 
-        if self.xyz_history_path: 
+        if self.xyz_history_path:
             project_config_path = self.xyz_history_path.parent / "config.toml"
             fps_detected = None
-            
+
             # Try to detect FPS from actual video files in the recording directory
             recording_dir = self.xyz_history_path.parent
             video_files = list(recording_dir.glob("port_*.mp4"))
-            
+
             if video_files:
                 try:
                     cap = cv2.VideoCapture(str(video_files[0]))
                     fps_detected = cap.get(cv2.CAP_PROP_FPS)
                     cap.release()
-                    
+
                     if fps_detected > 0:
                         self.video_framerate = fps_detected
                         # Save the detected FPS to config
                         try:
                             if project_config_path.exists():
                                 project_config_data = rtoml.load(project_config_path)
-                                project_config_data['fps_recording'] = int(fps_detected)
+                                project_config_data["fps_recording"] = int(fps_detected)
                                 rtoml.dump(project_config_data, project_config_path)
                                 logger.info(f"Saved detected video FPS ({fps_detected}) to config.toml")
                         except Exception as e:
@@ -790,29 +822,39 @@ class PlaybackTriangulationWidget(QWidget):
                         logger.info(f"Video framerate detected from video file: {self.video_framerate}")
                 except Exception as e:
                     logger.warning(f"Could not detect FPS from video file: {e}")
-            
+
             # If no video FPS detected, try to read from config
             if not fps_detected:
                 try:
                     if project_config_path.exists():
                         project_config_data = rtoml.load(project_config_path)
                         # Try fps_recording first, then fall back to fps_sync_stream_processing
-                        self.video_framerate = project_config_data.get("fps_recording") or project_config_data.get("fps_sync_stream_processing", 60)
-                        logger.info(f"Video export framerate set from project config ({project_config_path}) to: {self.video_framerate}")
+                        self.video_framerate = project_config_data.get("fps_recording") or project_config_data.get(
+                            "fps_sync_stream_processing", 60
+                        )
+                        logger.info(
+                            f"Video export framerate set from project config ({project_config_path}) to: {self.video_framerate}"
+                        )
                     else:
-                        logger.info(f"Project config.toml not found at {project_config_path}. Using default video framerate: {self.video_framerate}")
+                        logger.info(
+                            f"Project config.toml not found at {project_config_path}. Using default video framerate: {self.video_framerate}"
+                        )
                 except Exception as e:
-                    logger.error(f"Error reading project config.toml for framerate: {e}. Using default video framerate: {self.video_framerate}")
-            
+                    logger.error(
+                        f"Error reading project config.toml for framerate: {e}. Using default video framerate: {self.video_framerate}"
+                    )
+
             # Update the FPS label display
             self.video_fps_label.setText(f"Video FPS: {self.video_framerate:.1f}")
         else:
-            logger.warning("Motion trial path not available, cannot load project-specific config.toml for framerate. Using default.")
+            logger.warning(
+                "Motion trial path not available, cannot load project-specific config.toml for framerate. Using default."
+            )
 
-        self._session_start_frame = None 
-        self._session_end_frame = None   
+        self._session_start_frame = None
+        self._session_end_frame = None
 
-        if self.xyz_history_path: 
+        if self.xyz_history_path:
             frame_time_history_path = self.xyz_history_path.parent / "frame_time_history.csv"
             try:
                 if frame_time_history_path.exists():
@@ -820,30 +862,38 @@ class PlaybackTriangulationWidget(QWidget):
                     if not frame_time_df.empty and "sync_index" in frame_time_df.columns:
                         self._session_start_frame = int(frame_time_df["sync_index"].min())
                         self._session_end_frame = int(frame_time_df["sync_index"].max())
-                        logger.info(f"Session frame range loaded from {frame_time_history_path}: {self._session_start_frame} to {self._session_end_frame}")
+                        logger.info(
+                            f"Session frame range loaded from {frame_time_history_path}: {self._session_start_frame} to {self._session_end_frame}"
+                        )
                     else:
-                        logger.warning(f"frame_time_history.csv at {frame_time_history_path} is empty or missing 'sync_index' column. Cannot determine full session frame range.")
+                        logger.warning(
+                            f"frame_time_history.csv at {frame_time_history_path} is empty or missing 'sync_index' column. Cannot determine full session frame range."
+                        )
                 else:
-                    logger.warning(f"frame_time_history.csv not found at {frame_time_history_path}. Cannot determine full session frame range.")
+                    logger.warning(
+                        f"frame_time_history.csv not found at {frame_time_history_path}. Cannot determine full session frame range."
+                    )
             except Exception as e:
                 logger.error(f"Error reading frame_time_history.csv: {e}. Cannot determine full session frame range.")
 
         if self._session_start_frame is not None and self._session_end_frame is not None:
-             self.slider.setMinimum(self._session_start_frame)
-             self.slider.setMaximum(self._session_end_frame)
-             self.slider.setValue(self._session_start_frame) 
-        elif self.motion_trial.is_empty: 
+            self.slider.setMinimum(self._session_start_frame)
+            self.slider.setMaximum(self._session_end_frame)
+            self.slider.setValue(self._session_start_frame)
+        elif self.motion_trial.is_empty:
             self.slider.setMinimum(0)
-            self.slider.setMaximum(0) 
+            self.slider.setMaximum(0)
             self.slider.setValue(0)
-        else: 
+        else:
             self.slider.setMinimum(self.motion_trial.start_index)
             self.slider.setMaximum(self.motion_trial.end_index)
             self.slider.setValue(self.motion_trial.start_index)
-        
+
         # Try to load filter metadata if available
         # MotionTrial auto-detects and prefers filtered predictions if they exist
-        self.filter_manager.load_metadata(Path(self.motion_trial.predictions_csv) if self.motion_trial.predictions_csv else None)
+        self.filter_manager.load_metadata(
+            Path(self.motion_trial.predictions_csv) if self.motion_trial.predictions_csv else None
+        )
 
     def update_camera_array(self, camera_array: CameraArray):
         self.visualizer.update_camera_array(camera_array)
@@ -882,35 +932,42 @@ class PlaybackTriangulationWidget(QWidget):
 
         if checked:
             self.toggle_filtered_button.setEnabled(False)
+            # Enable the "cut video to filter frames" checkbox when filtering is enabled
+            self.cut_video_to_filter_frames_checkbox.setEnabled(True)
             try:
                 # Check if an old filtered CSV exists without the new columns; if so, force recomputation
                 force_recompute = False
                 if filtered_path.exists():
                     try:
                         existing_filtered = pd.read_csv(filtered_path, nrows=1, engine="pyarrow")
-                        if 'measurement_source' not in existing_filtered.columns or 'error_mm' not in existing_filtered.columns:
-                            logger.info(f"Existing filtered CSV is missing measurement_source/error_mm columns; forcing recomputation")
+                        if (
+                            "measurement_source" not in existing_filtered.columns
+                            or "error_mm" not in existing_filtered.columns
+                        ):
+                            logger.info(
+                                "Existing filtered CSV is missing measurement_source/error_mm columns; forcing recomputation"
+                            )
                             force_recompute = True
                     except:
                         force_recompute = True
                 else:
                     force_recompute = True
-                
+
                 if force_recompute:
                     # Set spinbox ranges based on actual prediction data
                     pred_df = self.motion_trial.predictions_df
                     if pred_df is not None and not pred_df.empty:
-                        min_frame = int(pred_df['sync_index'].min())
-                        max_frame = int(pred_df['sync_index'].max())
-                        
+                        int(pred_df["sync_index"].min())
+                        max_frame = int(pred_df["sync_index"].max())
+
                         # Allow spinbox range to extend to ground truth end if available (for extend filter logic)
                         spinbox_max = max_frame
-                        if self.motion_trial is not None and hasattr(self.motion_trial, 'end_index'):
+                        if self.motion_trial is not None and hasattr(self.motion_trial, "end_index"):
                             spinbox_max = max(max_frame, self.motion_trial.end_index)
-                        
+
                         self.filter_start_spin.setRange(0, spinbox_max)
                         self.filter_end_spin.setRange(0, spinbox_max)
-                    
+
                     # Capture UI parameter values
                     self.kalman_process_noise_scale = float(self.process_noise_spin.value())
                     self.kalman_measurement_noise_std = float(self.meas_noise_spin.value()) / 1000.0  # mm -> m
@@ -919,47 +976,49 @@ class PlaybackTriangulationWidget(QWidget):
                     self.extend_filtered_track = self.extend_filtered_track_checkbox.isChecked()
                     self.gate_distance_sigma = float(self.gate_distance_slider.value()) / 10.0
                     self.max_distance_threshold = float(self.max_distance_spin.value())  # mm
-                    
+
                     # Capture BGS-specific parameters
                     self.bgs_kalman_process_noise_scale = float(self.bgs_process_noise_spin.value())
                     self.bgs_kalman_measurement_noise_std = float(self.bgs_meas_noise_spin.value()) / 1000.0  # mm -> m
                     self.bgs_gate_distance_sigma = float(self.bgs_gate_distance_slider.value()) / 10.0
                     self.bgs_max_distance_threshold = float(self.bgs_max_distance_spin.value())  # mm
 
-                    msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std*1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, max_dist={self.max_distance_threshold:.1f}mm, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'}, extend_past_pred={'yes' if self.extend_filtered_track else 'no'})"
+                    msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std * 1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, max_dist={self.max_distance_threshold:.1f}mm, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'}, extend_past_pred={'yes' if self.extend_filtered_track else 'no'})"
                     logger.info(msg)
                     print(msg)  # Ensure it shows in console
-                    
+
                     # Check if hybrid YOLO+BGS mode is enabled
                     use_hybrid = False
-                    if hasattr(self, 'use_hybrid_bgs') and self.use_hybrid_bgs:
+                    if hasattr(self, "use_hybrid_bgs") and self.use_hybrid_bgs:
                         use_hybrid = self.use_hybrid_bgs.isChecked()
                         if use_hybrid:
                             msg = "Using hybrid YOLO+BGS measurement selection during Kalman filtering"
                             logger.info(msg)
                             print(msg)
-                    
+
                     filtered_df = self._compute_filtered_predictions(use_hybrid=use_hybrid)
-                    
+
                     if filtered_df is None or filtered_df.empty:
                         err_msg = "Kalman filter computation failed: empty result"
                         logger.error(err_msg)
                         print(err_msg)
-                        QMessageBox.warning(self, "Filter Error", "Filtered predictions are empty; keeping raw predictions.")
+                        QMessageBox.warning(
+                            self, "Filter Error", "Filtered predictions are empty; keeping raw predictions."
+                        )
                         self.toggle_filtered_button.setChecked(False)
                         self.toggle_filtered_button.setEnabled(True)
                         return
-                    
+
                     comp_msg = f"Kalman filter computation complete; generated {len(filtered_df)} frames"
                     logger.info(comp_msg)
                     print(comp_msg)
-                    
+
                     filtered_path.parent.mkdir(parents=True, exist_ok=True)
                     filtered_df.to_csv(filtered_path, index=False)
                     saved_msg = f"Saved filtered predictions to {filtered_path}"
                     logger.info(saved_msg)
                     print(saved_msg)
-                    
+
                     # Save filter metadata
                     self.filter_manager.save_metadata(filtered_path, self.motion_trial)
 
@@ -975,11 +1034,11 @@ class PlaybackTriangulationWidget(QWidget):
                     self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
                     self.filtered_predictions_path = filtered_path
                     logger.info(f"Using existing filtered predictions from {filtered_path}")
-                
+
                 # Refresh display with filtered predictions
                 if hasattr(self.visualizer, "update_motion_trial"):
                     self.visualizer.update_motion_trial(self.motion_trial)
-                
+
                 logger.info("Filter toggle complete; UI refreshed with filtered predictions")
             except Exception as exc:
                 logger.error(f"Failed to enable filtered track: {exc}", exc_info=True)
@@ -992,12 +1051,14 @@ class PlaybackTriangulationWidget(QWidget):
         else:
             # revert to raw predictions
             self.toggle_filtered_button.setEnabled(False)
+            # Disable the "cut video to filter frames" checkbox when filtering is disabled
+            self.cut_video_to_filter_frames_checkbox.setEnabled(False)
             try:
                 if raw_pred_path.exists():
                     self.motion_trial.predictions_df = pd.read_csv(raw_pred_path, engine="pyarrow")
                     self.motion_trial.predictions_csv = raw_pred_path
                     logger.info(f"Reverted to raw predictions at {raw_pred_path}")
-                    
+
                     # Refresh display with raw predictions
                     if hasattr(self.visualizer, "update_motion_trial"):
                         self.visualizer.update_motion_trial(self.motion_trial)
@@ -1015,13 +1076,13 @@ class PlaybackTriangulationWidget(QWidget):
 
     def _compute_filtered_predictions(self, use_hybrid: bool = False) -> Optional[pd.DataFrame]:
         """Apply an RTS (Forward-Backward) CV Kalman filter to point_id==0 predictions, filling gaps and smoothing.
-        
-        If use_hybrid=True and BGS predictions available, select best measurement (YOLO or BGS) 
+
+        If use_hybrid=True and BGS predictions available, select best measurement (YOLO or BGS)
         at each frame based on which is closest to the Kalman predicted position.
-        
+
         If self.extend_filtered_track=True, extends filtering beyond the YOLO prediction range
         using available BGS measurements or filter continuity to reach the ground truth end frame.
-        
+
         Other point_ids from the original predictions are preserved unchanged.
         Returns a DataFrame with the same schema as predictions:
         sync_index, point_id, x_coord, y_coord, z_coord.
@@ -1037,43 +1098,47 @@ class PlaybackTriangulationWidget(QWidget):
 
         fly_df = fly_df.sort_values("sync_index")
         # Use prediction frame range, potentially extended if option is enabled
-        pred_fly_frames = fly_df['sync_index'].unique()
+        pred_fly_frames = fly_df["sync_index"].unique()
         frames = sorted(pred_fly_frames)
-        
+
         # Determine the ground truth end frame from available sources
         ground_truth_end = None
         if self._session_end_frame is not None:
             ground_truth_end = self._session_end_frame
-        elif self.motion_trial is not None and hasattr(self.motion_trial, 'end_index'):
+        elif self.motion_trial is not None and hasattr(self.motion_trial, "end_index"):
             ground_truth_end = self.motion_trial.end_index
-        
+
         # If extend option enabled, expand frame range to include ground truth frames beyond predictions
         if self.extend_filtered_track and ground_truth_end is not None:
             pred_max = frames[-1] if frames else 0
             if ground_truth_end > pred_max:
-                logger.info(f"Extending filter from prediction end frame {pred_max} to ground truth end frame {ground_truth_end}")
+                logger.info(
+                    f"Extending filter from prediction end frame {pred_max} to ground truth end frame {ground_truth_end}"
+                )
                 frames = list(range(frames[0], ground_truth_end + 1))
             else:
                 logger.info(f"Ground truth ends at {ground_truth_end}, already within prediction range {pred_max}")
         elif self.extend_filtered_track:
-            logger.warning("Extend filter option enabled but ground truth end frame not available; using prediction range only")
-        
+            logger.warning(
+                "Extend filter option enabled but ground truth end frame not available; using prediction range only"
+            )
+
         # Apply optional start/end frame filtering only if explicitly set
         start_frame = self.filter_start_spin.value()
         end_frame = self.filter_end_spin.value()
-        
+
         if start_frame > 0:
             frames = [f for f in frames if f >= start_frame]
         if end_frame > 0:
             frames = [f for f in frames if f <= end_frame]
-        
+
         fps_used = self.kalman_fps_override or self.video_framerate or 60
         base_dt = 1.0 / fps_used
         model = ConstantVelocity3DModel(self.kalman_process_noise_scale)
 
         H = np.zeros((3, 6))
         H[0, 0] = H[1, 1] = H[2, 2] = 1.0
-        R = np.eye(3) * (self.kalman_measurement_noise_std ** 2)
+        R = np.eye(3) * (self.kalman_measurement_noise_std**2)
 
         # INITIALIZATION: Start with high uncertainty to handle bad initial points
         first_row = fly_df.iloc[0]
@@ -1082,7 +1147,7 @@ class PlaybackTriangulationWidget(QWidget):
         P = np.eye(6) * 10.0  # Increased from 1e-3 to allow the gate to find the object
 
         measurements = {int(r.sync_index): np.array([r.x_coord, r.y_coord, r.z_coord]) for r in fly_df.itertuples()}
-        
+
         # If hybrid mode enabled, try to load BGS predictions for backup measurements
         bgs_measurements = {}
         if use_hybrid:
@@ -1090,13 +1155,16 @@ class PlaybackTriangulationWidget(QWidget):
                 # xyz_history_path is like: /path/to/recording/FLY/xyz_FLY_predictions.csv
                 # So parent is: /path/to/recording/FLY
                 # We want: /path/to/recording/FLY/bgs/xyz_FLY_bgs_predictions.csv
-                if hasattr(self, 'xyz_history_path') and self.xyz_history_path:
+                if hasattr(self, "xyz_history_path") and self.xyz_history_path:
                     bgs_path = self.xyz_history_path.parent / "bgs" / "xyz_FLY_bgs_predictions.csv"
                     if bgs_path.exists():
                         bgs_df = pd.read_csv(bgs_path, engine="pyarrow")
                         bgs_fly = bgs_df[bgs_df["point_id"] == 0]
-                        bgs_measurements = {int(r.sync_index): np.array([r.x_coord, r.y_coord, r.z_coord]) 
-                                          for r in bgs_fly.itertuples() if pd.notna(r.x_coord) and pd.notna(r.y_coord) and pd.notna(r.z_coord)}
+                        bgs_measurements = {
+                            int(r.sync_index): np.array([r.x_coord, r.y_coord, r.z_coord])
+                            for r in bgs_fly.itertuples()
+                            if pd.notna(r.x_coord) and pd.notna(r.y_coord) and pd.notna(r.z_coord)
+                        }
                         logger.info(f"Loaded {len(bgs_measurements)} BGS measurements for hybrid selection")
                     else:
                         logger.info(f"BGS predictions file not found at: {bgs_path}")
@@ -1106,11 +1174,11 @@ class PlaybackTriangulationWidget(QWidget):
                 logger.warning(f"Could not load BGS predictions for hybrid mode: {e}")
 
         # Buffers for RTS Backward Pass
-        states_pred = []   # x_{k|k-1}
-        covs_pred = []     # P_{k|k-1}
-        states_filt = []   # x_{k|k}
-        covs_filt = []     # P_{k|k}
-        transitions = []   # A matrices (since dt varies)
+        states_pred = []  # x_{k|k-1}
+        covs_pred = []  # P_{k|k-1}
+        states_filt = []  # x_{k|k}
+        covs_filt = []  # P_{k|k}
+        transitions = []  # A matrices (since dt varies)
         measurement_sources = []  # Track which source was used for each frame (YOLO, BGS, or filter_only)
 
         # --- FORWARD PASS ---
@@ -1133,19 +1201,19 @@ class PlaybackTriangulationWidget(QWidget):
             transitions.append(A.copy())
 
             updated = False
-            
+
             # Hybrid measurement selection: pick best available measurement (YOLO or BGS) based on distance to prediction
             z = None
             z_source = None
-            
+
             if use_hybrid:
                 # Collect available measurements for this frame
                 available = []
                 if frame in measurements and pd.notna(measurements[frame][0]):
-                    available.append(('YOLO', measurements[frame]))
+                    available.append(("YOLO", measurements[frame]))
                 if frame in bgs_measurements and pd.notna(bgs_measurements[frame][0]):
-                    available.append(('BGS', bgs_measurements[frame]))
-                
+                    available.append(("BGS", bgs_measurements[frame]))
+
                 # If both available, pick the one closest to Kalman prediction
                 if available:
                     if len(available) == 2:
@@ -1154,13 +1222,13 @@ class PlaybackTriangulationWidget(QWidget):
                         bgs_z = available[1][1]
                         yolo_dist = np.linalg.norm(yolo_z - H @ state_p)
                         bgs_dist = np.linalg.norm(bgs_z - H @ state_p)
-                        
+
                         if bgs_dist < yolo_dist:
                             z = bgs_z
-                            z_source = 'BGS'
+                            z_source = "BGS"
                         else:
                             z = yolo_z
-                            z_source = 'YOLO'
+                            z_source = "YOLO"
                     else:
                         # Only one available
                         z_source = available[0][0]
@@ -1169,28 +1237,28 @@ class PlaybackTriangulationWidget(QWidget):
                 # Normal mode: use YOLO only
                 if frame in measurements:
                     z = measurements[frame]
-                    z_source = 'YOLO'
-            
+                    z_source = "YOLO"
+
             if z is not None:
                 y_res = z - H @ state_p
-                
+
                 # Use appropriate measurement noise covariance based on measurement source
-                if z_source == 'BGS' and frame not in measurements:
+                if z_source == "BGS" and frame not in measurements:
                     # BGS-only measurement: use BGS-specific noise covariance
-                    R_meas = np.eye(3) * (self.bgs_kalman_measurement_noise_std ** 2)
+                    R_meas = np.eye(3) * (self.bgs_kalman_measurement_noise_std**2)
                 else:
                     # YOLO measurement: use standard noise covariance
                     R_meas = R
-                
+
                 S = H @ P_p @ H.T + R_meas
-                
+
                 try:
                     S_inv = np.linalg.inv(S)
                     mahal_dist = np.sqrt(y_res @ S_inv @ y_res)
                     euclidean_dist_mm = np.linalg.norm(y_res) * 1000.0
-                    
+
                     # Use BGS-specific gating thresholds if this is a BGS-only measurement
-                    if z_source == 'BGS' and frame not in measurements:
+                    if z_source == "BGS" and frame not in measurements:
                         # BGS-only frame: use BGS-specific thresholds
                         mahal_threshold = self.bgs_gate_distance_sigma
                         dist_threshold = self.bgs_max_distance_threshold
@@ -1198,10 +1266,10 @@ class PlaybackTriangulationWidget(QWidget):
                         # YOLO frame (or hybrid with YOLO): use standard thresholds
                         mahal_threshold = self.gate_distance_sigma
                         dist_threshold = self.max_distance_threshold
-                    
+
                     mahal_pass = mahal_dist <= mahal_threshold
                     dist_pass = euclidean_dist_mm <= dist_threshold
-                    
+
                     if mahal_pass and dist_pass:
                         K = P_p @ H.T @ S_inv
                         state = state_p + K @ y_res
@@ -1213,9 +1281,11 @@ class PlaybackTriangulationWidget(QWidget):
                         # Logic: If we miss too many points, the filter is likely anchored to noise.
                         # For BGS-only measurements (extended frames), use prediction instead of resetting
                         if consecutive_rejections > 5:
-                            if z_source == 'BGS' and frame not in measurements:
+                            if z_source == "BGS" and frame not in measurements:
                                 # For extended BGS frames, just continue with prediction instead of resetting to noisy measurement
-                                logger.debug(f"Frame {frame}: BGS measurement rejected too many times; using filter prediction instead of resetting")
+                                logger.debug(
+                                    f"Frame {frame}: BGS measurement rejected too many times; using filter prediction instead of resetting"
+                                )
                                 consecutive_rejections = 0
                             else:
                                 # For YOLO frames, use rescue logic (reset to measurement)
@@ -1223,13 +1293,13 @@ class PlaybackTriangulationWidget(QWidget):
                                 state[:3] = z
                                 P = np.eye(6) * 10.0
                                 consecutive_rejections = 0
-                                updated = True 
+                                updated = True
                 except np.linalg.LinAlgError:
                     pass
 
             if not updated:
                 state, P = state_p, P_p
-                z_source = 'filter_only'  # No measurement was used
+                z_source = "filter_only"  # No measurement was used
 
             states_filt.append(state.copy())
             covs_filt.append(P.copy())
@@ -1239,45 +1309,52 @@ class PlaybackTriangulationWidget(QWidget):
         # --- BACKWARD PASS (RTS Smoothing) ---
         smoothed_states = [None] * len(frames)
         smoothed_states[-1] = states_filt[-1]
-        
+
         # Iterate backwards from second-to-last frame
         for k in range(len(frames) - 2, -1, -1):
             # We need the prediction for k+1 that was made FROM k
-            A_next = transitions[k+1]
+            A_next = transitions[k + 1]
             x_filt_k = states_filt[k]
             P_filt_k = covs_filt[k]
-            x_pred_next = states_pred[k+1]
-            P_pred_next = covs_pred[k+1]
-            
+            x_pred_next = states_pred[k + 1]
+            P_pred_next = covs_pred[k + 1]
+
             # Smoother Gain
             C = P_filt_k @ A_next.T @ np.linalg.inv(P_pred_next)
-            
+
             # Smooth the state
-            smoothed_states[k] = x_filt_k + C @ (smoothed_states[k+1] - x_pred_next)
+            smoothed_states[k] = x_filt_k + C @ (smoothed_states[k + 1] - x_pred_next)
 
         # --- RECONSTRUCT DATAFRAME ---
         results = []
         for i, frame in enumerate(frames):
             s = smoothed_states[i]
             z_src = measurement_sources[i]
-            
+
             # Compute error against ground truth if available
             error_mm = np.nan
-            if self.motion_trial and hasattr(self.motion_trial, 'ground_truth') and self.motion_trial.ground_truth is not None:
-                gt_df = self.motion_trial.ground_truth[self.motion_trial.ground_truth['sync_index'] == frame]
+            if (
+                self.motion_trial
+                and hasattr(self.motion_trial, "ground_truth")
+                and self.motion_trial.ground_truth is not None
+            ):
+                gt_df = self.motion_trial.ground_truth[self.motion_trial.ground_truth["sync_index"] == frame]
                 if not gt_df.empty:
                     gt_row = gt_df.iloc[0]
                     gt_pos = np.array([gt_row.x_coord, gt_row.y_coord, gt_row.z_coord])
                     error_mm = np.linalg.norm(s[:3] - gt_pos) * 1000.0
-            
+
             # If gap_fill_only is True, we only use smoothed values where measurements were missing
             if self.gap_fill_only and frame in measurements:
                 z = measurements[frame]
-                results.append((frame, 0, z[0], z[1], z[2], 'YOLO', error_mm))
+                results.append((frame, 0, z[0], z[1], z[2], "YOLO", error_mm))
             else:
                 results.append((frame, 0, s[0], s[1], s[2], z_src, error_mm))
 
-        filtered_fly_df = pd.DataFrame(results, columns=["sync_index", "point_id", "x_coord", "y_coord", "z_coord", "measurement_source", "error_mm"])
+        filtered_fly_df = pd.DataFrame(
+            results,
+            columns=["sync_index", "point_id", "x_coord", "y_coord", "z_coord", "measurement_source", "error_mm"],
+        )
         other_points_df = pred_df[pred_df["point_id"] != 0].copy()
         # Add missing columns to other_points_df to match schema
         other_points_df["measurement_source"] = "other_points"
@@ -1290,7 +1367,7 @@ class PlaybackTriangulationWidget(QWidget):
         if self.motion_trial is None or self.motion_trial.is_empty:
             logger.warning("No motion trial loaded; cannot generate graph.")
             return
-        
+
         try:
             import matplotlib.pyplot as plt
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -1300,13 +1377,13 @@ class PlaybackTriangulationWidget(QWidget):
         except ImportError:
             logger.error("Matplotlib not available; cannot generate graph.")
             return
-        
+
         # Close old window if it exists
         if self.interactive_graph_window is not None:
             self.interactive_graph_window.close()
-        
+
         # Create new interactive window
-        is_filtered = self.toggle_filtered_button.isChecked() if hasattr(self, 'toggle_filtered_button') else False
+        is_filtered = self.toggle_filtered_button.isChecked() if hasattr(self, "toggle_filtered_button") else False
         self.interactive_graph_window = Interactive3DGraphWindow(
             self.motion_trial, self.camera_array, self.xyz_history_path, is_filtered
         )
@@ -1317,8 +1394,8 @@ class PlaybackTriangulationWidget(QWidget):
 class TriangulationVisualizer:
     def __init__(self, camera_array: CameraArray):
         self.camera_array = camera_array
-        self.default_scatter_color = (1, 1, 1, 1) # White
-        self.default_mesh_color = (1, 1, 1, 1)    # White
+        self.default_scatter_color = (1, 1, 1, 1)  # White
+        self.default_mesh_color = (1, 1, 1, 1)  # White
         self.point_size = 0.005  # Shared size for track markers
 
         # Measurement-grid state must exist before first build_scene call.
@@ -1330,12 +1407,12 @@ class TriangulationVisualizer:
 
         self.build_scene()
         self.export_video_mode = False
-        self.collected_frames = [] 
+        self.collected_frames = []
         self.motion_trial: Optional[MotionTrial] = None
-        
+
         # Locked viewport dimensions during export to prevent frame size variation
         self.locked_export_width: Optional[int] = None
-        self.locked_export_height: Optional[int] = None 
+        self.locked_export_height: Optional[int] = None
 
         # Storage for custom mesh items for special labels
         self.custom_mesh_items = []  # Store references to added mesh items
@@ -1348,12 +1425,12 @@ class TriangulationVisualizer:
             logger.info("Creating initial scene in capture volume visualizer")
             self.scene = gl.GLViewWidget()
             self.scene.setCameraPosition(distance=4)
-        
+
         # Default background color
-        self.scene.setBackgroundColor(QColorConstants.Black) 
+        self.scene.setBackgroundColor(QColorConstants.Black)
 
         axis = gl.GLAxisItem()
-        
+
         self.scene.addItem(axis)
 
         self._clear_measurement_grid_items()
@@ -1363,7 +1440,7 @@ class TriangulationVisualizer:
             self.add_grid_labels(
                 grid_total_extent_m=self.measurement_grid_extent_m,
                 label_interval_m=self._get_measurement_grid_major_spacing_m(),
-                text_color='white',
+                text_color="white",
             )
 
         if self.camera_array.all_extrinsics_calibrated():
@@ -1381,7 +1458,7 @@ class TriangulationVisualizer:
 
         self.scatter = gl.GLScatterPlotItem(
             pos=np.empty((0, 3)),  # Start with empty array instead of None
-            color=self.default_scatter_color, # Set initial scatter color
+            color=self.default_scatter_color,  # Set initial scatter color
             size=self.point_size,
             pxMode=False,
         )
@@ -1419,7 +1496,7 @@ class TriangulationVisualizer:
 
     def toggle_camera_frustums(self, checked: bool):
         """Toggle visibility of camera frustum meshes."""
-        if hasattr(self, 'meshes') and hasattr(self, 'origin_points'):
+        if hasattr(self, "meshes") and hasattr(self, "origin_points"):
             for mesh in self.meshes.values():
                 mesh.setVisible(checked)
             for origin_point in self.origin_points.values():
@@ -1436,7 +1513,7 @@ class TriangulationVisualizer:
             for segment_line in self.motion_trial.tracker.wireframe.line_plots.values():
                 self.scene.addItem(segment_line)
 
-        self.display_points(self.motion_trial.start_index) 
+        self.display_points(self.motion_trial.start_index)
 
     def set_export_mode(self, enabled: bool):
         self.export_video_mode = enabled
@@ -1462,8 +1539,8 @@ class TriangulationVisualizer:
 
         ptr = qimage.constBits()
         arr = np.array(ptr).reshape(qimage.height(), qimage.width(), 4)
-        bgr_frame = arr[:, :, :3].copy() 
-        
+        bgr_frame = arr[:, :, :3].copy()
+
         return bgr_frame
 
     def display_points(self, sync_index: int):
@@ -1479,7 +1556,9 @@ class TriangulationVisualizer:
         self.custom_mesh_items = []
 
         if self.motion_trial is None or self.motion_trial.is_empty:
-            logger.debug(f"Motion trial is not loaded or is empty for sync_index: {sync_index}. Skipping point display.")
+            logger.debug(
+                f"Motion trial is not loaded or is empty for sync_index: {sync_index}. Skipping point display."
+            )
             self.scatter.setVisible(False)  # Hide scatter when no data
             self.scatter.setData(pos=np.empty((0, 3)))  # Use empty array instead of None
             self.fly_overlay.setVisible(False)
@@ -1489,14 +1568,18 @@ class TriangulationVisualizer:
             xyz_packet = self.motion_trial.get_xyz(sync_index)
             xyz_coords = xyz_packet.point_xyz
             point_ids = xyz_packet.point_ids
-            
+
             # Check if we're using FlyTracker with special labels
-            has_fly_tracker = (hasattr(self.motion_trial, 'tracker') and 
-                             hasattr(self.motion_trial.tracker, 'name') and
-                             self.motion_trial.tracker.name == "FLY")
-            
-            logger.info(f"has_fly_tracker: {has_fly_tracker}, tracker: {self.motion_trial.tracker if hasattr(self.motion_trial, 'tracker') else 'None'}, point_ids: {point_ids}, num_points: {len(xyz_coords)}")
-            
+            has_fly_tracker = (
+                hasattr(self.motion_trial, "tracker")
+                and hasattr(self.motion_trial.tracker, "name")
+                and self.motion_trial.tracker.name == "FLY"
+            )
+
+            logger.info(
+                f"has_fly_tracker: {has_fly_tracker}, tracker: {self.motion_trial.tracker if hasattr(self.motion_trial, 'tracker') else 'None'}, point_ids: {point_ids}, num_points: {len(xyz_coords)}"
+            )
+
             if has_fly_tracker and len(xyz_coords) > 0:
                 # Get average bbox dimensions for this tracker
                 try:
@@ -1505,7 +1588,7 @@ class TriangulationVisualizer:
                 except Exception as e:
                     logger.warning(f"Could not get bbox data from tracker: {e}")
                     avg_bbox_by_id = {}
-                
+
                 # If bbox_data is empty (tracking done before bbox capture was added),
                 # use default sizes for fruit and leaves
                 if not avg_bbox_by_id:
@@ -1513,27 +1596,27 @@ class TriangulationVisualizer:
                     # Default sizes in pixels - adjust these based on your typical object sizes
                     # These are reasonable defaults for fruit/leaves at typical camera distances
                     avg_bbox_by_id = {
-                        9: (100.0, 100.0),   # fruit: 100x100 pixels default
-                        10: (150.0, 150.0)   # leaves: 150x150 pixels default
+                        9: (100.0, 100.0),  # fruit: 100x100 pixels default
+                        10: (150.0, 150.0),  # leaves: 150x150 pixels default
                     }
-                
+
                 # Separate special labels (9=fruit, 10=leaves) from regular points
                 regular_mask = np.ones(len(point_ids), dtype=bool)
-                
+
                 for i, (point_id, xyz) in enumerate(zip(point_ids, xyz_coords)):
                     logger.info(f"Processing point {i}: point_id={point_id} (type: {type(point_id)}), xyz={xyz}")
                     # Convert point_id to int for dictionary lookup
                     point_id_int = int(point_id)
-                    
+
                     # Check if this is a center point for fruit or leaves
                     if point_id_int in [9, 10]:
                         regular_mask[i] = False
-                        
+
                         # Find the 4 corner points for this object
                         # Corner IDs are: point_id * 1000 + [0, 1, 2, 3]
                         corner_ids = [point_id_int * 1000 + j for j in range(4)]
                         corner_xyzs = []
-                        
+
                         for corner_id in corner_ids:
                             corner_mask = point_ids == corner_id
                             if np.any(corner_mask):
@@ -1543,11 +1626,11 @@ class TriangulationVisualizer:
                                 corner_idx = np.where(point_ids == corner_id)[0]
                                 if len(corner_idx) > 0:
                                     regular_mask[corner_idx[0]] = False
-                        
+
                         # If we found all 4 corners, use them to create the mesh
                         if len(corner_xyzs) == 4:
                             logger.info(f"Found all 4 triangulated corners for point_id={point_id_int}")
-                            
+
                             if point_id_int == 10:  # leaves - flat green square using triangulated corners
                                 ordered = self._order_corners_on_plane(np.array(corner_xyzs, dtype=np.float32))
 
@@ -1558,10 +1641,13 @@ class TriangulationVisualizer:
                                     logger.debug("Leaf quad degenerate; skipping mesh to avoid artefacts")
                                 else:
                                     # Two triangles to form the square
-                                    faces = np.array([
-                                        [0, 1, 2],  # First triangle: TL, TR, BR
-                                        [0, 2, 3],  # Second triangle: TL, BR, BL
-                                    ], dtype=np.uint32)
+                                    faces = np.array(
+                                        [
+                                            [0, 1, 2],  # First triangle: TL, TR, BR
+                                            [0, 2, 3],  # Second triangle: TL, BR, BL
+                                        ],
+                                        dtype=np.uint32,
+                                    )
 
                                     colors = np.array([(0, 1, 0, 0.35), (0, 1, 0, 0.35)], dtype=np.float32)
 
@@ -1571,13 +1657,13 @@ class TriangulationVisualizer:
                                         faceColors=colors,
                                         smooth=False,
                                         drawEdges=True,
-                                        edgeColor=(0, 0.5, 0, 1)
+                                        edgeColor=(0, 0.5, 0, 1),
                                     )
                                     mesh_item.setGLOptions("translucent")  # Draw both faces to avoid backface culling
                                     self.scene.addItem(mesh_item)
                                     self.custom_mesh_items.append(mesh_item)
-                                    logger.info(f"Created flat square mesh for leaves from triangulated corners")
-                                
+                                    logger.info("Created flat square mesh for leaves from triangulated corners")
+
                             elif point_id_int == 9:  # fruit - red hemisphere using triangulated corners
                                 corners_array = self._order_corners_on_plane(np.array(corner_xyzs, dtype=np.float32))
 
@@ -1609,29 +1695,27 @@ class TriangulationVisualizer:
                                 )
 
                                 mesh_item = gl.GLMeshItem(
-                                    vertexes=vertices,
-                                    faces=faces,
-                                    faceColors=colors,
-                                    smooth=True,
-                                    drawEdges=False
+                                    vertexes=vertices, faces=faces, faceColors=colors, smooth=True, drawEdges=False
                                 )
                                 mesh_item.setGLOptions("translucent")  # brighter
                                 self.scene.addItem(mesh_item)
                                 self.custom_mesh_items.append(mesh_item)
                                 logger.info(f"Created hemisphere mesh for fruit with radius={radius_3d:.4f}")
                         else:
-                            logger.warning(f"Could not find all 4 corners for point_id={point_id_int}, found {len(corner_xyzs)} corners")
+                            logger.warning(
+                                f"Could not find all 4 corners for point_id={point_id_int}, found {len(corner_xyzs)} corners"
+                            )
                             # Fall back to showing just the center point
-                    
+
                     # Skip corner points (IDs >= 1000) - they're already handled above
                     elif point_id_int >= 1000:
                         regular_mask[i] = False
-                
+
                 # Create floor mesh from the 4 bottom corner points
                 # Points: 3=blic, 4=bric, 7=brfic, 8=blfic
                 floor_point_ids = [3, 4, 7, 8]
                 floor_coords = []
-                
+
                 for floor_id in floor_point_ids:
                     floor_mask = point_ids == floor_id
                     if np.any(floor_mask):
@@ -1640,43 +1724,46 @@ class TriangulationVisualizer:
                         floor_idx = np.where(point_ids == floor_id)[0]
                         if len(floor_idx) > 0:
                             regular_mask[floor_idx[0]] = False
-                
+
                 # If we have all 4 floor corner points, create the floor mesh
                 if len(floor_coords) == 4:
-                    logger.info(f"Creating floor mesh from 4 bottom corner points")
+                    logger.info("Creating floor mesh from 4 bottom corner points")
                     vertices = np.array(floor_coords, dtype=np.float32)
-                    
+
                     # Check for degenerate floor mesh
                     v0, v1, v2 = vertices[0], vertices[1], vertices[2]
                     tri_area = np.linalg.norm(np.cross(v1 - v0, v2 - v0)) * 0.5
-                    
+
                     if tri_area < 1e-6:
                         logger.debug(f"Floor mesh degenerate (area={tri_area}); skipping to avoid artefacts")
                     else:
                         # Order should be: blic(0), bric(1), brfic(2), blfic(3)
                         # Form two triangles: [0,1,2] and [0,2,3]
-                        faces = np.array([
-                            [0, 1, 2],  # blic, bric, brfic
-                            [0, 2, 3],  # blic, brfic, blfic
-                        ], dtype=np.uint32)
-                        
+                        faces = np.array(
+                            [
+                                [0, 1, 2],  # blic, bric, brfic
+                                [0, 2, 3],  # blic, brfic, blfic
+                            ],
+                            dtype=np.uint32,
+                        )
+
                         colors = np.array([(1, 1, 1, 0.3), (1, 1, 1, 0.3)], dtype=np.float32)  # White, semi-transparent
-                        
+
                         floor_mesh = gl.GLMeshItem(
                             vertexes=vertices,
                             faces=faces,
                             faceColors=colors,
                             smooth=False,
                             drawEdges=True,
-                            edgeColor=(1, 1, 1, 0.8)  # White edges
+                            edgeColor=(1, 1, 1, 0.8),  # White edges
                         )
                         floor_mesh.setGLOptions("translucent")
                         self.scene.addItem(floor_mesh)
                         self.custom_mesh_items.append(floor_mesh)
-                        logger.info(f"Created white floor mesh from bottom corners")
+                        logger.info("Created white floor mesh from bottom corners")
                 else:
                     logger.debug(f"Could not find all 4 floor corner points, found {len(floor_coords)} points")
-                
+
                 # Create edge lines connecting the 8 corner points (forming a rectangular box)
                 # Point IDs: 1=tlic, 2=tric, 3=blic, 4=bric, 5=tlfic, 6=trfic, 7=brfic, 8=blfic
                 edge_pairs = [
@@ -1696,52 +1783,59 @@ class TriangulationVisualizer:
                     (4, 7),  # bric - brfic
                     (8, 7),  # blfic - brfic
                 ]
-                
+
                 edges_found = 0
                 for point_id_a, point_id_b in edge_pairs:
                     mask_a = point_ids == point_id_a
                     mask_b = point_ids == point_id_b
-                    
+
                     if np.any(mask_a) and np.any(mask_b):
                         coord_a = xyz_coords[mask_a][0]
                         coord_b = xyz_coords[mask_b][0]
-                        
+
                         # Skip edges with NaN or infinite values
-                        if np.any(np.isnan(coord_a)) or np.any(np.isinf(coord_a)) or np.any(np.isnan(coord_b)) or np.any(np.isinf(coord_b)):
+                        if (
+                            np.any(np.isnan(coord_a))
+                            or np.any(np.isinf(coord_a))
+                            or np.any(np.isnan(coord_b))
+                            or np.any(np.isinf(coord_b))
+                        ):
                             logger.debug(f"Skipping edge ({point_id_a}, {point_id_b}): contains NaN or Inf values")
                             continue
-                        
+
                         # Skip degenerate edges (zero length)
                         edge_length = np.linalg.norm(coord_b - coord_a)
                         if edge_length < 1e-8:
-                            logger.debug(f"Skipping edge ({point_id_a}, {point_id_b}): degenerate (length={edge_length})")
+                            logger.debug(
+                                f"Skipping edge ({point_id_a}, {point_id_b}): degenerate (length={edge_length})"
+                            )
                             continue
-                        
+
                         # Create line segment
                         line_pos = np.array([coord_a, coord_b], dtype=np.float32)
                         line = gl.GLLinePlotItem(
                             pos=line_pos,
                             color=(1, 1, 1, 0.6),  # White, semi-transparent
                             width=1.5,
-                            antialias=True
+                            antialias=True,
                         )
                         self.scene.addItem(line)
                         self.custom_mesh_items.append(line)
                         edges_found += 1
-                        
+
                         # Mark corner points as not regular scatter points
                         regular_mask[np.where(mask_a)[0]] = False
                         regular_mask[np.where(mask_b)[0]] = False
-                
+
                 logger.info(f"Created {edges_found} edge lines for capture volume box")
-                
+
                 # Display regular points (excluding special labels)
                 regular_coords = xyz_coords[regular_mask]
-                
+
                 # Filter out NaN and Inf values from regular coordinates
                 valid_mask = np.all(np.isfinite(regular_coords), axis=1)
                 valid_coords = regular_coords[valid_mask]
-                
+
                 if len(valid_coords) > 0:
                     self.scatter.setVisible(True)
                     self.scatter.setData(pos=valid_coords)
@@ -1750,7 +1844,7 @@ class TriangulationVisualizer:
                     self.scatter.setData(pos=np.empty((0, 3)))
 
                 # Ensure fly point(s) are always visible over translucent meshes (ground truth)
-                fly_mask = (point_ids == 0)
+                fly_mask = point_ids == 0
                 if np.any(fly_mask):
                     fly_coords = xyz_coords[fly_mask]
                     self.fly_overlay.setVisible(True)
@@ -1760,20 +1854,26 @@ class TriangulationVisualizer:
                     self.fly_overlay.setData(pos=np.empty((0, 3)))
 
                 # Overlay predictions for the same sync_index (green dot for point_id==0)
-                if (hasattr(self.motion_trial, 'predictions_df') and 
-                    isinstance(self.motion_trial.predictions_df, pd.DataFrame) and
-                    not self.motion_trial.predictions_df.empty):
+                if (
+                    hasattr(self.motion_trial, "predictions_df")
+                    and isinstance(self.motion_trial.predictions_df, pd.DataFrame)
+                    and not self.motion_trial.predictions_df.empty
+                ):
                     logger.debug(f"Checking predictions overlay for sync_index={sync_index}")
-                    pred_rows = self.motion_trial.predictions_df[self.motion_trial.predictions_df['sync_index'] == sync_index]
+                    pred_rows = self.motion_trial.predictions_df[
+                        self.motion_trial.predictions_df["sync_index"] == sync_index
+                    ]
                     logger.debug(f"Predictions rows for sync_index={sync_index}: {len(pred_rows)}")
                     if not pred_rows.empty:
-                        pred_fly = pred_rows[pred_rows['point_id'] == 0]
+                        pred_fly = pred_rows[pred_rows["point_id"] == 0]
                         logger.debug(f"Pred fly rows for sync_index={sync_index}: {len(pred_fly)}")
                         if not pred_fly.empty:
-                            pred_xyz = pred_fly[['x_coord','y_coord','z_coord']].to_numpy(dtype=np.float32)
+                            pred_xyz = pred_fly[["x_coord", "y_coord", "z_coord"]].to_numpy(dtype=np.float32)
                             self.pred_overlay.setVisible(True)
                             self.pred_overlay.setData(pos=pred_xyz, color=(1, 0.5, 0, 1))
-                            logger.info(f"Plotted prediction fly overlay at sync_index={sync_index}: {pred_xyz.shape[0]} point(s)")
+                            logger.info(
+                                f"Plotted prediction fly overlay at sync_index={sync_index}: {pred_xyz.shape[0]} point(s)"
+                            )
                         else:
                             self.pred_overlay.setVisible(False)
                             self.pred_overlay.setData(pos=np.empty((0, 3)))
@@ -1791,7 +1891,7 @@ class TriangulationVisualizer:
                 self.scatter.setVisible(True)  # Make visible when we have data
                 self.scatter.setData(pos=xyz_coords)
                 # Fly overlay for default path
-                fly_mask = (point_ids == 0)
+                fly_mask = point_ids == 0
                 if np.any(fly_mask):
                     fly_coords = xyz_coords[fly_mask]
                     self.fly_overlay.setVisible(True)
@@ -1813,27 +1913,38 @@ class TriangulationVisualizer:
                         if self.locked_export_width is not None and self.locked_export_height is not None:
                             current_height, current_width = cv2_frame.shape[:2]
                             if current_width != self.locked_export_width or current_height != self.locked_export_height:
-                                logger.debug(f"Frame {sync_index} size mismatch: {current_width}x{current_height}, expected {self.locked_export_width}x{self.locked_export_height}. Resizing...")
+                                logger.debug(
+                                    f"Frame {sync_index} size mismatch: {current_width}x{current_height}, expected {self.locked_export_width}x{self.locked_export_height}. Resizing..."
+                                )
                                 import cv2
+
                                 cv2_frame = cv2.resize(cv2_frame, (self.locked_export_width, self.locked_export_height))
-                        
+
                         self.collected_frames.append(cv2_frame)
-                        logger.debug(f"Successfully collected frame {sync_index} to memory. Total frames: {len(self.collected_frames)}")
+                        logger.debug(
+                            f"Successfully collected frame {sync_index} to memory. Total frames: {len(self.collected_frames)}"
+                        )
                     else:
-                        logger.warning(f"qimage_to_cv2 returned an empty or invalid frame for sync_index: {sync_index}!")
+                        logger.warning(
+                            f"qimage_to_cv2 returned an empty or invalid frame for sync_index: {sync_index}!"
+                        )
             else:
                 logger.debug(f"Export mode is INACTIVE for sync_index: {sync_index}.")
 
     def update_segment_lines(self, sync_index: int):
-        if (self.motion_trial and
-            hasattr(self.motion_trial, 'tracker') and
-            hasattr(self.motion_trial.tracker, 'wireframe') and
-            self.motion_trial.tracker.wireframe is not None):
-            self.motion_trial.tracker.update_wireframe_data(sync_index) 
+        if (
+            self.motion_trial
+            and hasattr(self.motion_trial, "tracker")
+            and hasattr(self.motion_trial.tracker, "wireframe")
+            and self.motion_trial.tracker.wireframe is not None
+        ):
+            self.motion_trial.tracker.update_wireframe_data(sync_index)
         else:
             logger.debug(f"No wireframe to update from PlaybackTriangulationWidget for sync index {sync_index}.")
 
-    def create_oriented_hemisphere(self, center_xyz, radius_3d, normal, axis_x, axis_y, color=(1, 0, 0, 0.6), segments=16):
+    def create_oriented_hemisphere(
+        self, center_xyz, radius_3d, normal, axis_x, axis_y, color=(1, 0, 0, 0.6), segments=16
+    ):
         """Create a hemisphere oriented along a plane normal using provided axes.
 
         Args:
@@ -1860,8 +1971,8 @@ class TriangulationVisualizer:
         # Generate hemisphere vertices relative to center
         for i in range(segments // 2 + 1):  # From equator (0) to pole (pi/2)
             lat = i * (np.pi / 2) / (segments // 2)
-            height = radius_3d * np.cos(lat)   # along normal
-            ring_r = radius_3d * np.sin(lat)   # in plane
+            height = radius_3d * np.cos(lat)  # along normal
+            ring_r = radius_3d * np.sin(lat)  # in plane
 
             ring_center = np.array(center_xyz) + normal * height
             for j in range(segments):
@@ -1921,7 +2032,7 @@ class TriangulationVisualizer:
         ordered = corners[order]
         return ordered
 
-    def clear_grid_labels(self): # <--- ADD THIS ENTIRE METHOD
+    def clear_grid_labels(self):  # <--- ADD THIS ENTIRE METHOD
         for label in self.grid_labels:
             self.scene.removeItem(label)
         self.grid_labels = []
@@ -1939,11 +2050,15 @@ class TriangulationVisualizer:
     def _scene_extent_m(self) -> float:
         """Estimate a reasonable scene extent from the loaded data."""
         points = []
-        if self.motion_trial is not None and hasattr(self.motion_trial, 'xyz_df') and not self.motion_trial.xyz_df.empty:
-            xyz = self.motion_trial.xyz_df[['x_coord', 'y_coord', 'z_coord']].to_numpy(dtype=float)
+        if (
+            self.motion_trial is not None
+            and hasattr(self.motion_trial, "xyz_df")
+            and not self.motion_trial.xyz_df.empty
+        ):
+            xyz = self.motion_trial.xyz_df[["x_coord", "y_coord", "z_coord"]].to_numpy(dtype=float)
             if xyz.size:
                 points.append(xyz)
-        if self.camera_array is not None and hasattr(self.camera_array, 'get_world_origins'):
+        if self.camera_array is not None and hasattr(self.camera_array, "get_world_origins"):
             origins = self.camera_array.get_world_origins()
             if origins is not None and np.size(origins):
                 points.append(np.asarray(origins, dtype=float))
@@ -2003,10 +2118,8 @@ class TriangulationVisualizer:
         self._add_grid_line_item("xy", major_spacing_m, half_extent_m, major_color, width=1.3)
         self._add_grid_line_item("xz", major_spacing_m, half_extent_m, major_color, width=1.3)
 
-        
-
-    def add_grid_labels(self, grid_total_extent_m=10, label_interval_m=0.5, text_color='white'):
-        self.clear_grid_labels() # Clear existing labels before adding new ones
+    def add_grid_labels(self, grid_total_extent_m=10, label_interval_m=0.5, text_color="white"):
+        self.clear_grid_labels()  # Clear existing labels before adding new ones
 
         # Determine the range for labels based on half the grid extent
         half_extent_m = grid_total_extent_m / 2
@@ -2022,23 +2135,22 @@ class TriangulationVisualizer:
 
         logger.info(f"Added {len(self.grid_labels)} grid labels.")
 
-    
     def toggle_measurement_mode(self):
         self.is_measurement_mode_active = not self.is_measurement_mode_active
         logger.info(f"Toggling measurement mode. New state: {self.is_measurement_mode_active}")
 
-        self.measurement_grid_extent_m = 10.0 # 10 meters extent
+        self.measurement_grid_extent_m = 10.0  # 10 meters extent
         major_spacing_m = self._get_measurement_grid_major_spacing_m()
 
         if self.is_measurement_mode_active:
             self.scene.setBackgroundColor(QColorConstants.Black)
             self.scatter.setData(color=self.default_scatter_color)
             self._build_measurement_grid_items()
-            self.add_grid_labels(grid_total_extent_m=self.measurement_grid_extent_m, label_interval_m=major_spacing_m, text_color='white')
+            self.add_grid_labels(
+                grid_total_extent_m=self.measurement_grid_extent_m, label_interval_m=major_spacing_m, text_color="white"
+            )
         else:
             self.scene.setBackgroundColor(QColorConstants.Black)
             self.scatter.setData(color=self.default_scatter_color)
             self._clear_measurement_grid_items()
             self.clear_grid_labels()
-
-

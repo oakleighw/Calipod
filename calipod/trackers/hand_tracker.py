@@ -113,6 +113,3 @@ class HandTracker(Tracker):
         else:
             rules = {"radius": 5, "color": (220, 0, 0), "thickness": 3}
         return rules
-
-
-

@@ -4,8 +4,8 @@ from threading import Event, Thread
 
 import cv2
 
-from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraData
+from calipod.core import logger as calipod_logger
 from calipod.core.packets import FramePacket
 from calipod.recording.recorded_stream import RecordedStream
 
@@ -188,7 +188,7 @@ class IntrinsicCalibrator:
         self.calibration_point_ids = []
         self.calibration_img_loc = []
         self.calibration_obj_loc = []
-        logger.info(f"Blank calibration inputs initialized at port {self.camera.port }")
+        logger.info(f"Blank calibration inputs initialized at port {self.camera.port}")
         for index in self.calibration_frame_indices:
             id_count = len(self.all_ids[index])
             if id_count > 3:  # I believe this is a requirement of opencv
@@ -241,5 +241,3 @@ class IntrinsicCalibrator:
         self.camera.matrix = self.mtx
         self.camera.distortions = self.dist
         self.camera.grid_count = self.grid_count
-
-

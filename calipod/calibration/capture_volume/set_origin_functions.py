@@ -9,7 +9,6 @@ import numpy as np
 import scipy
 from PySide6.QtWidgets import QApplication
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.capture_volume.helper_functions.get_point_estimates import (
     get_point_estimates,
@@ -17,6 +16,7 @@ from calipod.calibration.capture_volume.helper_functions.get_point_estimates imp
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.charuco import Charuco
 from calipod.cameras.camera_array import CameraArray, CameraData
+from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
 
@@ -222,6 +222,8 @@ def get_board_origin_transform(
 
 if __name__ == "__main__":
     #
+    from calipod.session.session import LiveSession
+
     from calipod.calibration.capture_volume.capture_volume import CaptureVolume
     from calipod.cameras.camera_array_initializer import CameraArrayInitializer
     from calipod.gui.vizualize.calibration.capture_volume_visualizer import (
@@ -230,7 +232,6 @@ if __name__ == "__main__":
     from calipod.gui.vizualize.calibration.capture_volume_widget import (
         CaptureVolumeWidget,
     )
-    from calipod.session.session import LiveSession
 
     # test_scenario = "4_cameras_nonoverlap"
     # test_scenario = "3_cameras_middle"
@@ -290,5 +291,3 @@ if __name__ == "__main__":
     vizr_dialog.show()
 
     sys.exit(app.exec())
-
-

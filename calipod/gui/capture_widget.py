@@ -1,12 +1,12 @@
-""" This widget will link to camera capture software such as Mokap"""
+"""This widget will link to camera capture software such as Mokap"""
 
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 
 logger = calipod_logger.get(__name__)
-
 
 
 class CameraCaptureWidget(QWidget):
@@ -21,4 +21,3 @@ class CameraCaptureWidget(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(temp_to_do_widget)
         self.setLayout(layout)
-

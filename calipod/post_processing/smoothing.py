@@ -70,5 +70,3 @@ def smooth_xyz(xyz: pd.DataFrame, order, fps, cutoff) -> pd.DataFrame:
     coord_names = ["x_coord", "y_coord", "z_coord"]
 
     return _smooth(xyz, order, fps, cutoff, coord_names, index_name)
-
-

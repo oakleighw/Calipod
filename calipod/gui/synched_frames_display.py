@@ -117,10 +117,8 @@ class SynchedFramesDisplay(QWidget):
     def closeEvent(self, event):
         """Stop the frame dictionary emitter thread when window is closed"""
         logger.info("SynchedFramesDisplay closeEvent triggered - stopping frame emitter")
-        if hasattr(self, 'frame_dictionary_emitter'):
+        if hasattr(self, "frame_dictionary_emitter"):
             self.frame_dictionary_emitter.stop()
             self.frame_dictionary_emitter.wait(1000)
         logger.info("SynchedFramesDisplay cleanup complete")
         event.accept()
-
-

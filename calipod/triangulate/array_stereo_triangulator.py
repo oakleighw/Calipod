@@ -3,8 +3,8 @@ from itertools import combinations
 import cv2
 import numpy as np
 
-from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraArray, CameraData
+from calipod.core import logger as calipod_logger
 from calipod.triangulate.stereo_points_builder import StereoPointsPacket, SynchedStereoPointsPacket
 from calipod.triangulate.triangulation import undistort
 
@@ -79,5 +79,3 @@ class StereoPairTriangulator:
 
         # update the paired point packet with the 3d positions
         paired_points.xyz = xyz
-
-

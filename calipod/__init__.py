@@ -76,4 +76,3 @@ if __name__ == "__main__":
     parent = r"C:\Users\Mac Prible\AppData\Local"
     print(os.path.exists(parent))
     print(os.listdir(parent))
-

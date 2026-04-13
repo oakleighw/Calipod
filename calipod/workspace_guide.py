@@ -134,4 +134,3 @@ if __name__ == "__main__":
     workflow_guide = WorkspaceGuide(workspace_dir, camera_count)
 
     logger.info(workflow_guide.get_html_summary())
-

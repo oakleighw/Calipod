@@ -27,7 +27,7 @@ class WorkspaceSummaryWidget(QWidget):
 
         self.camera_count_spin = QSpinBox()
         self.camera_count_spin.setValue(self.controller.get_camera_count())
-        setup_spinbox_sizing(self.camera_count_spin,min_value=1,max_value=100,padding=30)
+        setup_spinbox_sizing(self.camera_count_spin, min_value=1, max_value=100, padding=30)
 
         self.status_HTML = QTextBrowser()
         # Set the layout for the widget
@@ -84,6 +84,3 @@ class WorkspaceSummaryWidget(QWidget):
 
     def update_status(self):
         self.status_HTML.setHtml(self.controller.workspace_guide.get_html_summary())
-
-
-

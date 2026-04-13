@@ -12,8 +12,8 @@ to avoid circular imports. Import them explicitly when needed:
 
 from calipod.core.logger import get as get_logger
 from calipod.core.packets import (
-    PointPacket,
     FramePacket,
+    PointPacket,
     SyncPacket,
     XYZPacket,
 )
@@ -25,4 +25,3 @@ __all__ = [
     "SyncPacket",
     "XYZPacket",
 ]
-

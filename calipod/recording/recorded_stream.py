@@ -189,17 +189,21 @@ class RecordedStream:
             # --- ANNOTATIONS-ONLY MODE OPTIMIZATION: Skip fps throttling ---
             # In annotations-only mode, process as fast as possible (no sleep)
             # In normal mode, sleep to match target fps
-            annotations_only = (self.tracker is not None and 
-                              hasattr(self.tracker, 'annotations_only_mode') and 
-                              self.tracker.annotations_only_mode)
-            
+            annotations_only = (
+                self.tracker is not None
+                and hasattr(self.tracker, "annotations_only_mode")
+                and self.tracker.annotations_only_mode
+            )
+
             if self.milestones is not None and not annotations_only:
                 sleep(self.wait_to_next_frame())
-            
+
             # --- ANNOTATIONS-ONLY MODE OPTIMIZATION ---
             # If tracker is in annotations-only mode (has pre-made annotations), skip video reading
             if annotations_only:
-                logger.debug(f"RecordedStream (Port {self.port}): Using annotations-only mode for frame {self.frame_index} (no video reading)")
+                logger.debug(
+                    f"RecordedStream (Port {self.port}): Using annotations-only mode for frame {self.frame_index} (no video reading)"
+                )
                 # Create a dummy frame with correct dimensions but no pixel data
                 # This allows the tracker to get frame shape for calculations without decoding video
                 self.frame = np.zeros((self.size[1], self.size[0], 3), dtype=np.uint8)
@@ -214,10 +218,12 @@ class RecordedStream:
 
             if self.tracker is not None:
                 if self.tracker.name == "FLY":
-                    self.point_data = self.tracker.get_points(self.frame, self.port, self.rotation_count, self.frame_index)
+                    self.point_data = self.tracker.get_points(
+                        self.frame, self.port, self.rotation_count, self.frame_index
+                    )
                 else:
                     self.point_data = self.tracker.get_points(self.frame, self.port, self.rotation_count)
-                
+
                 draw_instructions = self.tracker.scatter_draw_instructions
             else:
                 self.point_data = None
@@ -239,7 +245,7 @@ class RecordedStream:
             for q in self.subscribers:
                 q.put(frame_packet)
 
-            logger.debug(f"Incrementing frame index from {self.frame_index} to {self.frame_index+1}")
+            logger.debug(f"Incrementing frame index from {self.frame_index} to {self.frame_index + 1}")
             self.frame_index += 1
 
             if self.frame_index > self.last_frame_index and self.break_on_last:
@@ -280,6 +286,3 @@ class RecordedStream:
                 self.frame_index = self._jump_q.get()
                 logger.info(f"Setting port {self.port} capture object to frame index {self.frame_index}")
                 self.capture.set(cv2.CAP_PROP_POS_FRAMES, self.frame_index)
-
-
-

@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 
 from calipod.core import logger as calipod_logger
-from calipod.trackers.tracker_enum import TrackerEnum
 from calipod.post_processing.distance_metrics import calculate_distance
+from calipod.trackers.tracker_enum import TrackerEnum
 
 logger = calipod_logger.get(__name__)
 
@@ -15,6 +15,7 @@ def generate_metarig_config(tracker_enum: TrackerEnum, xyz_csv_path: Path):
     tracker = tracker_enum.value()
 
     import pandas as pd
+
     xyz_trajectories = pd.read_csv(xyz_csv_path)
     json_path = Path(xyz_csv_path.parent, f"metarig_config_{tracker.name}.json")
 

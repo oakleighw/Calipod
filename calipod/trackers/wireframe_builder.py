@@ -29,5 +29,3 @@ def get_wireframe(toml_spec_path: Path, point_names: dict) -> WireFrameView:
     wireframe = WireFrameView(segments=segments, point_names=point_names)
 
     return wireframe
-
-

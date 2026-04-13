@@ -5,8 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
-from calipod.core import logger as calipod_logger
 from calipod.cameras.synchronizer import Synchronizer
+from calipod.core import logger as calipod_logger
 from calipod.core.packets import SyncPacket
 
 logger = calipod_logger.get(__name__)
@@ -158,6 +158,3 @@ if __name__ == "__main__":
     print("Saving data....")
     # save_data = pd.DataFrame(point_stream.tidy_output)
     # save_data.to_csv(csv_output)
-
-
-

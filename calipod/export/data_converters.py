@@ -14,13 +14,13 @@ logger = calipod_logger.get(__name__)
 def xyz_to_wide_labelled(xyz: pd.DataFrame, tracker: Tracker) -> pd.DataFrame:
     """
     Convert long-format XYZ data to wide-format with named point columns.
-    
+
     Column headings will be based on the point_id names in the Tracker.
-    
+
     Args:
         xyz: Long-format DataFrame with columns: sync_index, point_id, x_coord, y_coord, z_coord
         tracker: Tracker instance with get_point_name() method
-        
+
     Returns:
         Wide-format DataFrame with multi-level columns for x, y, z per point
     """
@@ -52,10 +52,10 @@ def xyz_to_wide_labelled(xyz: pd.DataFrame, tracker: Tracker) -> pd.DataFrame:
 def xyz_to_trc(xyz: pd.DataFrame, tracker: Tracker, time_history_path: Path, target_path: Path):
     """
     Convert XYZ tracking data to OpenSim TRC format.
-    
+
     Saves a .trc file in the same folder as target_path.
     Relies on xyz_to_wide_labelled for intermediate format.
-    
+
     Args:
         xyz: Long-format DataFrame with XYZ coordinates
         tracker: Tracker instance with get_point_name() method
@@ -173,8 +173,5 @@ def xyz_to_trc(xyz: pd.DataFrame, tracker: Tracker, time_history_path: Path, tar
             row_data[frame_index] = int(row_data[frame_index])
 
             tsv_writer.writerow(row_data)
-    
+
     logger.info(f"TRC file saved to {trc_path}")
-
-
-

@@ -15,8 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from calipod.core import logger as calipod_logger
 from calipod.cameras.synchronizer import Synchronizer
+from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.core.packets import FramePacket
 
@@ -112,7 +112,7 @@ class ExtrinsicPlaybackWidget(QWidget):
     def closeEvent(self, event):
         """Stop the thumbnail emitter thread when widget is closed"""
         logger.info("ExtrinsicPlaybackWidget closeEvent triggered - stopping thumbnail emitter")
-        if hasattr(self, 'thumbnail_emitter'):
+        if hasattr(self, "thumbnail_emitter"):
             self.thumbnail_emitter.keep_collecting.clear()
             if self.thumbnail_emitter.isRunning():
                 self.thumbnail_emitter.wait(1000)
@@ -268,6 +268,3 @@ def cv2_to_qimage(frame):
     )
 
     return qt_frame
-
-
-

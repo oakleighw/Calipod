@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
+from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.camera_management.camera_display_widget import (
     CameraDataDisplayWidget,
@@ -338,6 +338,3 @@ if __name__ == "__main__":
     logger.info("About to show window")
     window.show()
     sys.exit(app.exec())
-
-
-

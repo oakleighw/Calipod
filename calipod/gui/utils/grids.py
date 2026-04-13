@@ -9,7 +9,7 @@ def nice_step(value: float) -> float:
     """Round a spacing value to a human-friendly 1/2/5*10^n step."""
     value = max(float(value), 1e-6)
     exponent = int(np.floor(np.log10(value)))
-    base = 10.0 ** exponent
+    base = 10.0**exponent
     for multiplier in (1.0, 2.0, 5.0, 10.0):
         candidate = multiplier * base
         if candidate >= value:
@@ -63,7 +63,9 @@ def format_axis_label(scene_value: float, scene_scale: float) -> str:
     return f"{mm_value:.0f} mm"
 
 
-def scale_label_values(visible_extent: float, scene_scale: float, target_major_intervals: float = 20.0) -> tuple[float, float, float]:
+def scale_label_values(
+    visible_extent: float, scene_scale: float, target_major_intervals: float = 20.0
+) -> tuple[float, float, float]:
     """Return minor spacing, major spacing, and label interval in scene units."""
     minor, major = adaptive_grid_spacing(visible_extent, target_major_intervals=target_major_intervals)
     label_interval = major
@@ -150,25 +152,28 @@ def build_complete_grid_label_specs(
     Returns a list of tuples: ((x, y, z), text) with both tick labels and axis end labels.
     """
     specs = []
-    
+
     # Add edge tick specs
-    specs.extend(build_edge_tick_specs(
-        half_extent=half_extent,
-        label_interval=label_interval,
-        label_formatter=label_formatter,
-        offset_ratio=offset_ratio,
-        interval_offset_ratio=interval_offset_ratio,
-        diagonal_ratio=diagonal_ratio,
-    ))
-    
-    # Add axis labels for both planes
-    for plane in ("xy", "xz"):
-        specs.extend(build_axis_label_specs(
-            plane=plane,
+    specs.extend(
+        build_edge_tick_specs(
             half_extent=half_extent,
+            label_interval=label_interval,
+            label_formatter=label_formatter,
             offset_ratio=offset_ratio,
             interval_offset_ratio=interval_offset_ratio,
-        ))
-    
-    return specs
+            diagonal_ratio=diagonal_ratio,
+        )
+    )
 
+    # Add axis labels for both planes
+    for plane in ("xy", "xz"):
+        specs.extend(
+            build_axis_label_specs(
+                plane=plane,
+                half_extent=half_extent,
+                offset_ratio=offset_ratio,
+                interval_offset_ratio=interval_offset_ratio,
+            )
+        )
+
+    return specs

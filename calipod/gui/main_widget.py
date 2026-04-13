@@ -17,20 +17,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from calipod.core import logger as calipod_logger
 from calipod import __log_dir__, __root__, __settings_path__
 from calipod.cameras.camera_array import CameraArray
+from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
+from calipod.gui.annotation_widget import AnnotationWidget
+from calipod.gui.arena_sim_widget import ArenaSimWidget
+from calipod.gui.bgs_processing_widget import BGSProcessingWidget
 from calipod.gui.camera_management.multiplayback_widget import (
     MultiIntrinsicPlaybackWidget,
 )
-from calipod.gui.circuit_management_widget import CircuitManagementWidget
-from calipod.gui.annotation_widget import AnnotationWidget
-from calipod.gui.arena_sim_widget import ArenaSimWidget
 from calipod.gui.capture_widget import CameraCaptureWidget
-from calipod.gui.detection_widget import DetectionWidget
-from calipod.gui.bgs_processing_widget import BGSProcessingWidget
 from calipod.gui.charuco_widget import CharucoWidget
+from calipod.gui.circuit_management_widget import CircuitManagementWidget
+from calipod.gui.detection_widget import DetectionWidget
 from calipod.gui.log_widget import LogWidget
 from calipod.gui.post_processing_widget import PostProcessingWidget
 from calipod.gui.vizualize.calibration.capture_volume_visualizer import CaptureVolumeVisualizer
@@ -280,59 +280,59 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Handle window close event to clean up resources"""
         logger.info("MainWindow closeEvent triggered - cleaning up resources")
-        
+
         # Clean up controller resources FIRST (before closing streams)
-        if hasattr(self, 'controller'):
+        if hasattr(self, "controller"):
             logger.info("Cleaning up controller resources")
-            
+
             # Stop intrinsic stream manager and its threads
-            if hasattr(self.controller, 'intrinsic_stream_manager'):
+            if hasattr(self.controller, "intrinsic_stream_manager"):
                 logger.info("Closing intrinsic stream manager")
                 try:
                     self.controller.intrinsic_stream_manager.close_stream_tools()
                 except Exception as e:
                     logger.error(f"Error closing intrinsic stream manager: {e}")
-            
+
             # Stop extrinsic stream manager if it exists
-            if hasattr(self.controller, 'extrinsic_stream_manager'):
+            if hasattr(self.controller, "extrinsic_stream_manager"):
                 logger.info("Stopping extrinsic stream manager")
                 try:
-                    if hasattr(self.controller.extrinsic_stream_manager, 'streams'):
+                    if hasattr(self.controller.extrinsic_stream_manager, "streams"):
                         for port, stream in self.controller.extrinsic_stream_manager.streams.items():
                             stream.stop_event.set()
-                            if hasattr(stream, 'thread'):
+                            if hasattr(stream, "thread"):
                                 stream.thread.join(timeout=1.0)
-                    if hasattr(self.controller.extrinsic_stream_manager, 'recorder'):
+                    if hasattr(self.controller.extrinsic_stream_manager, "recorder"):
                         self.controller.extrinsic_stream_manager.recorder.stop_recording()
                 except Exception as e:
                     logger.error(f"Error closing extrinsic stream manager: {e}")
-            
+
             # Stop synchronizer
-            if hasattr(self.controller, 'synchronizer'):
+            if hasattr(self.controller, "synchronizer"):
                 logger.info("Stopping synchronizer")
                 try:
                     self.controller.synchronizer.stop()
                 except Exception as e:
                     logger.error(f"Error stopping synchronizer: {e}")
-        
+
         # Stop any QThread emitters if they exist
-        if hasattr(self, 'post_processing_widget') and hasattr(self.post_processing_widget, 'thumbnail_emitter'):
+        if hasattr(self, "post_processing_widget") and hasattr(self.post_processing_widget, "thumbnail_emitter"):
             logger.info("Stopping post processing thumbnail emitter")
             try:
                 self.post_processing_widget.thumbnail_emitter.stop()
                 self.post_processing_widget.thumbnail_emitter.wait(1000)
             except Exception as e:
                 logger.error(f"Error stopping post processing emitter: {e}")
-        
+
         # Stop intrinsic calibration widget threads if they exist
-        if hasattr(self, 'intrinsic_cal_widget') and hasattr(self.intrinsic_cal_widget, 'thumbnail_emitter'):
+        if hasattr(self, "intrinsic_cal_widget") and hasattr(self.intrinsic_cal_widget, "thumbnail_emitter"):
             logger.info("Stopping intrinsic calibration thumbnail emitter")
             try:
                 self.intrinsic_cal_widget.thumbnail_emitter.stop()
                 self.intrinsic_cal_widget.thumbnail_emitter.wait(1000)
             except Exception as e:
                 logger.error(f"Error stopping intrinsic emitter: {e}")
-        
+
         logger.info("MainWindow cleanup complete")
         event.accept()
 
@@ -352,5 +352,3 @@ def launch_main():
 if __name__ == "__main__":
     launch_main()
     # pass
-
-

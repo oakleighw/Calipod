@@ -4,12 +4,10 @@
 from dataclasses import dataclass
 from itertools import permutations
 from pathlib import Path
-import colorsys
 
 import numpy as np
 import rtoml
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.calibration.capture_volume.helper_functions.get_point_estimates import (
@@ -17,6 +15,7 @@ from calipod.calibration.capture_volume.helper_functions.get_point_estimates imp
 )
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.cameras.camera_array import CameraArray, CameraData
+from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
 
@@ -105,8 +104,6 @@ class CameraArrayInitializer:
         self._fill_stereopair_gaps()
         # self.best_camera_array = self.get_best_camera_array()
 
-
-    
     def _fill_stereopair_gaps(self):
         """
         Loop across missing pairs and create bridged stereopairs when possible.
@@ -322,5 +319,3 @@ if __name__ == "__main__":
 
 
 # %%
-
-

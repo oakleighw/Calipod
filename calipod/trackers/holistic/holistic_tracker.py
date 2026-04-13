@@ -247,6 +247,3 @@ class HolisticTracker(Tracker):
 
     def get_connected_points(self) -> set[tuple[int, int]]:
         return super().get_connected_points()
-
-
-

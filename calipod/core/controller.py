@@ -5,7 +5,6 @@ from time import sleep, time
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
-from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.calibration.capture_volume.helper_functions.get_point_estimates import (
     get_point_estimates,
@@ -13,11 +12,12 @@ from calipod.calibration.capture_volume.helper_functions.get_point_estimates imp
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.capture_volume.quality_controller import QualityController
 from calipod.calibration.charuco import Charuco
+from calipod.calibration.intrinsic_stream_manager import IntrinsicStreamManager
 from calipod.calibration.stereocalibrator import StereoCalibrator
 from calipod.cameras.camera_array import CameraArray, CameraData
 from calipod.cameras.camera_array_initializer import CameraArrayInitializer
+from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
-from calipod.calibration.intrinsic_stream_manager import IntrinsicStreamManager
 from calipod.post_processing.post_processor import PostProcessor
 from calipod.synchronized_stream_manager import (
     SynchronizedStreamManager,
@@ -374,7 +374,7 @@ class Controller(QObject):
 
             self.quality_controller = QualityController(self.capture_volume, self.charuco)
 
-            logger.info(f"Removing the worst fitting {FILTERED_FRACTION*100} percent of points from the model")
+            logger.info(f"Removing the worst fitting {FILTERED_FRACTION * 100} percent of points from the model")
             self.quality_controller.filter_point_estimates(FILTERED_FRACTION)
             self.capture_volume.optimize()
 
@@ -386,7 +386,7 @@ class Controller(QObject):
         self.calibrate_capture_volume_thread.finished.connect(self.capture_volume_calibrated.emit)
         self.calibrate_capture_volume_thread.start()
 
-    def process_recordings(self, recording_path: Path,  tracker_enum: TrackerEnum):
+    def process_recordings(self, recording_path: Path, tracker_enum: TrackerEnum):
         """
         Initiates worker thread to begin post processing.
         TrackerEnum passed in so that access is given to both the tracker and the name
@@ -464,5 +464,3 @@ class Controller(QObject):
         self.autocalibrate_threads[port] = QThread()
         self.autocalibrate_threads[port].run = worker
         self.autocalibrate_threads[port].start()
-
-

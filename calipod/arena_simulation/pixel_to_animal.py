@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 
-
 PIXEL_TO_ANIMAL_CONFLICT_MESSAGE = "Too many values entered, submit only furthest distance or pixel size in pixels"
 PIXEL_TO_ANIMAL_RESULT_DECIMALS = 4
 
@@ -64,11 +63,7 @@ def resolve_input_mode_for_pixel_size_change(current_mode: str | None, furthest_
 
 def compute_pixel_to_animal_result(inputs: PixelToAnimalInputs) -> PixelToAnimalResult:
     """Compute UI-facing pixel-to-animal outputs from current inputs and mode."""
-    if (
-        inputs.min_insect_size_mm <= 0
-        or inputs.pixel_size_on_sensor_um <= 0
-        or inputs.focal_length_mm <= 0
-    ):
+    if inputs.min_insect_size_mm <= 0 or inputs.pixel_size_on_sensor_um <= 0 or inputs.focal_length_mm <= 0:
         return PixelToAnimalResult(
             insect_label_text="Missing valid lens/animal parameters",
             distance_label_text="Missing valid lens/animal parameters",
@@ -160,4 +155,3 @@ def compute_pixel_to_animal_result(inputs: PixelToAnimalInputs) -> PixelToAnimal
         computed_insect_pixel_count=None,
         computed_furthest_distance_mm=None,
     )
-

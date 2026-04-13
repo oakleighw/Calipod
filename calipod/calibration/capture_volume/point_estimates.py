@@ -93,5 +93,3 @@ def load_point_estimates(config: dict) -> PointEstimates:
 
     point_estimates = PointEstimates(**point_estimates_dict)
     return point_estimates
-
-

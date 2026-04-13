@@ -3,9 +3,9 @@ from pathlib import Path
 
 import cv2
 
-from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraData
 from calipod.cameras.synchronizer import Synchronizer
+from calipod.core import logger as calipod_logger
 from calipod.core.packets import Tracker
 from calipod.recording.recorded_stream import RecordedStream
 from calipod.recording.video_recorder import VideoRecorder
@@ -69,23 +69,23 @@ class SynchronizedStreamManager:
         This will include mp4 files with visualized landmarks as well as the file `xy.csv`
         Default behavior is to process streams at the mean frame rate they were recorded at.
         But this can be overridden with a new fps_target
-        
-        If tracker is a FlyTracker with pre-made annotations available, video frames 
+
+        If tracker is a FlyTracker with pre-made annotations available, video frames
         will not be read (annotations-only mode for faster processing).
         """
         logger.info(f"beginning to create recording for files saved to {self.output_dir}")
-        
+
         # Check if FlyTracker has annotations available - if so, enable annotations-only mode
         show_points = True  # Default: show points visualization
-        if self.tracker is not None and hasattr(self.tracker, 'check_annotations_available'):
+        if self.tracker is not None and hasattr(self.tracker, "check_annotations_available"):
             logger.info("Checking if FlyTracker can use annotations-only mode...")
             if self.tracker.check_annotations_available(self.recording_dir, self.all_camera_data):
                 logger.info("✓ Annotations available for all cameras - enabling faster annotations-only mode")
                 include_video = False  # Don't include video in output when using annotations-only mode
-                show_points = False    # Don't draw points on frames (no frames to draw on)
+                show_points = False  # Don't draw points on frames (no frames to draw on)
             else:
                 logger.info("Annotations not available for all cameras - will process video frames normally")
-        
+
         self.recorder.start_recording(
             self.output_dir,
             include_video=include_video,
@@ -143,4 +143,3 @@ def read_video_properties(source_path: Path) -> dict:
     video.release()
 
     return properties
-

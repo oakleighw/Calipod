@@ -130,6 +130,3 @@ class PoseTracker(Tracker):
             rules = {"radius": 5, "color": (220, 0, 220), "thickness": 3}
 
         return rules
-
-
-

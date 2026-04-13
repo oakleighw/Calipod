@@ -6,6 +6,8 @@
 # in meters as a standard convention of science, and to improve
 # readability of 3D positional output downstream
 
+import os
+import tempfile
 from collections import defaultdict
 from itertools import combinations
 
@@ -13,15 +15,12 @@ import cv2
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 
-#for pdf saving
+# for pdf saving
 from reportlab.lib import pagesizes
+from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
-from reportlab.lib.units import cm, inch
-import tempfile
-import os
 
 from calipod.core import logger as calipod_logger
-
 
 logger = calipod_logger.get(__name__)
 
@@ -29,13 +28,14 @@ INCHES_PER_CM = 0.393701
 
 # Standard page sizes available for PDF export
 PAGE_SIZES = {
-    'A1': pagesizes.A1,
-    'A2': pagesizes.A2,
-    'A3': pagesizes.A3,
-    'A4': pagesizes.A4,
-    'A5': pagesizes.A5,
-    'A6': pagesizes.A6,
+    "A1": pagesizes.A1,
+    "A2": pagesizes.A2,
+    "A3": pagesizes.A3,
+    "A4": pagesizes.A4,
+    "A5": pagesizes.A5,
+    "A6": pagesizes.A6,
 }
+
 
 class Charuco:
     """
@@ -54,7 +54,7 @@ class Charuco:
         aruco_scale=0.75,
         square_size_overide_cm=None,
         inverted=False,
-        legacy_pattern=False
+        legacy_pattern=False,
     ):  # after printing, measure actual and return to overide
         """
         Create board based on shape and dimensions
@@ -95,12 +95,12 @@ class Charuco:
         if self.board_height_cm > self.board_width_cm:
             scaled_height = int(pixmap_scale)
         else:
-            scaled_height = int(pixmap_scale * (self.board_height_cm/self.board_width_cm))
+            scaled_height = int(pixmap_scale * (self.board_height_cm / self.board_width_cm))
         return scaled_height
 
     def board_width_scaled(self, pixmap_scale):
         if self.board_height_cm > self.board_width_cm:
-            scaled_width = int(pixmap_scale * (self.board_width_cm/self.board_height_cm))
+            scaled_width = int(pixmap_scale * (self.board_width_cm / self.board_height_cm))
         else:
             scaled_width = int(pixmap_scale)
 
@@ -121,14 +121,15 @@ class Charuco:
             board_width_m = self.board_width_cm / 100
 
             square_length = min([board_height_m / self.rows, board_width_m / self.columns])
-        logger.info(f"Creating charuco with square length of {round(square_length,4)}")
+        logger.info(f"Creating charuco with square length of {round(square_length, 4)}")
 
         aruco_length = square_length * self.aruco_scale
         # create the board
-        board = cv2.aruco.CharucoBoard(size=(self.columns, self.rows),
-                                      squareLength= square_length,
-                                      markerLength= aruco_length,
-                                      dictionary= self.dictionary_object,
+        board = cv2.aruco.CharucoBoard(
+            size=(self.columns, self.rows),
+            squareLength=square_length,
+            markerLength=aruco_length,
+            dictionary=self.dictionary_object,
         )
 
         logger.info(f"Setting legacy pattern of board to {self.legacy_pattern}")
@@ -141,8 +142,9 @@ class Charuco:
         smaller scale image by default for display to GUI
         provide larger max_edge_length to get printer-ready png
         """
-        img = self.board.generateImage((self.board_width_scaled(pixmap_scale=pixmap_scale),
-                                        self.board_height_scaled(pixmap_scale=pixmap_scale)))
+        img = self.board.generateImage(
+            (self.board_width_scaled(pixmap_scale=pixmap_scale), self.board_height_scaled(pixmap_scale=pixmap_scale))
+        )
         if self.inverted:
             img = ~img
 
@@ -171,10 +173,10 @@ class Charuco:
         """
         cv2.imwrite(path, self.board_img(pixmap_scale=10000))
 
-    def save_to_pdf(self, scaled_board, path, pagesize='A4'):
+    def save_to_pdf(self, scaled_board, path, pagesize="A4"):
         """
         Save the charuco board to a PDF file with the specified page size.
-        
+
         Args:
             scaled_board: The scaled board image
             path: Output file path
@@ -182,8 +184,8 @@ class Charuco:
         """
         if pagesize not in PAGE_SIZES:
             logger.warning(f"Unknown pagesize '{pagesize}', using A4")
-            pagesize = 'A4'
-        
+            pagesize = "A4"
+
         page_size = PAGE_SIZES[pagesize]
         page_width, page_height = page_size
 
@@ -193,34 +195,33 @@ class Charuco:
         # Calculate the position to center the image on the page
         x_offset = (page_width - img_width_on_pdf) / 2
         y_offset = (page_height - img_height_on_pdf) / 2
-        
+
         c = canvas.Canvas(path, pagesize=page_size)
-        
+
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_image_file:
             temp_filename = temp_image_file.name
-            
-             # Ensure the image is 3-channel BGR for broader compatibility, even if grayscale 
-            if scaled_board.ndim == 2: 
+
+            # Ensure the image is 3-channel BGR for broader compatibility, even if grayscale
+            if scaled_board.ndim == 2:
                 scaled_board_bgr = cv2.cvtColor(scaled_board, cv2.COLOR_GRAY2BGR)
-            elif scaled_board.ndim == 3 and scaled_board.shape[2] == 4: 
+            elif scaled_board.ndim == 3 and scaled_board.shape[2] == 4:
                 scaled_board_bgr = cv2.cvtColor(scaled_board, cv2.COLOR_RGBA2BGR)
-            else: # Already BGR or other 3-channel format
+            else:  # Already BGR or other 3-channel format
                 scaled_board_bgr = scaled_board
-            
+
             cv2.imwrite(temp_filename, scaled_board_bgr)
 
         try:
-            c.drawImage(temp_filename, x_offset, y_offset, 
-                        width=img_width_on_pdf, height=img_height_on_pdf)
+            c.drawImage(temp_filename, x_offset, y_offset, width=img_width_on_pdf, height=img_height_on_pdf)
             c.showPage()
             c.save()
         finally:
             os.remove(temp_filename)
 
-    def save_pdf(self, path, pagesize='A4'):
+    def save_pdf(self, path, pagesize="A4"):
         """
         Saving pdf at 10x higher resolution than used for GUI
-        
+
         Args:
             path: Output file path
             pagesize: Paper size name (default 'A4'). Options: A3, A4, A5, Letter, Legal, Tabloid
@@ -235,10 +236,10 @@ class Charuco:
         mirror = cv2.flip(self.board_img(pixmap_scale=10000), 1)
         cv2.imwrite(path, mirror)
 
-    def save_mirror_pdf(self, path, pagesize='A4'):
+    def save_mirror_pdf(self, path, pagesize="A4"):
         """
         Saving pdf at 10x higher resolution than used for GUI
-        
+
         Args:
             path: Output file path
             pagesize: Paper size name (default 'A4'). Options: A3, A4, A5, Letter, Legal, Tabloid
@@ -347,5 +348,3 @@ if __name__ == "__main__":
     #         break
 
 # %%
-
-
