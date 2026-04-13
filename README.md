@@ -8,97 +8,150 @@
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/calipod?color=blue)](https://pypi.org/project/calipod/)
 [![PyPI - License](https://img.shields.io/pypi/l/calipod?color=blue)](https://opensource.org/license/bsd-2-clause/)
 [![PyPI - Version](https://img.shields.io/pypi/v/calipod?color=blue)](https://pypi.org/project/calipod/)
-[![GitHub last commit](https://img.shields.io/github/last-commit/mprib/caliscope.svg)](https://github.com/mprib/caliscope/commits)
-[![GitHub stars](https://img.shields.io/github/stars/mprib/caliscope.svg?style=social&label=Star)](https://github.com/mprib/caliscope/stargazers)
-![pytest](https://github.com/mprib/caliscope/actions/workflows/pytest.yml/badge.svg)
+[![GitHub last commit](https://img.shields.io/github/last-commit/oakleighw/calipod.svg)](https://github.com/oakleighw/calipod/commits)
+[![GitHub stars](https://img.shields.io/github/stars/oakleighw/calipod.svg?style=social&label=Star)](https://github.com/oakleighw/calipod/stargazers)
+![pytest](https://github.com/oakleighw/calipod/actions/workflows/pytest.yml/badge.svg)
 </div>
 
+## Attribution
 
-## About
-`Caliscope` is a GUI-based multicamera calibration package. When the intrinsic (focal length, optical center, and distortion) as well as extrinsic (relative rotation and translation) properties of a set of cameras are known, synchronized frames from those cameras can be used to triangulate landmarks identified across their multiple points of view. With more cameras, this 3D tracking becomes more robust to occlusion and the inevitable errors in 2D landmark tracking and camera property estimates.
-
-While OpenCV provides straightforward functions for the estimation of single camera intrinsic properties as well as estimates of the extrinsic properties of two cameras, there is no straightforward way to estimate extrinsic properties for more than two cameras. Performing this requires [bundle adjustment](https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html), which demands an extensive series of computational steps and intermediate data tracking.
-
-Caliscope automates this more complex calibration function along with providing visual feedback regarding parameter estimates at each stage of processing. Additionally, there are sample implementations of a Tracker class using Google's Mediapipe that demonstrate the capacity to integrate the full calibration results with landmark tracking tools to achieve 3D pose estimation. While Mediapipe pose estimation has limitations regarding accuracy and precision, it demonstrates a data processing pipeline that can easily integrate more powerful tracking tools as they emerge.
-
-This README provides a general overview and quick guide to install `Caliscope` on your system. For a more detailed description of the calibration process and workflow, please see our [docs](https://mprib.github.io/caliscope/).
-
-**For a quick sense of how the calibration process works, check out the [video walk through](https://www.youtube.com/watch?v=voE3IKYtuIQ) of the [sample project](https://mprib.github.io/caliscope/sample_project/).**
+**Calipod** is derived from [Caliscope](https://github.com/mprib/caliscope), an open-source multicamera calibration and motion capture tool created by Mac Prible. Calipod extends the foundational calibration methodology with additional features for arena simulation, camera planning, detection filtering, YOLO detection loading, background subtraction support, and other optimizations for insect behaviour tracking. The underlying bundle adjustment and calibration algorithms are based on Caliscope's work, which is documented in the [Caliscope JOSS publication](https://joss.theoj.org/papers/10.21105/joss.07155).
 
 ---
 
-### Demo Animation
+## What's New in Calipod
 
-https://github.com/mprib/caliscope/assets/31831778/803a4ce8-4012-4da1-87b9-66c5e6b31c59
+Calipod extends Caliscope's core calibration with specialized features for multi-animal tracking workflows:
 
-*`Caliscope` was used to calibrate the cameras used in the above recordings (both intrinsic and extrinsic parameters), run 2D landmark estimation across all the videos using Holistic Mediapipe pose estimation, then triangulate the 3D landmark positions based on the camera system calibration.
-The animation was created in Blender based on these 3D landmark estimates using a companion project called [Rigmarole](https://github.com/mprib/rigmarole).
-The concurrent video was recorded with a 7 year old t440p laptop, 4 webcams (~$25 each) and another project called [MultiWebCam](https://github.com/mprib/multiwebcam).*
+- **Arena Simulation & Planning** - Interactive 3D workspace design with triangulatable camera frustum overlap analysis
+- **Advanced Post-Processing** - Trajectory smoothing, gap-filling, and Kalman filtering with customizable parameters
+- **YOLO Integration** - Support for custom ground truth and detection predictions from YOLO detection systems
+- **Background Subtraction** - Specialized processing for motion isolation workflows
+- **Full Tracking Pipeline Guidance** - Step-by-step GUI workflow from calibration through post-processing
+
+---
+
+## About
+
+`Calipod` is a GUI-based multicamera planning, calibration and motion tracking package, designed for insect behaviour analysis. It provides tools for camera planning optimization, intrinsic and extrinsic camera calibration, and 3D landmark triangulation.
+
+Calipod automates complex calibration functions while providing visual feedback regarding parameter estimates at each stage of processing. Sample implementations of a Tracker class using Google's Mediapipe demonstrate how to integrate full calibration results with landmark tracking tools to achieve 3D pose estimation. Mediapipe capabilities are retained in the tracking pipeline, allowing users to test their camera rig and calibration by tracking their hand before deploying to insect tracking. While Mediapipe has limitations, it demonstrates a data processing pipeline easily extensible with more powerful tracking tools.
+
+For a detailed description of the calibration process and workflow, see the [original Caliscope documentation](https://mprib.github.io/caliscope/). For a quick video walkthrough, check out Caliscope's [sample project demonstration](https://www.youtube.com/watch?v=voE3IKYtuIQ).
+
+---
+
+## Key Features
+
+### Core Calibration Features
+
+#### Calibration Board Creation
+- Easy creation of `png` / `pdf` files for ChArUco calibration boards 
+- Board definition can be changed across intrinsic and extrinsic calibration allowing greater flexibility
+
+#### Intrinsic Camera Calibration
+- Automated calculation of camera intrinsic properties from input video
+  - Optical Center
+  - Focal Length
+  - Lens Distortion
+- Visualization of distortion model to ensure reasonableness
+
+#### Extrinsic Camera Calibration
+- Automated bundle adjustment to estimate 6 DoF relative position of cameras
+- Visualizer to inspect the estimates from the bundle adjustment
+- Setting of the World Origin within the visualizer to simplify data processing
+
+#### 3D Tracking
+- Tracker API for integrating alternate tracking methods
+  - 3 sample implementations with Google Mediapipe (Hands/Pose/Holistic)
+- Automated application of landmark tracking to synchronized videos
+- Triangulation of 3D landmark position based on calibrated cameras
+
+#### Trajectory Output
+- Output to `.trc` file format for use in biomechanical modelling
+- Output to tidy `.csv` format with well-labelled headers for straightforward integration with other workflows
+- Compatible with companion project [Rigmarole](https://github.com/mprib/rigmarole) (a Caliscope side-project for creating animated rigs in Blender)
+
+### Extended Features for Insect Tracking
+
+#### Arena Simulation & Planning
+- Interactive 3D workspace visualization for camera placement optimization
+- Triangulatable camera frustum overlap analysis to identify recording zones with sufficient multi-camera coverage
+- Workspace validation and planning before hardware deployment
+
+#### Advanced Post-Processing & Filtering
+- RTS (Rauch-Tung-Striebel) Kalman filtering for 3D trajectory smoothing
+- Intelligent gap-filling to handle occlusion or tracking failures
+- Configurable Kalman filter parameters (process noise and measurement uncertainty)
+- Distance-based spatial filtering with gate distance and threshold customization
+- Performance metrics and visualization for filter validation
+
+#### Background Subtraction Support
+- Integrated background subtraction processing for scenarios requiring motion isolation
+- Specialized triangulation workers for background-subtracted tracking workflows
+
+#### Enhanced Charuco Board Creation
+- Flexible calibration board configuration with custom PDF size selection
+- Board parameter management for reproducible calibration across sessions
+
+#### Metadata Persistence
+- Automatic saving of filter parameters and calibration metrics alongside processed data
+- Enables reproducibility and detailed tracking of processing history
 
 ---
 
 # Quick Start
 
-Basic installation instructions can be found [here](https://mprib.github.io/caliscope/installation/). Please note that given the size of some core dependencies (OpenCV, Mediapipe, and PySide6 are among them) installation and initial launch can take a while. 
+Calipod is compatible with Python 3.10 and 3.11. Please note that given the size of some core dependencies (OpenCV, Mediapipe, and PySide6 are among them) installation and initial launch can take a while.
 
+## Installation Steps
 
-For a basic overview of the entire workflow, please see the [sample project](https://mprib.github.io/caliscope/sample_project/) for an example dataset and a video demonstration of the complete workflow.
-
-## Quickstart overview
-
-Taken from [guide](https://mprib.github.io/caliscope/installation/)
-
-### Create a virtual environment¶
-We strongly advise installing Caliscope within a virtual environment to avoid conflicts with other packages. Caliscope is compatible with Python 3.10 and 3.11.
-
-## Windows:
-
-### Navigate to the directory that will hold your project
-```
-cd path\to\your\project
-```
-
-### Create a virtual environment named '.venv' using Python 3.10
-```
-uv venv --python 3.11
-```
-
-### Activate the virtual environment
-```
-.\.venv\Scripts\activate
-```
-
-## Linux:
-
-### Install prerequisite packages for GUI display (Ubuntu)
+### 1. Install prerequisite packages (Linux/Ubuntu only)
 ```
 sudo apt-get update
 sudo apt-get install --fix-missing libgl1-mesa-dev
 ```
 
-### Navigate to the directory that will hold your project
+### 2. Navigate to your project directory
+**Windows:**
+```
+cd path\to\your\project
+```
+
+**Linux/macOS:**
 ```
 cd path/to/your/project
 ```
 
-### Create a virtual environment named '.venv' using Python 3.10
+### 3. Create a virtual environment
 ```
 uv venv --python 3.11
 ```
 
-### Activate the virtual environment wherever it was created [$\color{green}{\text{Do this each time :) }}$]
+### 4. Activate the virtual environment
+**⚠️ Do this each time you use Calipod:**
+
+**Windows:**
+```
+.\venv\Scripts\activate
+```
+
+**Linux/macOS:**
 ```
 source .venv/bin/activate
 ```
 
-### Install Calipod libraries within the new environment
-With your virtual environment activated, and within the calipod directory, you can now install Caliscope using uv.
+### 5. Install Calipod
+With your virtual environment activated and in the calipod directory, install Calipod using uv:
 ```
 uv pip install -e .
 ```
 Installation may take a moment as some dependencies are large, but uv's performance makes this process significantly faster than traditional tools.
 
-# Directory layout for projects
+## Project Directory Structure
+
+For help organizing your project, see the [directory layout guide](https://mprib.github.io/caliscope/sample_project/) from the original Caliscope documentation (does not include annotation folder etc though, which is required for custom detection visualisation, see here):
+
 ```
 ProjectDirectory/
 ├── config.toml    # Only contains default charuco board definition
@@ -114,60 +167,33 @@ ProjectDirectory/
 └── recordings/    # Empty by default prior to user populating data
     ├── recording_1
     │   ├── port_1.mp4...
-
 ```
 
-# Key Features
+## Current Tracker Implementation
 
-## Calibration board creation
-- Easy creation of `png` / `pdf` files for ChArUco calibration boards 
-- board definition can be changed across intrinsic and extrinsic calibration allowing greater flexibiltiy
-
-## Intrinsic Camera Calibration
-- Automated calculation of camera intrinsic properties from input video
-  - Optical Center
-  - Focal Length
-  - Lens Distortion
-
-- Visualization of distortion model to ensure reasonableness
-
-## Extrinsic Camera Calibration
-- Automated bundle adjustment to estimate 6 DoF relative position of cameras
-- Visualizer to inspect the estimates from the bundle adjustment
-- Setting of the World Origin within the visualizer to simplify data processing
-
-
-## 3D Tracking
-- Tracker API for integrating alternate tracking methods
-  - 3 sample implementations with Google Mediapipe (Hands/Pose/Holistic)
-- Automated application of landmark tracking to synchronized videos
-- Triangulation of 3D landmark position based on calibrated cameras
-- Gap-filling and butterworth filtering to smooth trajectory estimates
-
-## Trajectory Output
-
-- output to `.trc` file format for use in biomechanical modelling
-- output to tidy `.csv` format with well-labelled headers for straightforward integration with other workflows
-- companion project [Rigmarole](https://github.com/mprib/rigmarole) in development to facilitate creation of animated rigs in Blender
-
-
-## NOTE: Currently only using Mediapipe
-
-Google's Mediapipe provides a relatively easy and efficient method for human subject tracking, though for many uses it is limiting. Caliscope has a general Tracker base class that is implemented in a few versions (Pose/Hands/Holistic). This has provided a proof of concept implementation of markerless tracking, though for more robust use the roadmap calls for integration with more powerful tools such as [MMPose](https://github.com/open-mmlab/mmpose) and [DeepLabCut](https://github.com/DeepLabCut/DeepLabCut).
+Calipod currently uses Google's Mediapipe for tracking, which provides a relatively easy and efficient method for pose estimation. However, Mediapipe has limitations for many applications. Following Caliscope's modular Tracker API, Calipod is designed to be extensible with more powerful tools such as [MMPose](https://github.com/open-mmlab/mmpose) and [DeepLabCut](https://github.com/DeepLabCut/DeepLabCut) as they are integrated in future updates.
 
 ## Reporting Issues and Requesting Features
 
-To report a bug or request a feature, please [open an issue](https://github.com/mprib/caliscope/issues). Please keep in mind that this is an open-source project supported by volunteer effort, so your patience is appreciated.
+To report a bug or request a feature, please [open an issue](https://github.com/oakleighw/calipod/issues).
 
-# General Questions and Conversation
+## General Questions and Conversation
 
-Post any questions in the [Discussions](https://github.com/mprib/caliscope/discussions) section of the repo. 
+Post any questions in the [Discussions](https://github.com/oakleighw/calipod/discussions) section of the repo. 
 
 
 # Acknowledgments
 
-This project was inspired by [FreeMoCap](https://github.com/freemocap/freemocap) (FMC), which is spearheaded by [Jon Matthis, PhD](https://jonmatthis.com/) of the HuMoN Research Lab. The FMC calibration and triangulation system is built upon [Anipose](https://github.com/lambdaloop/anipose), created by Lili Karushchek, PhD. Caliscope was originally envisioned as an alternative calibration tool to Anipose that would allow more granular estimation of intrinsics as well as visual feedback during the calibration process. Several lines of of the original Anipose triangulation code are used in this code base, though otherwise it was written from the ground up. I'm grateful to Dr. Matthis for his time developing FreeMoCap, discussing it with me, pointing out important code considerations, and providing a great deal of information regarding open-source project management.
+**Calipod** extends and builds upon the work of [Caliscope](https://github.com/mprib/caliscope), created by Mac Prible as an alternative calibration tool within the broader ecosystem of motion capture software. 
+
+The original Caliscope project was inspired by [FreeMoCap](https://github.com/freemocap/freemocap) (FMC), which is spearheaded by [Jon Matthis, PhD](https://jonmatthis.com/) of the HuMoN Research Lab. The FMC calibration and triangulation system is built upon [Anipose](https://github.com/lambdaloop/anipose), created by Lili Karushchek, PhD. Caliscope was originally envisioned as an alternative calibration tool to Anipose that would allow more granular estimation of intrinsics as well as visual feedback during the calibration process. Several lines of the original Anipose triangulation code are used in this code base, though otherwise it was written from the ground up. 
 
 # License
 
-Caliscope is licensed under the permissive [BSD 2-Clause license](https://opensource.org/license/bsd-2-clause/). The triangulation function was adapted from the [Anipose](https://github.com/lambdaloop/anipose) code base which is also licensed under the BSD-2 Clause. A primary dependency of this project is PySide6 which provides the GUI front end. PySide6 is licensed under the [LGPLv3](https://www.gnu.org/licenses/lgpl-3.0.html). Caliscope does not modify the underlying source code of PySide6 which is available via [PyPI](https://pypi.org/project/PySide6/).
+Calipod is licensed under the permissive [BSD 2-Clause license](https://opensource.org/license/bsd-2-clause/), as is the original [Caliscope](https://github.com/mprib/caliscope) project. This allows you to freely use, modify, and distribute Calipod, provided you retain the copyright and license notices.
+
+Copyright holders:
+- **2024**: Donald "Mac" Prible (Caliscope)
+- **2025-2026**: Oakleigh Weekes (Calipod)
+
+The triangulation function was adapted from the [Anipose](https://github.com/lambdaloop/anipose) code base which is also licensed under the BSD-2 Clause. A primary dependency of this project is PySide6 which provides the GUI front end. PySide6 is licensed under the [LGPLv3](https://www.gnu.org/licenses/lgpl-3.0.html). Calipod does not modify the underlying source code of PySide6 which is available via [PyPI](https://pypi.org/project/PySide6/).

@@ -1,13 +1,15 @@
 cff-version: "1.2.0"
 authors:
+- family-names: Weekes
+  given-names: Oakleigh
+  orcid: "https://orcid.org/0009-0009-4387-6153"
 - family-names: Prible
   given-names: Donald
   orcid: "https://orcid.org/0000-0001-9243-468X"
-doi: 10.5281/zenodo.13905848
-message: If you use this software, please cite our article in the
-  Journal of Open Source Software.
-preferred-citation:
-  authors:
+  note: "Original author of Caliscope, from which Calipod is derived"
+message: "Calipod is derived from Caliscope. If you use this software and wish to cite the foundational calibration methodology, please also cite the Caliscope publication below."
+references:
+- authors:
   - family-names: Prible
     given-names: Donald
     orcid: "https://orcid.org/0000-0001-9243-468X"
@@ -24,5 +26,5 @@ preferred-citation:
   type: article
   url: "https://joss.theoj.org/papers/10.21105/joss.07155"
   volume: 9
-title: "Caliscope: GUI Based Multicamera Calibration and Motion
-  Tracking"
+title: "Calipod: Multicamera Planning, Calibration and Motion Tracking
+for 3D Insect Behaviour Analysis"

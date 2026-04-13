@@ -6,14 +6,16 @@ from pathlib import Path
 
 import rtoml
 
-__package_name__ = "caliscope"
-__version__ = "v0.2.4"
+__package_name__ = "calipod"
+__version__ = "v0.3.0-dev"
 
-__author__ = """Mac Prible"""
-__email__ = "prible@gmail.com"
-__repo_owner_github_user_name__ = "mprib"
+__author__ = """Oakleigh Weekes"""
+__email__ = "oakleighweekes@hotmail.com"
+__repo_owner_github_user_name__ = "oakleighw"
 __repo_url__ = f"https://github.com/{__repo_owner_github_user_name__}/{__package_name__}/"
 __repo_issues_url__ = f"{__repo_url__}issues"
+
+# Calipod is derived from Caliscope (original author: Mac Prible, https://github.com/mprib/caliscope)
 
 
 # Determine platform-specific application data directory
