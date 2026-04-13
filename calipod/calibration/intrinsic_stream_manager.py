@@ -164,6 +164,3 @@ class IntrinsicStreamManager:
             sleep(2)
 
         intrinsic_calibrator.calibrate_camera()
-
-
-

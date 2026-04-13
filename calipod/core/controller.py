@@ -17,7 +17,7 @@ from calipod.calibration.stereocalibrator import StereoCalibrator
 from calipod.cameras.camera_array import CameraArray, CameraData
 from calipod.cameras.camera_array_initializer import CameraArrayInitializer
 from calipod.core.configurator import Configurator
-from calipod.intrinsic_stream_manager import IntrinsicStreamManager
+from calipod.calibration.intrinsic_stream_manager import IntrinsicStreamManager
 from calipod.post_processing.post_processor import PostProcessor
 from calipod.synchronized_stream_manager import (
     SynchronizedStreamManager,
