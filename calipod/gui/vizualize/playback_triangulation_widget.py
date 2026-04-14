@@ -941,7 +941,7 @@ class PlaybackTriangulationWidget(QWidget):
                 fps_override = getattr(self, 'kalman_fps_override', None)
                 if fps_override is None:
                     try:
-                        metadata_path = filtered_path.with_stem(filtered_path.stem + '_metadata')
+                        metadata_path = filtered_path.with_suffix('.json').with_stem(filtered_path.stem + '_metadata')
                         if metadata_path.exists():
                             import json
                             with open(metadata_path, 'r') as f:
