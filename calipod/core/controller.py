@@ -74,6 +74,8 @@ class Controller(QObject):
         self.workspace_guide.extrinsic_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.recording_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.annotations_dir.mkdir(exist_ok=True, parents=True)
+        self.workspace_guide.ground_truth_dir.mkdir(exist_ok=True, parents=True)
+        self.workspace_guide.predictions_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.arena_sim_dir.mkdir(exist_ok=True, parents=True)
 
         self.capture_volume = None
@@ -403,8 +405,9 @@ class Controller(QObject):
         def worker():
             logger.info(f"Beginning to process video files at {recording_path}")
             logger.info(f"Creating post processor for {recording_path}")
-            annotations_path = self.workspace_guide.annotations_dir
-            self.post_processor = PostProcessor(self.camera_array, recording_path, annotations_path, tracker_enum)
+            ground_truth_path = self.workspace_guide.ground_truth_dir
+            predictions_path = self.workspace_guide.predictions_dir
+            self.post_processor = PostProcessor(self.camera_array, recording_path, ground_truth_path, predictions_path, tracker_enum)
 
             # config settings that help to throttle processing rate to manage resource demands
             include_video = self.config.get_save_tracked_points()

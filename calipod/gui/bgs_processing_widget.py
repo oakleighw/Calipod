@@ -333,7 +333,7 @@ class BGSProcessingWidget(QWidget):
     def find_bounding_box_from_annotations(self, video_path: str, region: str):
         """
         Find bounding box for a region (leaves/fruit) from YOLO annotations.
-        Annotations are stored in: {calibration_project}/annotations_dir/port_{port}/labels/train/
+        Annotations are stored in: {calibration_project}/annotations/ground_truth/port_{port}/labels/train/
         Returns (x1, y1, x2, y2) in pixel coordinates, or None if not found.
         """
         if region == "full":
@@ -355,8 +355,8 @@ class BGSProcessingWidget(QWidget):
 
         # Get annotations directory from workspace guide (calibration project)
         try:
-            annotations_root = self.controller.workspace_guide.annotations_dir
-            logger.info(f"Using annotations directory from controller: {annotations_root}")
+            annotations_root = self.controller.workspace_guide.ground_truth_dir
+            logger.info(f"Using ground truth directory from controller: {annotations_root}")
         except Exception as e:
             logger.error(f"Could not get annotations directory from controller: {str(e)}")
             return None
@@ -530,7 +530,7 @@ class BGSProcessingWidget(QWidget):
                 warmup_secs=warmup_secs,
                 bounding_box=bbox,
                 show_ground_truth=self.show_gt_checkbox.isChecked(),
-                annotations_dir=self.controller.workspace_guide.annotations_dir,
+                annotations_dir=self.controller.workspace_guide.ground_truth_dir,
                 save_detections=self.save_detections_checkbox.isChecked(),
             )
 

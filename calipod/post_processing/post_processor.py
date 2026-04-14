@@ -33,11 +33,12 @@ class PostProcessor:
     """
 
     def __init__(
-        self, camera_array: CameraArray, recording_path: Path, annotations_path: Path, tracker_enum: TrackerEnum
+        self, camera_array: CameraArray, recording_path: Path, ground_truth_path: Path, predictions_path: Path, tracker_enum: TrackerEnum
     ):
         self.camera_array = camera_array
         self.recording_path = recording_path
-        self.annotations_path = annotations_path
+        self.ground_truth_path = ground_truth_path
+        self.predictions_path = predictions_path
         self.tracker_enum = tracker_enum
         self.tracker_name = tracker_enum.name
         self.tracker = tracker_enum.value()
@@ -52,7 +53,7 @@ class PostProcessor:
             # Instantiate FlyTracker WITHOUT arguments
             # NOW SET THE PROPERTIES
 
-            self.tracker.annotations_dir = self.annotations_path
+            self.tracker.annotations_dir = self.ground_truth_path
 
         # save out current camera array to output folder
         tracker_subdirectory = Path(self.recording_path, self.tracker_name)
@@ -155,7 +156,7 @@ class PostProcessor:
 
         # Attempt to build and triangulate predictions if available
         logger.info("(Predictions) Checking for prediction label files to process...")
-        logger.info(f"(Predictions) annotations_path={self.annotations_path}")
+        logger.info(f"(Predictions) predictions_path={self.predictions_path}")
         try:
             self.create_xy_predictions()
             logger.info("(Predictions) create_xy_predictions() completed successfully")
@@ -186,7 +187,7 @@ class PostProcessor:
     def create_xy_predictions(self) -> None:
         """Create xy_predictions_{tracker_name}.csv from YOLO prediction label files.
 
-        Expects prediction labels under: {annotations_path}/predictions/port_{port}/labels/frame_######.txt
+        Expects prediction labels under: {predictions_path}/port_{port}/labels/frame_######.txt
         Writes consolidated XY CSV to: {recording_path}/{tracker_name}/xy_predictions_{tracker_name}.csv
         """
         logger.info(f"(Predictions) create_xy_predictions() called; tracker_name={self.tracker_name}")
@@ -206,11 +207,11 @@ class PostProcessor:
             except Exception:
                 pass
 
-        if not hasattr(self, "annotations_path") or self.annotations_path is None:
-            logger.info("(Predictions) No annotations_path set; skipping predictions XY creation.")
+        if not hasattr(self, "predictions_path") or self.predictions_path is None:
+            logger.info("(Predictions) No predictions_path set; skipping predictions XY creation.")
             return
 
-        logger.info(f"(Predictions) annotations_path is set: {self.annotations_path}")
+        logger.info(f"(Predictions) predictions_path is set: {self.predictions_path}")
 
         # Determine frame dimensions per port from recorded videos
         port_frame_size: dict[int, tuple[int, int]] = {}
@@ -232,7 +233,7 @@ class PostProcessor:
 
         logger.info(f"(Predictions) Frame sizes determined: {port_frame_size}")
         logger.info(f"(Predictions) Recording path: {self.recording_path}")
-        logger.info(f"(Predictions) Annotations path: {self.annotations_path}")
+        logger.info(f"(Predictions) Predictions path: {self.predictions_path}")
 
         rows = {
             "sync_index": [],
@@ -249,7 +250,7 @@ class PostProcessor:
         # Walk prediction label files per port
         any_found = False
         for port, cam in self.camera_array.cameras.items():
-            labels_dir = Path(self.annotations_path, "predictions", f"port_{port}", "labels")
+            labels_dir = Path(self.predictions_path, f"port_{port}", "labels")
             logger.info(f"(Predictions) Checking for labels at port {port}:")
             logger.info(f"  Full path: {labels_dir.resolve()}")
             logger.info(f"  Path exists: {labels_dir.exists()}")

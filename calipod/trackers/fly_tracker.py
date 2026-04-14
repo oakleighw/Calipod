@@ -256,8 +256,6 @@ class FlyTracker(Tracker):
                     label_filename = f"frame_{frame_idx:06d}.txt"
                     label_file_path = Path(self.annotations_dir, f"port_{port}", "labels", "train", label_filename)
 
-                    Path(self.annotations_dir, "predictions", f"port_{port}", "labels", label_filename)
-
                     if label_file_path.exists():
                         # Always provide frame_shape for proper pixel coordinate scaling
                         # In annotations-only mode, frame may be a dummy zero array, but shape is still valid

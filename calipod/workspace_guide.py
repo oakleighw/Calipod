@@ -15,6 +15,8 @@ class WorkspaceGuide:
         self.extrinsic_dir = Path(workspace_dir, "calibration", "extrinsic")
         self.recording_dir = Path(workspace_dir, "recordings")
         self.annotations_dir = Path(workspace_dir, "annotations")
+        self.ground_truth_dir = Path(workspace_dir, "annotations", "ground_truth")
+        self.predictions_dir = Path(workspace_dir, "annotations", "predictions")
         self.arena_sim_dir = Path(workspace_dir, "arena_sim")
 
     def get_ports_in_dir(self, directory: Path) -> list:
@@ -127,43 +129,42 @@ class WorkspaceGuide:
             logger.info(f"Found annotations directory: {self.annotations_dir}")
         
         try:
-            # Look for ground truth files in annotations/port_n/**/ recursively
-            for p in self.annotations_dir.iterdir():
-                if p.is_dir() and p.name.startswith("port_"):
-                    # Find first valid annotation file to detect format
-                    format_info = None
-                    all_files = []
-                    
-                    for pattern in ["**/*.txt", "**/*.json", "**/*.xml", "**/*.csv"]:
-                        for file in p.rglob(pattern):
-                            if file.is_file():
-                                all_files.append(file)
-                                # Get format from first valid file only
-                                if format_info is None:
-                                    gt_info = AnnotationFormatChecker.detect_format(file)
-                                    if gt_info["format"] != "Unknown":
-                                        format_info = gt_info
-                    
-                    # If we found a valid format, aggregate classes from all files
-                    if format_info is not None:
-                        anno_info["has_ground_truth"] = True
-                        anno_info["gt_format"] = format_info["format"]
-                        anno_info["gt_has_bboxes"] = format_info["has_bboxes"]
-                        anno_info["gt_classes"].update(format_info["classes"])
+            # Look for ground truth files in annotations/ground_truth/port_n/**/ recursively
+            if self.ground_truth_dir.exists():
+                for p in self.ground_truth_dir.iterdir():
+                    if p.is_dir() and p.name.startswith("port_"):
+                        # Find first valid annotation file to detect format
+                        format_info = None
+                        all_files = []
                         
-                        # Read remaining files for additional classes
-                        for file in all_files:
-                            gt_info = AnnotationFormatChecker.detect_format(file)
-                            if gt_info["format"] != "Unknown":
-                                anno_info["gt_classes"].update(gt_info["classes"])
+                        for pattern in ["**/*.txt", "**/*.json", "**/*.xml", "**/*.csv"]:
+                            for file in p.rglob(pattern):
+                                if file.is_file():
+                                    all_files.append(file)
+                                    # Get format from first valid file only
+                                    if format_info is None:
+                                        gt_info = AnnotationFormatChecker.detect_format(file)
+                                        if gt_info["format"] != "Unknown":
+                                            format_info = gt_info
                         
-                        if p.name not in anno_info["gt_subdirs"]:
-                            anno_info["gt_subdirs"].append(p.name)
+                        # If we found a valid format, aggregate classes from all files
+                        if format_info is not None:
+                            anno_info["has_ground_truth"] = True
+                            anno_info["gt_format"] = format_info["format"]
+                            anno_info["gt_has_bboxes"] = format_info["has_bboxes"]
+                            anno_info["gt_classes"].update(format_info["classes"])
+                            
+                            # For remaining files, extract classes only (skip format detection)
+                            for file in all_files[1:]:  # Skip first file already processed
+                                classes = AnnotationFormatChecker._extract_classes_only(file, format_info["format"])
+                                anno_info["gt_classes"].update(classes)
+                            
+                            if p.name not in anno_info["gt_subdirs"]:
+                                anno_info["gt_subdirs"].append(p.name)
             
             # Look for prediction files in annotations/predictions/port_n/**/ recursively
-            pred_dir = self.annotations_dir / "predictions"
-            if pred_dir.exists():
-                for p in pred_dir.iterdir():
+            if self.predictions_dir.exists():
+                for p in self.predictions_dir.iterdir():
                     if p.is_dir() and p.name.startswith("port_"):
                         # Find first valid annotation file to detect format
                         format_info = None
@@ -186,11 +187,10 @@ class WorkspaceGuide:
                             anno_info["pred_has_bboxes"] = format_info["has_bboxes"]
                             anno_info["pred_classes"].update(format_info["classes"])
                             
-                            # Read remaining files for additional classes
-                            for file in all_files:
-                                pred_info = AnnotationFormatChecker.detect_format(file)
-                                if pred_info["format"] != "Unknown":
-                                    anno_info["pred_classes"].update(pred_info["classes"])
+                            # For remaining files, extract classes only (skip format detection)
+                            for file in all_files[1:]:  # Skip first file already processed
+                                classes = AnnotationFormatChecker._extract_classes_only(file, format_info["format"])
+                                anno_info["pred_classes"].update(classes)
                             
                             if p.name not in anno_info["pred_subdirs"]:
                                 anno_info["pred_subdirs"].append(p.name)

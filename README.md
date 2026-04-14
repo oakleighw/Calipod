@@ -148,7 +148,7 @@ Installation may take a moment as some dependencies are large, but uv's performa
 
 ## Project Directory Structure
 
-For help organizing your project, see the [directory layout guide](https://mprib.github.io/caliscope/sample_project/) from the original Caliscope documentation (does not include annotation folder etc though, which is required for custom detection visualisation, see here):
+For help organizing your project, see the [directory layout guide](https://mprib.github.io/caliscope/sample_project/) from the original Caliscope documentation (does not include annotation folder etc though, which is required for custom detection visualisation):
 
 ```
 ProjectDirectory/
@@ -157,12 +157,17 @@ ProjectDirectory/
 │   ├── intrinsic/
 │   └── extrinsic/
 ├── annotations/
-│   ├── port_1,port_2 etc/      # Ground truth yolo annotations
-│   │   ├── labels/train/ [txt files yolo format]
-│   ├── predictions/            # Optional yolo predictions
-│   │   ├── port_1,port_2 etc/ 
-│   │   │   ├── labels/ [txt files yolo format]
-└── recordings/    # Empty by default prior to user populating data
+│   ├── ground_truth/         # Ground truth YOLO annotations
+│   │   ├── port_1/
+│   │   │   ├── labels/train/ [txt files in YOLO format]
+│   │   ├── port_2/
+│   │   │   ├── labels/train/ [txt files in YOLO format]
+│   ├── predictions/          # Optional YOLO predictions from models
+│   │   ├── port_1/
+│   │   │   ├── labels/ [txt files in YOLO format]
+│   │   ├── port_2/
+│   │   │   ├── labels/ [txt files in YOLO format]
+└── recordings/               # Empty by default prior to user populating data
     ├── recording_1
     │   ├── port_1.mp4...
 ```

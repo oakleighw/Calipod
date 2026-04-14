@@ -257,3 +257,56 @@ class AnnotationFormatChecker:
                 "classes": [],
                 "details": f"Parse error: {str(e)}"
             }
+    
+    @staticmethod
+    def _extract_classes_only(file_path: Path, file_format: str) -> list:
+        """
+        Fast extraction of classes from a file, assuming format is already known.
+        Skips format validation for speed.
+        
+        Returns list of class IDs/names found in the file.
+        """
+        classes = set()
+        try:
+            if file_format == "YOLO":
+                # YOLO: just read first column as class_id
+                with open(file_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            parts = line.split()
+                            if parts:
+                                try:
+                                    class_id = int(parts[0])
+                                    classes.add(class_id)
+                                except ValueError:
+                                    pass
+            elif file_format == "COCO":
+                # COCO: parse JSON and extract category IDs
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and "annotations" in data:
+                        for ann in data.get("annotations", []):
+                            if "category_id" in ann:
+                                classes.add(ann["category_id"])
+            elif file_format == "Pascal_VOC":
+                # Pascal VOC: extract class names from XML
+                import xml.etree.ElementTree as ET
+                tree = ET.parse(file_path)
+                root = tree.getroot()
+                for obj in root.findall("object"):
+                    class_elem = obj.find("name")
+                    if class_elem is not None and class_elem.text:
+                        classes.add(class_elem.text)
+            elif file_format in ["CSV", "CSV_BBox"]:
+                # CSV: extract from class column
+                import pandas as pd
+                df = pd.read_csv(file_path)
+                for col in ["class", "label", "class_id", "category", "species"]:
+                    if col in df.columns:
+                        classes.update(df[col].unique().tolist())
+                        break
+        except Exception as e:
+            logger.debug(f"Error extracting classes from {file_path}: {e}")
+        
+        return list(classes)
