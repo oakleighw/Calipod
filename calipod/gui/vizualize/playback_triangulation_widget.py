@@ -901,10 +901,12 @@ class PlaybackTriangulationWidget(QWidget):
         if metadata_loaded:
             logger.info("Filter metadata was loaded; automatically enabling 'Use Filtered Track' toggle")
             # Capture the loaded parameters so we know they match the cached filtered CSV
+            # IMPORTANT: kalman_fps_override is loaded from metadata file (not hardcoded to None)
+            fps_override_from_meta = self.filter_manager.kalman_fps_override
             self._last_computed_params = {
                 "kalman_process_noise_scale": self.filter_manager.kalman_process_noise_scale,
                 "kalman_measurement_noise_std": self.filter_manager.kalman_measurement_noise_std,
-                "kalman_fps_override": None,  # Not stored in metadata
+                "kalman_fps_override": fps_override_from_meta,
                 "gap_fill_only": self.filter_manager.gap_fill_only,
                 "extend_filtered_track": self.filter_manager.extend_filtered_track,
                 "gate_distance_sigma": self.filter_manager.gate_distance_sigma,
@@ -914,6 +916,7 @@ class PlaybackTriangulationWidget(QWidget):
                 "bgs_gate_distance_sigma": self.filter_manager.bgs_gate_distance_sigma,
                 "bgs_max_distance_threshold": self.filter_manager.bgs_max_distance_threshold,
             }
+            logger.info(f"Loaded _last_computed_params from metadata file with kalman_fps_override={fps_override_from_meta}")
             # Enable the toggle, which will trigger apply the extend logic and update metadata
             self.toggle_filtered_button.setChecked(True)
 
@@ -934,8 +937,29 @@ class PlaybackTriangulationWidget(QWidget):
                 filtered_path = Path(self.motion_trial.predictions_csv)
                 # Read the filtered CSV that was just computed
                 filtered_df = pd.read_csv(filtered_path, engine="pyarrow") if filtered_path.exists() else None
-                self.filter_manager.save_metadata(filtered_path, self.motion_trial, filtered_df=filtered_df)
-                logger.info(f"Saved filter metadata after metrics computation: {filtered_path.with_stem(filtered_path.stem + '_metadata')}")
+                
+                # IMPORTANT: Get kalman_fps_override - try from current session first, then from metadata file
+                fps_override = getattr(self, 'kalman_fps_override', None)
+                if fps_override is None:
+                    # Try to load from existing metadata to preserve it
+                    try:
+                        metadata_path = filtered_path.with_stem(filtered_path.stem + '_metadata')
+                        if metadata_path.exists():
+                            import json
+                            with open(metadata_path, 'r') as f:
+                                existing_metadata = json.load(f)
+                                fps_override = existing_metadata.get('kalman_fps_override')
+                                logger.info(f"### Loaded kalman_fps_override from existing metadata: {fps_override}")
+                    except Exception as e:
+                        logger.debug(f"Could not load metadata for fps_override: {e}")
+                
+                self.filter_manager.save_metadata(
+                    filtered_path, 
+                    self.motion_trial, 
+                    filtered_df=filtered_df,
+                    kalman_fps_override=fps_override
+                )
+                logger.info(f"Saved filter metadata after metrics computation with fps_override={fps_override}: {filtered_path.with_stem(filtered_path.stem + '_metadata')}")
             except Exception as e:
                 logger.warning(f"Failed to save metadata after metrics computation: {e}")
 
@@ -988,18 +1012,41 @@ class PlaybackTriangulationWidget(QWidget):
                 # If metadata was loaded (params already exist) and filtered CSV exists on disk and params match,
                 # just load the cached CSV instead of recomputing to avoid metric variance
                 force_recompute = True
+                
+                logger.info("=" * 80)
+                logger.info("TOGGLE FILTERED TRACK - CACHE CHECK:")
+                logger.info(f"  Filtered CSV exists: {filtered_path.exists()}")
+                logger.info(f"  Has _last_computed_params: {hasattr(self, '_last_computed_params')}")
+                logger.info(f"  _last_computed_params value: {getattr(self, '_last_computed_params', 'NOT SET')}")
+                logger.info(f"  Current parameters: {current_params}")
+                
                 if filtered_path.exists() and hasattr(self, '_last_computed_params') and self._last_computed_params:
                     # Check if current params match the loaded params
                     params_match = all(
                         current_params.get(key) == self._last_computed_params.get(key)
                         for key in current_params.keys()
                     )
+                    logger.info(f"\n  {'+'*70}")
+                    logger.info(f"  ++ PARAMETERS MATCH CACHED: {params_match} ++")
+                    logger.info(f"  {'+'*70}\n")
+                    
                     if params_match:
                         # Parameters haven't changed - just load the cached filtered CSV
                         force_recompute = False
                         logger.info("Filtered CSV already cached with matching parameters; loading from disk instead of recomputing")
+                else:
+                    logger.info(f"\n  {'-'*70}")
+                    logger.info(f"  -- NO CACHE AVAILABLE (will force recompute) --")
+                    logger.info(f"  {'-'*70}\n")
+                
+                logger.info(f"\n  {'='*70}")
+                logger.info(f"  FINAL DECISION: force_recompute = {force_recompute}")
+                logger.info(f"  {'='*70}\n")
 
                 if force_recompute:
+                    logger.info("\n" + "!"*80)
+                    logger.info("!!!!!!!!!!!!!!!!!!! [RECOMPUTING FILTERED PREDICTIONS] !!!!!!!!!!!!!!!!!!!")
+                    logger.info("!"*80 + "\n")
                     # Set spinbox ranges based on actual prediction data
                     pred_df = self.motion_trial.predictions_df
                     if pred_df is not None and not pred_df.empty:
@@ -1064,6 +1111,15 @@ class PlaybackTriangulationWidget(QWidget):
                         self.toggle_filtered_button.setChecked(False)
                         self.toggle_filtered_button.setEnabled(True)
                         return
+                    
+                    # Log measurement source distribution right after computation
+                    if "measurement_source" in filtered_df.columns:
+                        logger.info("  COMPUTED MEASUREMENT SOURCE DISTRIBUTION:")
+                        src_counts = filtered_df["measurement_source"].value_counts().to_dict()
+                        for src, cnt in sorted(src_counts.items()):
+                            logger.info(f"    {src}: {cnt}")
+                    else:
+                        logger.warning("  [measurement_source column NOT in computed result]")
 
                     comp_msg = f"Kalman filter computation complete; generated {len(filtered_df)} frames"
                     logger.info(comp_msg)
@@ -1075,15 +1131,40 @@ class PlaybackTriangulationWidget(QWidget):
                     logger.info(saved_msg)
                     print(saved_msg)
 
-                    # Note: Metadata is NOT saved here anymore. 
-                    # Metadata is only saved when computing performance metrics explicitly.
-                    # This prevents unintended overwrites of the metadata file.
+                    # Note: Save metadata immediately after computing to preserve the parameters used
+                    # This prevents stale metadata from being loaded on next session
+                    try:
+                        self.filter_manager.save_metadata(
+                            filtered_path, 
+                            self.motion_trial, 
+                            filtered_df=filtered_df,
+                            kalman_fps_override=self.kalman_fps_override
+                        )
+                        logger.info(f"Saved filter metadata immediately after toggle computation with fps_override={self.kalman_fps_override}")
+                    except Exception as e:
+                        logger.warning(f"Could not save metadata after filter computation: {e}")
 
                     # Store the parameters we just computed so we can detect changes next time
                     self._last_computed_params = current_params
+                    logger.info("\n" + "^"*80)
+                    logger.info(f"^^ STORED _last_computed_params (for next toggle comparison):")
+                    logger.info(f"^^   kalman_fps_override = {self._last_computed_params.get('kalman_fps_override')}")
+                    logger.info(f"^^   kalman_process_noise_scale = {self._last_computed_params.get('kalman_process_noise_scale')}")
+                    logger.info(f"^^   gate_distance_sigma = {self._last_computed_params.get('gate_distance_sigma')}")
+                    logger.info("^"*80 + "\n")
 
                     self.motion_trial.predictions_csv = filtered_path
                     self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
+                    
+                    # Log the measurement_source distribution right after loading from disk
+                    if "measurement_source" in self.motion_trial.predictions_df.columns:
+                        logger.info("  CSV MEASUREMENT SOURCE DISTRIBUTION (reloaded from disk after save):")
+                        src_counts = self.motion_trial.predictions_df["measurement_source"].value_counts().to_dict()
+                        for src, cnt in sorted(src_counts.items()):
+                            logger.info(f"    {src}: {cnt}")
+                    else:
+                        logger.warning("  [measurement_source column NOT in reloaded CSV]")
+                    
                     self.filtered_predictions_path = filtered_path
                     using_msg = f"Using filtered predictions from {filtered_path}"
                     logger.info(using_msg)
@@ -1091,9 +1172,42 @@ class PlaybackTriangulationWidget(QWidget):
 
                 else:
                     # Use cached filtered CSV - parameters match what was previously computed
+                    logger.info("\n" + "#"*80)
+                    logger.info("#################### [LOADING CACHED FILTERED PREDICTIONS] ####################")
+                    logger.info("#"*80 + "\n")
                     logger.info(f"Loading cached filtered predictions from {filtered_path}")
+                    
+                    # Restore UI spinbox values to match cached parameters
+                    # This ensures that next toggle, current_parameters will match _last_computed_params
+                    if self._last_computed_params:
+                        logger.info("\n>>> RESTORING UI SPINBOX VALUES FROM CACHED PARAMETERS <<<\n")
+                        # Restore fps_spin value from cached parameters
+                        cached_fps = self._last_computed_params.get('kalman_fps_override')
+                        if cached_fps is None:
+                            self.fps_spin.setValue(0)  # 0 = use video framerate
+                        else:
+                            self.fps_spin.setValue(int(cached_fps))
+                        logger.info(f"  ✓ Restored fps_spin to {self.fps_spin.value()} (cached value: {cached_fps})")
+                        
+                        # Restore other spinbox values too
+                        self.process_noise_spin.setValue(self._last_computed_params.get('kalman_process_noise_scale', 1.0))
+                        meas_noise_mm = self._last_computed_params.get('kalman_measurement_noise_std', 0.01) * 1000.0
+                        self.meas_noise_spin.setValue(int(meas_noise_mm))
+                        logger.info(f"  ✓ Restored process_noise={self.process_noise_spin.value()}, meas_noise={self.meas_noise_spin.value()}mm")
+                        logger.info("")
+                    
                     self.motion_trial.predictions_csv = filtered_path
                     self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
+                    
+                    # Log the measurement_source distribution right after loading
+                    if "measurement_source" in self.motion_trial.predictions_df.columns:
+                        logger.info("  CSV MEASUREMENT SOURCE DISTRIBUTION (right after load):")
+                        src_counts = self.motion_trial.predictions_df["measurement_source"].value_counts().to_dict()
+                        for src, cnt in sorted(src_counts.items()):
+                            logger.info(f"    {src}: {cnt}")
+                    else:
+                        logger.warning("  [measurement_source column NOT in loaded CSV]")
+                    
                     self.filtered_predictions_path = filtered_path
                     cached_msg = f"Using cached filtered predictions from {filtered_path}"
                     logger.info(cached_msg)
@@ -1101,7 +1215,21 @@ class PlaybackTriangulationWidget(QWidget):
 
                 # Refresh display with filtered predictions
                 if hasattr(self.visualizer, "update_motion_trial"):
+                    # Log before update
+                    if "measurement_source" in self.motion_trial.predictions_df.columns:
+                        logger.debug("  BEFORE visualizer.update_motion_trial:")
+                        src_counts_before = self.motion_trial.predictions_df["measurement_source"].value_counts().to_dict()
+                        for src, cnt in sorted(src_counts_before.items()):
+                            logger.debug(f"    {src}: {cnt}")
+                    
                     self.visualizer.update_motion_trial(self.motion_trial)
+                    
+                    # Log after update
+                    if "measurement_source" in self.motion_trial.predictions_df.columns:
+                        logger.debug("  AFTER visualizer.update_motion_trial:")
+                        src_counts_after = self.motion_trial.predictions_df["measurement_source"].value_counts().to_dict()
+                        for src, cnt in sorted(src_counts_after.items()):
+                            logger.debug(f"    {src}: {cnt}")
 
                 logger.info("Filter toggle complete; UI refreshed with filtered predictions")
             except Exception as exc:

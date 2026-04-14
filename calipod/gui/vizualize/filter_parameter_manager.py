@@ -85,7 +85,7 @@ class FilterParameterManager:
             if widget_name in self.ui_widgets:
                 self.ui_widgets[widget_name].setEnabled(is_hybrid_enabled)
 
-    def save_metadata(self, filtered_csv_path: Path, motion_trial=None, filtered_df: Optional[pd.DataFrame] = None):
+    def save_metadata(self, filtered_csv_path: Path, motion_trial=None, filtered_df: Optional[pd.DataFrame] = None, kalman_fps_override: Optional[int] = None):
         """Save filter parameters as JSON metadata alongside the filtered predictions CSV.
         
         Args:
@@ -93,6 +93,7 @@ class FilterParameterManager:
             motion_trial: MotionTrial object (optional, for ground truth data)
             filtered_df: Optional dataframe of filtered predictions to use for counts/metrics
                         If not provided, will read from filtered_csv_path if it exists
+            kalman_fps_override: FPS override value that was used for computation (None for video default)
         """
         # Compute performance metrics for the filtered predictions
         overall_metrics = {}
@@ -233,6 +234,7 @@ class FilterParameterManager:
         metadata = {
             "kalman_process_noise_scale": float(self.kalman_process_noise_scale),
             "kalman_measurement_noise_std_mm": float(self.kalman_measurement_noise_std * 1000.0),
+            "kalman_fps_override": kalman_fps_override,
             "gate_distance_sigma": float(self.gate_distance_sigma),
             "max_distance_threshold_mm": float(self.max_distance_threshold),
             "bgs_kalman_process_noise_scale": float(self.bgs_kalman_process_noise_scale),
@@ -288,6 +290,7 @@ class FilterParameterManager:
             self.kalman_measurement_noise_std = (
                 metadata.get("kalman_measurement_noise_std_mm", self.kalman_measurement_noise_std * 1000.0) / 1000.0
             )
+            self.kalman_fps_override = metadata.get("kalman_fps_override", None)
             self.gate_distance_sigma = metadata.get("gate_distance_sigma", self.gate_distance_sigma)
             self.max_distance_threshold = metadata.get("max_distance_threshold_mm", self.max_distance_threshold)
 

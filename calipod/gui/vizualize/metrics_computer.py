@@ -60,6 +60,43 @@ class MetricsComputer:
             pred_source = "filtered" if use_filtered else "raw"
             logger.info(f"Computing metrics with {pred_source} predictions...")
 
+            # ===== LOG ALL FILTER PARAMETERS =====
+            logger.info("\n" + "=" * 80)
+            logger.info("FILTER PARAMETERS:")
+            logger.info("=" * 80)
+            if hasattr(self.parent, "filter_manager"):
+                fm = self.parent.filter_manager
+                # YOLO parameters
+                logger.info(f"  kalman_process_noise_scale:        {fm.kalman_process_noise_scale}")
+                logger.info(f"  kalman_measurement_noise_std:      {fm.kalman_measurement_noise_std}")
+                logger.info(f"  gate_distance_sigma:               {fm.gate_distance_sigma}")
+                logger.info(f"  max_distance_threshold:            {fm.max_distance_threshold} m")
+                # BGS parameters
+                logger.info(f"  bgs_kalman_process_noise_scale:    {fm.bgs_kalman_process_noise_scale}")
+                logger.info(f"  bgs_kalman_measurement_noise_std:  {fm.bgs_kalman_measurement_noise_std}")
+                logger.info(f"  bgs_gate_distance_sigma:           {fm.bgs_gate_distance_sigma}")
+                logger.info(f"  bgs_max_distance_threshold:        {fm.bgs_max_distance_threshold} m")
+                # Flags
+                logger.info(f"  gap_fill_only:                     {fm.gap_fill_only}")
+                logger.info(f"  extend_filtered_track:             {fm.extend_filtered_track}")
+                # Additional state
+                use_hybrid = getattr(self.parent, "use_hybrid_bgs", None)
+                if use_hybrid is not None:
+                    logger.info(f"  use_hybrid_bgs (checkbox):         {use_hybrid.isChecked()}")
+            else:
+                logger.warning("  [filter_manager not available]")
+
+            # ===== LOG DATA COORDINATES =====
+            num_gt_coords = len(motion_trial.xyz_df) if hasattr(motion_trial, "xyz_df") and not motion_trial.xyz_df.empty else 0
+            num_pred_coords = len(motion_trial.predictions_df) if hasattr(motion_trial, "predictions_df") and not motion_trial.predictions_df.empty else 0
+            logger.info("\n" + "=" * 80)
+            logger.info("DATA COORDINATES USED IN CALCULATION:")
+            logger.info("=" * 80)
+            logger.info(f"  Ground truth (xyz) rows:           {num_gt_coords}")
+            logger.info(f"  Predictions rows:                  {num_pred_coords}")
+            logger.info(f"  Total coordinates:                 {num_gt_coords + num_pred_coords}")
+            logger.info("=" * 80 + "\n")
+
             # Compute metrics using internal calculation logic
             metrics = self._compute_metrics_from_dataframes(motion_trial.predictions_df, motion_trial.xyz_df)
 
@@ -70,9 +107,21 @@ class MetricsComputer:
                 and hasattr(motion_trial, "predictions_df")
                 and "measurement_source" in motion_trial.predictions_df.columns
             ):
+                # Log what measurement_source values are in the dataframe
+                logger.info("\n" + "=" * 80)
+                logger.info("MEASUREMENT SOURCE BREAKDOWN:")
+                logger.info("=" * 80)
+                unique_sources = motion_trial.predictions_df["measurement_source"].unique()
+                logger.info(f"  Unique measurement_source values: {unique_sources}")
+                for src in unique_sources:
+                    count = len(motion_trial.predictions_df[motion_trial.predictions_df["measurement_source"] == src])
+                    logger.info(f"    {src}: {count} rows")
+                logger.info("=" * 80 + "\n")
+                
                 for source in ["YOLO", "BGS", "filter_only"]:
                     source_df = motion_trial.predictions_df[motion_trial.predictions_df["measurement_source"] == source]
                     if not source_df.empty:
+                        logger.debug(f"Processing per-source metrics for {source}: {len(source_df)} rows")
                         # Save originals
                         orig_pred_df = motion_trial.predictions_df.copy()
                         orig_gt_df = motion_trial.xyz_df.copy()
@@ -133,7 +182,17 @@ class MetricsComputer:
 
         # Debug: Check data structure
         logger.info(f"xyz_df shape: {gt_df.shape}, columns: {list(gt_df.columns)[:5]}")
-        logger.info(f"predictions_df shape: {pred_df.shape}, columns: {list(pred_df.columns)[:5]}")
+        logger.info(f"predictions_df shape: {pred_df.shape}, columns: {list(pred_df.columns)}")
+        logger.info(f"predictions_df ALL COLUMNS: {list(pred_df.columns)}")
+        
+        # If measurement_source exists, log its distribution
+        if "measurement_source" in pred_df.columns:
+            logger.info("MEASUREMENT SOURCE DISTRIBUTION IN DATAFRAME:")
+            source_counts = pred_df["measurement_source"].value_counts().to_dict()
+            for source, count in sorted(source_counts.items()):
+                logger.info(f"  {source}: {count}")
+        else:
+            logger.warning("  [measurement_source column NOT FOUND in predictions_df]")
         if "point_id" in gt_df.columns:
             logger.info(f"GT unique point_ids: {sorted(gt_df['point_id'].unique())}")
         if "point_id" in pred_df.columns:
