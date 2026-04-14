@@ -85,7 +85,7 @@ class FilterParameterManager:
             if widget_name in self.ui_widgets:
                 self.ui_widgets[widget_name].setEnabled(is_hybrid_enabled)
 
-    def save_metadata(self, filtered_csv_path: Path, motion_trial=None, filtered_df: Optional[pd.DataFrame] = None, kalman_fps_override: Optional[int] = None):
+    def save_metadata(self, filtered_csv_path: Path, motion_trial=None, filtered_df: Optional[pd.DataFrame] = None, kalman_fps_override: Optional[int] = None, precomputed_metrics: Optional[dict] = None, precomputed_metrics_by_source: Optional[dict] = None):
         """Save filter parameters as JSON metadata alongside the filtered predictions CSV.
         
         Args:
@@ -94,13 +94,15 @@ class FilterParameterManager:
             filtered_df: Optional dataframe of filtered predictions to use for counts/metrics
                         If not provided, will read from filtered_csv_path if it exists
             kalman_fps_override: FPS override value that was used for computation (None for video default)
+            precomputed_metrics: Optional dict of already-computed overall metrics (skip recomputation if provided)
+            precomputed_metrics_by_source: Optional dict of already-computed per-source metrics (skip recomputation if provided)
         """
-        # Compute performance metrics for the filtered predictions
-        overall_metrics = {}
-        metrics_by_source = {}
+        overall_metrics = precomputed_metrics if precomputed_metrics is not None else {}
+        metrics_by_source = precomputed_metrics_by_source if precomputed_metrics_by_source is not None else {}
 
         try:
-            if motion_trial is not None and not motion_trial.is_empty:
+            # Only compute metrics if not provided
+            if motion_trial is not None and not motion_trial.is_empty and precomputed_metrics is None:
                 computer = MetricsComputer(None)
                 # Determine which predictions dataframe to use for metrics
                 # Priority: 1) passed filtered_df, 2) filtered CSV on disk, 3) motion_trial.predictions_df
@@ -116,7 +118,8 @@ class FilterParameterManager:
                     k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()
                 }
 
-                # Compute separate metrics for each measurement source
+            # Only compute per-source metrics if not provided
+            if motion_trial is not None and not motion_trial.is_empty and precomputed_metrics_by_source is None:
                 # Use provided filtered_df if available, otherwise read from disk
                 if filtered_df is not None:
                     filtered_data = filtered_df
@@ -126,6 +129,7 @@ class FilterParameterManager:
                     filtered_data = None
                     
                 if filtered_data is not None and "measurement_source" in filtered_data.columns:
+                    computer = MetricsComputer(None)
                     for source in ["YOLO", "BGS", "filter_only"]:
                         source_df = filtered_data[filtered_data["measurement_source"] == source]
                         if not source_df.empty:

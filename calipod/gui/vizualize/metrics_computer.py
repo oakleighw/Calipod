@@ -152,10 +152,14 @@ class MetricsComputer:
 
             # Display the results
             self._display_metrics_dialog(metrics, metrics_by_source, motion_trial)
+            
+            # Return computed metrics for reuse (e.g., in metadata saving)
+            return metrics, metrics_by_source
 
         except Exception as exc:
             logger.error(f"Error computing performance metrics: {exc}", exc_info=True)
             QMessageBox.critical(self.parent, "Metrics Error", f"Failed to compute metrics:\n{str(exc)}")
+            return {}, {}
         finally:
             self.parent.compute_metrics_button.setEnabled(True)
 
