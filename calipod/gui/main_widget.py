@@ -27,6 +27,7 @@ from calipod.gui.bgs_processing_widget import BGSProcessingWidget
 from calipod.gui.camera_management.multiplayback_widget import (
     MultiIntrinsicPlaybackWidget,
 )
+from calipod.gui.organise_widget import OrganisationWidget
 from calipod.gui.capture_widget import CameraCaptureWidget
 from calipod.gui.charuco_widget import CharucoWidget
 from calipod.gui.circuit_management_widget import CircuitManagementWidget
@@ -36,6 +37,8 @@ from calipod.gui.post_processing_widget import PostProcessingWidget
 from calipod.gui.vizualize.calibration.capture_volume_visualizer import CaptureVolumeVisualizer
 from calipod.gui.vizualize.calibration.capture_volume_widget import CaptureVolumeWidget
 from calipod.gui.workspace_widget import WorkspaceSummaryWidget
+
+
 
 logger = calipod_logger.get(__name__)
 
@@ -106,6 +109,10 @@ class MainWindow(QMainWindow):
             self.workspace_summary.calibrate_btn.setEnabled(True)
         else:
             self.workspace_summary.calibrate_btn.setEnabled(False)
+
+        logger.info("Creating organisation widget")
+        self.organisation_widget = OrganisationWidget(self.controller)
+        self.central_tab.addTab(self.organisation_widget, "Organisation")
 
         logger.info("Building arena sim widget")
         self.arena_sim_widget = ArenaSimWidget(self.controller)
