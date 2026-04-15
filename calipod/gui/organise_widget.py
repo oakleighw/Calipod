@@ -1,11 +1,12 @@
 """This widget will allow user to link videos/annotations to the project if not already placed in the project folder. Aids transparent project management and organisation."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 
+from calipod.gui.utils.file_tree import create_project_file_tree_view
 from calipod.gui.utils.path_url_entry import create_path_url_entry
 from calipod.gui.utils.styles import (
     create_styled_groupbox,
@@ -28,19 +29,9 @@ class OrganisationWidget(QWidget):
         self.top_vbox = QVBoxLayout()
         self.bottom_vbox = QVBoxLayout()
 
-        self.top_container = QWidget()
-        self.top_container.setLayout(self.top_vbox)
-        self.top_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.bottom_container = QWidget()
         self.bottom_container.setLayout(self.bottom_vbox)
         self.bottom_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-
-        self.url_scroll = QScrollArea()
-        self.url_scroll.setWidgetResizable(True)
-        self.url_scroll.setWidget(self.top_container)
-        self.url_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.url_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.url_scroll.setMinimumHeight(0)
 
         self.file_tree_scroll = QScrollArea()
         self.file_tree_scroll.setWidgetResizable(True)
@@ -52,7 +43,7 @@ class OrganisationWidget(QWidget):
         self.url_widget()
         self.project_file_tree_widget()
 
-        self.layout().addWidget(self.url_scroll, stretch=1)
+        self.layout().addLayout(self.top_vbox, stretch=1)
         self.layout().addWidget(self.file_tree_scroll, stretch=1)
 
     # This section will have sub-headings for each pipeline stage that requires data, which each having a url to the file in use.
@@ -61,15 +52,30 @@ class OrganisationWidget(QWidget):
         url_group, url_layout = create_styled_groupbox("Data Locations")
         camera_count = self.controller.get_camera_count()
 
+        url_content = QWidget(self)
+        url_content_layout = QVBoxLayout(url_content)
+        url_content_layout.setContentsMargins(0, 0, 0, 0)
+        url_content_layout.setSpacing(6)
+
+        self.url_content_scroll = QScrollArea(self)
+        self.url_content_scroll.setWidgetResizable(True)
+        self.url_content_scroll.setWidget(url_content)
+        self.url_content_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.url_content_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.url_content_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.url_content_scroll.setMinimumHeight(0)
+
+        url_layout.addWidget(self.url_content_scroll)
+
         ### SUBSECTIONS ###
 
         # Calibration video URLS
         self.calibration_video_url_label = create_subsection_title("Calibration Video URLs", color="black")
-        url_layout.addWidget(self.calibration_video_url_label)
+        url_content_layout.addWidget(self.calibration_video_url_label)
         self.calibration_path_rows = []
         for camera_index in range(1, camera_count + 1):
             self._add_camera_path_row(
-                url_layout,
+                url_content_layout,
                 camera_index,
                 self.calibration_path_rows,
                 "C:/data/project",  # set this to current calibration paths if found in project config.
@@ -77,11 +83,11 @@ class OrganisationWidget(QWidget):
 
         # Action video "recordings" URLS
         self.action_video_url_label = create_subsection_title("Action Video URLs", color="black")
-        url_layout.addWidget(self.action_video_url_label)
+        url_content_layout.addWidget(self.action_video_url_label)
         self.action_recordings_path_rows = []
         for camera_index in range(1, camera_count + 1):
             self._add_camera_path_row(
-                url_layout,
+                url_content_layout,
                 camera_index,
                 self.action_recordings_path_rows,
                 "C:/data/project",  # set this to current behaviour recordings paths if found in project config.
@@ -89,15 +95,17 @@ class OrganisationWidget(QWidget):
 
         # Annotation URLS
         self.annotation_url_label = create_subsection_title("Annotation URLs", color="black")
-        url_layout.addWidget(self.annotation_url_label)
+        url_content_layout.addWidget(self.annotation_url_label)
         self.annotation_path_rows = []
         for camera_index in range(1, camera_count + 1):
             self._add_camera_path_row(
-                url_layout,
+                url_content_layout,
                 camera_index,
                 self.annotation_path_rows,
                 "C:/data/project",  # set this to current annotation paths if found in project config.
             )
+
+        url_content_layout.addStretch(1)
 
         self.top_vbox.addWidget(url_group)
 
@@ -123,4 +131,17 @@ class OrganisationWidget(QWidget):
     # with the option to add files to the project folder by dragging and dropping.
     def project_file_tree_widget(self):
         file_tree_group, file_tree_layout = create_styled_groupbox("Project File Tree")
+        project_dir_label = create_subsubsection_title("Project Directory", color="black")
+        project_dir_path_label = QLabel(str(self.controller.workspace), self)
+        project_dir_path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        project_dir_path_label.setWordWrap(True)
+        project_dir_path_label.setStyleSheet("color: #444;")
+
+        file_tree_layout.addWidget(project_dir_label)
+        file_tree_layout.addWidget(project_dir_path_label)
+        self.project_file_tree, self.project_file_tree_model = create_project_file_tree_view(
+            root_path=self.controller.workspace,
+            parent=self,
+        )
+        file_tree_layout.addWidget(self.project_file_tree)
         self.bottom_vbox.addWidget(file_tree_group)
