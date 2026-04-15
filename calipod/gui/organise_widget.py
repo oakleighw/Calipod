@@ -1,6 +1,7 @@
 """This widget will allow user to link videos/annotations to the project if not already placed in the project folder. Aids transparent project management and organisation."""
 
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
@@ -23,14 +24,36 @@ class OrganisationWidget(QWidget):
 
     def place_widgets(self):
         self.setLayout(QVBoxLayout())
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.top_vbox = QVBoxLayout()
         self.bottom_vbox = QVBoxLayout()
+
+        self.top_container = QWidget()
+        self.top_container.setLayout(self.top_vbox)
+        self.top_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.bottom_container = QWidget()
+        self.bottom_container.setLayout(self.bottom_vbox)
+        self.bottom_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+        self.url_scroll = QScrollArea()
+        self.url_scroll.setWidgetResizable(True)
+        self.url_scroll.setWidget(self.top_container)
+        self.url_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.url_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.url_scroll.setMinimumHeight(0)
+
+        self.file_tree_scroll = QScrollArea()
+        self.file_tree_scroll.setWidgetResizable(True)
+        self.file_tree_scroll.setWidget(self.bottom_container)
+        self.file_tree_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.file_tree_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.file_tree_scroll.setMinimumHeight(0)
 
         self.url_widget()
         self.project_file_tree_widget()
 
-        self.layout().addLayout(self.top_vbox, stretch=1)
-        self.layout().addLayout(self.bottom_vbox, stretch=1)
+        self.layout().addWidget(self.url_scroll, stretch=1)
+        self.layout().addWidget(self.file_tree_scroll, stretch=1)
 
     # This section will have sub-headings for each pipeline stage that requires data, which each having a url to the file in use.
     # Next to each url is a browse button that changes the url to a different path.

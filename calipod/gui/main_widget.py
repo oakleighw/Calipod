@@ -191,12 +191,16 @@ class MainWindow(QMainWindow):
     def build_docked_logger(self):
         # create log window which is fixed below main window
         self.docked_logger = QDockWidget("Log", self)
-        self.docked_logger.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        self.docked_logger.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.docked_logger.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.docked_logger.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self.log_widget = LogWidget()
         self.docked_logger.setWidget(self.log_widget)
 
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.docked_logger)
+        self.resizeDocks([self.docked_logger], [180], Qt.Orientation.Vertical)
 
     def launch_workspace(self, path_to_workspace: str):
         logger.info(f"Launching session with config file stored in {path_to_workspace}")
