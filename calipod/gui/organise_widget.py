@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 
-from calipod.gui.utils.styles import create_styled_groupbox
+from calipod.gui.utils.styles import create_styled_groupbox, create_subsection_title
 
 logger = calipod_logger.get(__name__)
 
@@ -31,6 +31,22 @@ class OrganisationWidget(QWidget):
     # Next to each url is a browse button that changes the url to a different path.
     def url_widget(self):
         url_group, url_layout = create_styled_groupbox("Data Locations")
+
+        ### SUBSECTIONS ###
+
+        # Calibration video URLS
+        self.calibration_video_url_label = create_subsection_title("Calibration Video URLs", color="blue")
+
+        # Action video "recordings" URLS
+        self.action_video_url_label = create_subsection_title("Action Video URLs", color="blue")
+
+        # Annotation URLS
+        self.annotation_url_label = create_subsection_title("Annotation URLs", color="blue")
+
+        url_layout.addWidget(self.calibration_video_url_label)
+        url_layout.addWidget(self.action_video_url_label)
+        url_layout.addWidget(self.annotation_url_label)
+        
         self.top_vbox.addWidget(url_group)
 
     # This section will have a file tree of the project folder,
