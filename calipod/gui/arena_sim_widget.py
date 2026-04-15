@@ -2,7 +2,6 @@ from itertools import combinations
 
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QButtonGroup,
     QDoubleSpinBox,
@@ -32,6 +31,7 @@ from calipod.arena_simulation.pixel_to_animal import (
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.spinbox_utils import create_labeled_spinbox_row
+from calipod.gui.utils.styles import create_styled_groupbox, create_subsection_title
 
 logger = calipod_logger.get(__name__)
 
@@ -58,40 +58,6 @@ class ArenaSimWidget(QWidget):
         self.load_arena_config()
         self.connect_widgets()
 
-    # Helper function to create section titles
-    def _create_section_font(self, point_size: int = 11) -> QFont:
-        """Create a styled font for section headers."""
-        font = QFont()
-        font.setBold(True)
-        font.setPointSize(point_size)
-        return font
-
-    def _create_section_title(self, text: str) -> QLabel:
-        """Create a styled section title label."""
-        title = QLabel(text)
-        title.setFont(self._create_section_font(11))
-        return title
-
-    # Helper function to create subsection titles
-    def _create_subsection_title(self, text: str, color: str | None = None) -> QLabel:
-        """Create a styled subsection title label."""
-        title = QLabel(text)
-        title.setFont(self._create_section_font(10))
-        if color is not None:
-            title.setStyleSheet(f"color: {color};")
-        return title
-
-    def _create_styled_groupbox(self, title: str) -> tuple[QGroupBox, QVBoxLayout]:
-        """Create a QGroupBox with styled section title (returns group and layout)."""
-        group = QGroupBox()
-        layout = QVBoxLayout()
-
-        # Add styled title as a label, not as QGroupBox title
-        title_label = self._create_section_title(title)
-        layout.addWidget(title_label)
-
-        group.setLayout(layout)
-        return group, layout
 
     def place_widgets(self):
         self.setLayout(QHBoxLayout())
@@ -128,7 +94,7 @@ class ArenaSimWidget(QWidget):
 
     # Widgets for simulation parameters
     def simulation_parameters_widget(self):
-        params_group, params_layout = self._create_styled_groupbox("Simulation Parameters")
+        params_group, params_layout = create_styled_groupbox("Simulation Parameters")
 
         # Camera count entry
         self.camera_count_label = QLabel(f"Camera count: {self.cameras}")
@@ -171,12 +137,12 @@ class ArenaSimWidget(QWidget):
 
     # Widgets for lens parameters
     def lens_widget(self, cam_num):
-        lens_group, lens_layout = self._create_styled_groupbox("Lens Angles")
+        lens_group, lens_layout = create_styled_groupbox("Lens Angles")
         self.lens_angle_spinboxes = {}
 
         # Create lens angle entries based on camera count
         for i in range(cam_num):
-            cam_label = self._create_subsection_title(f"Camera {i + 1}")
+            cam_label = create_subsection_title(f"Camera {i + 1}")
             lens_layout.addWidget(cam_label)
             min_working_distance_spinbox = create_labeled_spinbox_row(
                 lens_layout, "Min Working Distance (mm):", 1, 100000.00
@@ -204,7 +170,7 @@ class ArenaSimWidget(QWidget):
 
     def pixel_to_animal_widget(self):
         # Widgets for pixel to animal calculation parameters
-        pixel_group, pixel_layout = self._create_styled_groupbox("Pixel-To-Animal Calculation")
+        pixel_group, pixel_layout = create_styled_groupbox("Pixel-To-Animal Calculation")
 
         self.min_insect_size_mm_spinbox = create_labeled_spinbox_row(pixel_layout, "Min Insect Size (mm):", 0.1, 1000.0)
         self.pixel_size_on_sensor_um_spinbox = create_labeled_spinbox_row(
@@ -224,14 +190,14 @@ class ArenaSimWidget(QWidget):
 
         # results
         insect_pixel_count_result = QHBoxLayout()
-        self.insect_pixel_count_label = self._create_subsection_title("Insect size:")
+        self.insect_pixel_count_label = create_subsection_title("Insect size:")
         self.insect_pixel_count_value = QLabel("Enter either furthest distance or animal pixel size")
         insect_pixel_count_result.addWidget(self.insect_pixel_count_label)
         insect_pixel_count_result.addWidget(self.insect_pixel_count_value)
         pixel_layout.addLayout(insect_pixel_count_result)
 
         furthest_distance_mm_result = QHBoxLayout()
-        self.furthest_distance_mm_label = self._create_subsection_title("Furthest Distance:")
+        self.furthest_distance_mm_label = create_subsection_title("Furthest Distance:")
         self.furthest_distance_mm_value = QLabel("Enter either furthest distance or animal pixel size")
 
         furthest_distance_mm_result.addWidget(self.furthest_distance_mm_label)
@@ -250,7 +216,7 @@ class ArenaSimWidget(QWidget):
 
     # Camera placement controls - sliders to adjust camera position and orientation within the visualizer, with the option to sync these to the extrinsic calibration values for each camera once calibrated.
     def cam_controls_widget(self):
-        controls_group, controls_layout = self._create_styled_groupbox("Camera Placement Controls")
+        controls_group, controls_layout = create_styled_groupbox("Camera Placement Controls")
         controls_row = QHBoxLayout()
         self.cam_placement = QListWidget()
         self.cam_placement.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -262,7 +228,7 @@ class ArenaSimWidget(QWidget):
             position_spinboxes = {}
             rotation_spinboxes = {}
             camera_color = self.visualizer.color_to_css(self.visualizer.get_camera_color(i))
-            cam_label = self._create_subsection_title(f"Camera {i + 1}", color=camera_color)
+            cam_label = create_subsection_title(f"Camera {i + 1}", color=camera_color)
             item = QListWidgetItem()
             self.cam_placement.addItem(item)
             self.cam_placement.setItemWidget(item, cam_label)
@@ -345,7 +311,7 @@ class ArenaSimWidget(QWidget):
 
     def _create_optical_centres_distance_widget(self) -> QGroupBox:
         """Create a scrollable box showing pairwise distances between camera optical centres."""
-        group, layout = self._create_styled_groupbox("Optical Centre Distances")
+        group, layout = create_styled_groupbox("Optical Centre Distances")
         self.optical_centres_distance_layout = QVBoxLayout()
 
         self.optical_centres_distance_scroll = QScrollArea()
