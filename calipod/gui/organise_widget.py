@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 
+from calipod.gui.utils.path_url_entry import create_path_url_entry
 from calipod.gui.utils.styles import create_styled_groupbox, create_subsection_title
 
 logger = calipod_logger.get(__name__)
@@ -35,18 +36,42 @@ class OrganisationWidget(QWidget):
         ### SUBSECTIONS ###
 
         # Calibration video URLS
-        self.calibration_video_url_label = create_subsection_title("Calibration Video URLs", color="blue")
+        self.calibration_video_url_label = create_subsection_title("Calibration Video URLs", color="black")
+
+        self.calibration_path_row = create_path_url_entry(
+        initial_path="C:/data/project", #set this to current calibration paths if found in project config.
+        parent=self,
+        dialog_caption="Select Data Folder",
+        select_directory=False,
+        )
 
         # Action video "recordings" URLS
-        self.action_video_url_label = create_subsection_title("Action Video URLs", color="blue")
+        self.action_video_url_label = create_subsection_title("Action Video URLs", color="black")
+
+        self.action_recordings_path_row = create_path_url_entry(
+        initial_path="C:/data/project", #set this to current behaviour recordings paths if found in project config.
+        parent=self,
+        dialog_caption="Select Data Folder",
+        select_directory=False,
+        )
 
         # Annotation URLS
-        self.annotation_url_label = create_subsection_title("Annotation URLs", color="blue")
+        self.annotation_url_label = create_subsection_title("Annotation URLs", color="black")
+
+        self.annotation_path_row = create_path_url_entry(
+        initial_path="C:/data/project", #set this to current annotation paths if found in project config.
+        parent=self,
+        dialog_caption="Select Data Folder",
+        select_directory=False,
+        )
 
         url_layout.addWidget(self.calibration_video_url_label)
+        url_layout.addWidget(self.calibration_path_row.container)
         url_layout.addWidget(self.action_video_url_label)
+        url_layout.addWidget(self.action_recordings_path_row.container)
         url_layout.addWidget(self.annotation_url_label)
-        
+        url_layout.addWidget(self.annotation_path_row.container)
+
         self.top_vbox.addWidget(url_group)
 
     # This section will have a file tree of the project folder,
