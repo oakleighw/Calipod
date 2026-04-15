@@ -1,6 +1,5 @@
 # %%
 
-import colorsys
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -9,6 +8,7 @@ import numpy as np
 from numba.typed import Dict
 
 from calipod.core import logger as calipod_logger
+from calipod.core.camera_colours import camera_color_maps_for_ports
 
 logger = calipod_logger.get(__name__)
 CAMERA_PARAM_COUNT = 6
@@ -212,34 +212,7 @@ class CameraArray:
         return camera_params
 
     def _generate_colors(self):  # generates camera colours for plotting purposes
-        saturation = 0.9
-        lightness = 0.5
-        cam_colors = {}
-        cam_hexes = {}
-        num_colors = len(self.cameras)
-
-        for i, port in enumerate(self.port_index):
-            # Distribute hues evenly around the color wheel
-            hue = i / num_colors
-
-            # Convert HSL to RGB
-            # colorsys.hls_to_rgb returns values between 0 and 1
-            r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
-
-            # Append with alpha = 1 (fully opaque)
-            cam_colors[port] = (r, g, b, 1.0)
-            cam_hexes[port] = self._rgb_to_html_hex(r, g, b)
-
-        return cam_colors, cam_hexes
-
-    def _rgb_to_html_hex(self, r, g, b):
-        """Converts a 0-1 RGB tuple to an HTML hex color string (e.g., #FF0000)."""
-        # Scale 0-1 RGB to 0-255 integers
-        r_int = int(r * 255)
-        g_int = int(g * 255)
-        b_int = int(b * 255)
-        # Format as hex string
-        return f"#{r_int:02X}{g_int:02X}{b_int:02X}"
+        return camera_color_maps_for_ports(list(self.port_index))
 
     def _assign_colors_to_cameras(self):  # Uses the generated map to assign
         """

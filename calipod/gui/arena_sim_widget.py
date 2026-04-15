@@ -31,7 +31,11 @@ from calipod.arena_simulation.pixel_to_animal import (
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.spinbox_utils import create_labeled_spinbox_row
-from calipod.gui.utils.styles import create_styled_groupbox, create_subsection_title
+from calipod.gui.utils.styles import (
+    create_styled_groupbox,
+    create_subsection_title,
+    resolve_camera_title_color,
+)
 
 logger = calipod_logger.get(__name__)
 
@@ -227,7 +231,11 @@ class ArenaSimWidget(QWidget):
         for i in range(self.cameras):
             position_spinboxes = {}
             rotation_spinboxes = {}
-            camera_color = self.visualizer.color_to_css(self.visualizer.get_camera_color(i))
+            camera_color = resolve_camera_title_color(
+                camera_index=i,
+                camera_count=self.cameras,
+                zero_based_index=True,
+            )
             cam_label = create_subsection_title(f"Camera {i + 1}", color=camera_color)
             item = QListWidgetItem()
             self.cam_placement.addItem(item)
@@ -345,8 +353,16 @@ class ArenaSimWidget(QWidget):
         self, camera_a: int, camera_b: int, distance_3d_mm: float, distance_xy_mm: float, distance_z_mm: float
     ) -> str:
         """Build a capture-volume-style rich-text block for one camera pair."""
-        color_a = self.visualizer.color_to_css(self.visualizer.get_camera_color(camera_a))
-        color_b = self.visualizer.color_to_css(self.visualizer.get_camera_color(camera_b))
+        color_a = resolve_camera_title_color(
+            camera_index=camera_a,
+            camera_count=self.cameras,
+            zero_based_index=True,
+        )
+        color_b = resolve_camera_title_color(
+            camera_index=camera_b,
+            camera_count=self.cameras,
+            zero_based_index=True,
+        )
         total_text = self._format_distance_mm(distance_3d_mm)
         xy_text = self._format_distance_mm(distance_xy_mm)
         z_text = self._format_distance_mm(distance_z_mm)

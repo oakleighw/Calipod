@@ -23,6 +23,7 @@ from calipod.arena_simulation.arena_overlap import (
     halfspaces_from_convex_mesh,
     intersection_vertices_from_halfspaces,
 )
+from calipod.core.camera_colours import camera_rgba
 from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
@@ -343,7 +344,10 @@ class ArenaMatplotlibGraphWindow(QWidget):
         if view_mode == "all":
             camera_colors = self._state("camera_colors", {})
             for camera_index in range(int(self._state("camera_count", 0))):
-                color = camera_colors.get(camera_index, (0.3, 0.3, 0.3, 1.0))
+                color = camera_colors.get(
+                    camera_index,
+                    camera_rgba(camera_index, int(self._state("camera_count", 0))),
+                )
                 rgb = tuple(color[:3])
                 handles.append(
                     self.Patch(facecolor=rgb, edgecolor=rgb, alpha=0.35, label=f"Camera {camera_index + 1} Frustum")
@@ -424,7 +428,7 @@ class ArenaMatplotlibGraphWindow(QWidget):
             if self.view_mode == "all":
                 all_points.append(verts_mm)
                 tris = [[verts_mm[face[0]], verts_mm[face[1]], verts_mm[face[2]]] for face in faces]
-                cam_color = camera_colors.get(camera_index, (0.4, 0.4, 0.4, 1.0))
+                cam_color = camera_colors.get(camera_index, camera_rgba(camera_index, camera_count))
                 poly = self.Poly3DCollection(
                     tris,
                     alpha=0.22,

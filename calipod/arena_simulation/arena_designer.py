@@ -1,9 +1,13 @@
-import colorsys
-
 import numpy as np
 import pyqtgraph.opengl as gl
 
 from calipod.arena_simulation.arena_overlap import build_overlap_mesh_items
+from calipod.core.camera_colours import (
+    camera_rgba,
+    darken_rgba,
+    rgba_to_css,
+    rgba_with_alpha,
+)
 from calipod.gui.utils.grids import (
     build_complete_grid_label_specs,
     build_plane_grid_lines,
@@ -151,9 +155,7 @@ class ArenaDesignerVisualizer:
 
     def _fallback_color(self, index: int, total: int) -> tuple[float, float, float, float]:
         """Generate deterministic colors when camera color metadata is unavailable."""
-        hue = 0 if total <= 0 else index / total
-        r, g, b = colorsys.hls_to_rgb(hue, 0.5, 0.9)
-        return (r, g, b, 1.0)
+        return camera_rgba(index, total)
 
     def get_camera_color(self, camera_index: int) -> tuple[float, float, float, float]:
         """Return the color assigned to a camera index."""
@@ -162,19 +164,7 @@ class ArenaDesignerVisualizer:
     @staticmethod
     def color_to_css(color: tuple[float, float, float, float]) -> str:
         """Convert an RGBA color tuple into a stylesheet color string."""
-        r, g, b, _ = color
-        return f"rgb({int(r * 255)}, {int(g * 255)}, {int(b * 255)})"
-
-    @staticmethod
-    def _darken_color(color: tuple[float, float, float, float], factor: float = 0.45, alpha: float = 0.75):
-        """Return a darker variant of the given RGBA color."""
-        r, g, b, _ = color
-        return (
-            max(0.0, min(1.0, r * factor)),
-            max(0.0, min(1.0, g * factor)),
-            max(0.0, min(1.0, b * factor)),
-            max(0.0, min(1.0, alpha)),
-        )
+        return rgba_to_css(color)
 
     def _add_camera_cubes(self):
         self.camera_cubes = {}
@@ -199,7 +189,7 @@ class ArenaDesignerVisualizer:
             horizontal_angle_deg, vertical_angle_deg = self.camera_frustum_angles_deg.get(camera_index, (60.0, 45.0))
             min_working_distance_mm = self.camera_min_working_distance_mm.get(camera_index, 1.0)
             color = self._fallback_color(camera_index, max(1, int(self.camera_count or 0)))
-            frustum_color = (color[0], color[1], color[2], 0.18)
+            frustum_color = rgba_with_alpha(color, 0.18)
             frustum = build_camera_frustum_item(
                 horizontal_angle_deg=horizontal_angle_deg,
                 vertical_angle_deg=vertical_angle_deg,
@@ -210,10 +200,10 @@ class ArenaDesignerVisualizer:
             self.camera_frustums[camera_index] = frustum
             self.scene.addItem(frustum)
 
-            # Dark red sub-frustum marks the minimum working distance.
+            # Darker same-hue sub-frustum marks the minimum working distance.
             min_depth_mm = max(0.1, min(float(min_working_distance_mm), depth_mm))
-            dark_color = self._darken_color(color, factor=0.45, alpha=0.80)
-            dark_edge = self._darken_color(color, factor=0.35, alpha=1.0)
+            dark_color = darken_rgba(color, factor=0.45, alpha=0.80)
+            dark_edge = darken_rgba(color, factor=0.35, alpha=1.0)
             min_distance_frustum = build_camera_frustum_item(
                 horizontal_angle_deg=horizontal_angle_deg,
                 vertical_angle_deg=vertical_angle_deg,
