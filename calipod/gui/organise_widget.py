@@ -1,10 +1,12 @@
 """This widget will allow user to link videos/annotations to the project if not already placed in the project folder. Aids transparent project management and organisation."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
+
+from calipod.gui.utils.styles import create_styled_groupbox
 
 logger = calipod_logger.get(__name__)
 
@@ -15,18 +17,24 @@ class OrganisationWidget(QWidget):
         self.place_widgets()
 
     def place_widgets(self):
-        temp_to_do_widget = QLabel("To do: organisation widget")
-        temp_to_do_widget.setAlignment(Qt.AlignCenter)
-        layout = QVBoxLayout()
-        layout.addWidget(temp_to_do_widget)
-        self.setLayout(layout)
+        self.setLayout(QVBoxLayout())
+        self.top_vbox = QVBoxLayout()
+        self.bottom_vbox = QVBoxLayout()
+
+        self.url_widget()
+        self.project_file_tree_widget()
+
+        self.layout().addLayout(self.top_vbox, stretch=1)
+        self.layout().addLayout(self.bottom_vbox, stretch=1)
 
     # This section will have sub-headings for each pipeline stage that requires data, which each having a url to the file in use.
     # Next to each url is a browse button that changes the url to a different path.
     def url_widget(self):
-        pass
+        url_group, url_layout = create_styled_groupbox("Data Locations")
+        self.top_vbox.addWidget(url_group)
 
     # This section will have a file tree of the project folder,
     # with the option to add files to the project folder by dragging and dropping.
     def project_file_tree_widget(self):
-        pass
+        file_tree_group, file_tree_layout = create_styled_groupbox("Project File Tree")
+        self.bottom_vbox.addWidget(file_tree_group)
