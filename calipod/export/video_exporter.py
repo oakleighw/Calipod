@@ -278,7 +278,10 @@ class VideoExporter:
 
             if invalid_frame_indices:
                 logger.warning(
-                    f"Found {len(invalid_frame_indices)} invalid/empty frames at indices: {invalid_frame_indices[:20]}{'...' if len(invalid_frame_indices) > 20 else ''}"
+                    "Found "
+                    f"{len(invalid_frame_indices)} invalid/empty frames at indices: "
+                    f"{invalid_frame_indices[:20]}"
+                    f"{'...' if len(invalid_frame_indices) > 20 else ''}"
                 )
                 # Filter out invalid frames
                 collected_frames = [f for f in collected_frames if f is not None and f.size > 0]
@@ -289,7 +292,9 @@ class VideoExporter:
                 return None
 
             logger.info(
-                f"Frame validation complete: {len(collected_frames)} valid frames, first frame shape: {first_valid_frame.shape}"
+                "Frame validation complete: "
+                f"{len(collected_frames)} valid frames, "
+                f"first frame shape: {first_valid_frame.shape}"
             )
 
             # Render collected frames to video via FFmpeg
@@ -325,7 +330,8 @@ class VideoExporter:
         # Validate first frame exists and has valid shape
         if frames[0].size == 0 or len(frames[0].shape) != 3:
             logger.error(
-                f"Invalid first frame: size={frames[0].size}, shape={frames[0].shape if hasattr(frames[0], 'shape') else 'N/A'}"
+                f"Invalid first frame: size={frames[0].size}, "
+                f"shape={frames[0].shape if hasattr(frames[0], 'shape') else 'N/A'}"
             )
             return None
 
@@ -352,7 +358,9 @@ class VideoExporter:
 
                 # Try to recover by resizing all inconsistent frames to match first frame
                 logger.info(
-                    f"Attempting recovery: resizing {len(inconsistent_indices)} frames to match first frame dimensions ({height}x{width})"
+                    "Attempting recovery: resizing "
+                    f"{len(inconsistent_indices)} frames to match first frame "
+                    f"dimensions ({height}x{width})"
                 )
                 import cv2
 
@@ -378,7 +386,8 @@ class VideoExporter:
             # H.264 requires even dimensions; pad if necessary
             if width % 2 != 0 or height % 2 != 0:
                 logger.warning(
-                    f"Frame dimensions {width}x{height} are odd; h264 encoding requires even dimensions. Padding to even size."
+                    f"Frame dimensions {width}x{height} are odd; "
+                    "h264 encoding requires even dimensions. Padding to even size."
                 )
                 # Round each dimension up to nearest even number
                 padded_width = width if width % 2 == 0 else width + 1
@@ -449,7 +458,8 @@ class VideoExporter:
                         frames_written += 1
                         if frame_idx % 300 == 0 and frame_idx > 0:
                             logger.debug(
-                                f"  Progress: {frame_idx}/{len(frames)} frames written ({100 * frame_idx / len(frames):.1f}%)"
+                                f"  Progress: {frame_idx}/{len(frames)} frames written "
+                                f"({100 * frame_idx / len(frames):.1f}%)"
                             )
                     except BrokenPipeError as e:
                         logger.error(f"FFmpeg pipe closed after writing {frame_idx}/{len(frames)} frames: {e}")
@@ -458,7 +468,7 @@ class VideoExporter:
                             _, stderr = proc.communicate(timeout=5)
                             if stderr:
                                 logger.error(f"FFmpeg stderr at failure: {stderr.decode()[:500]}")
-                        except:
+                        except Exception:
                             pass
                         break
             except Exception as e:
@@ -513,6 +523,6 @@ class VideoExporter:
             try:
                 proc.stdin.close()
                 proc.terminate()
-            except:
+            except Exception:
                 pass
             return None

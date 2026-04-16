@@ -79,11 +79,15 @@ class MotionTrial:
                     ):
                         syncs = self.predictions_df["sync_index"].unique()
                         logger.get(__name__).info(
-                            f"Predictions summary: rows={pred_count}, sync_index range={syncs.min()}..{syncs.max()}, point_id counts={self.predictions_df['point_id'].value_counts().to_dict()}"
+                            f"Predictions summary: rows={pred_count}, "
+                            f"sync_index range={syncs.min()}..{syncs.max()}, "
+                            "point_id counts="
+                            f"{self.predictions_df['point_id'].value_counts().to_dict()}"
                         )
                     else:
                         logger.get(__name__).info(
-                            f"Predictions loaded but missing expected columns or empty; columns={list(self.predictions_df.columns)}"
+                            "Predictions loaded but missing expected columns or empty; "
+                            f"columns={list(self.predictions_df.columns)}"
                         )
                 except Exception as e2:
                     logger.get(__name__).warning(f"Error summarizing predictions_df: {e2}")
@@ -147,5 +151,6 @@ class MotionTrial:
             self.wireframe.set_points(xyz_packet)
         else:
             logger.get(__name__).debug(
-                f"Skipping wireframe update for sync index {sync_index}: self.wireframe is None (no tracker or no wireframe for tracker)."
+                f"Skipping wireframe update for sync index {sync_index}: "
+                "self.wireframe is None (no tracker or no wireframe for tracker)."
             )

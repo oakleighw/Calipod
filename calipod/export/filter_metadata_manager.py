@@ -100,7 +100,7 @@ class FilterMetadataManager:
                                     )
                                     source_data["frame_count"] = int(source_df["sync_index"].nunique())
                                     metrics_by_source[source] = source_data
-                                except:
+                                except Exception:
                                     pass
                                 finally:
                                     motion_trial.predictions_df = orig_pred_df

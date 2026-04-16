@@ -202,7 +202,8 @@ class RecordedStream:
             # If tracker is in annotations-only mode (has pre-made annotations), skip video reading
             if annotations_only:
                 logger.debug(
-                    f"RecordedStream (Port {self.port}): Using annotations-only mode for frame {self.frame_index} (no video reading)"
+                    f"RecordedStream (Port {self.port}): Using annotations-only mode "
+                    f"for frame {self.frame_index} (no video reading)"
                 )
                 # Create a dummy frame with correct dimensions but no pixel data
                 # This allows the tracker to get frame shape for calculations without decoding video

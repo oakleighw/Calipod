@@ -27,18 +27,16 @@ from calipod.gui.bgs_processing_widget import BGSProcessingWidget
 from calipod.gui.camera_management.multiplayback_widget import (
     MultiIntrinsicPlaybackWidget,
 )
-from calipod.gui.organise_widget import OrganisationWidget
 from calipod.gui.capture_widget import CameraCaptureWidget
 from calipod.gui.charuco_widget import CharucoWidget
 from calipod.gui.circuit_management_widget import CircuitManagementWidget
 from calipod.gui.detection_widget import DetectionWidget
 from calipod.gui.log_widget import LogWidget
+from calipod.gui.organise_widget import OrganisationWidget
 from calipod.gui.post_processing_widget import PostProcessingWidget
 from calipod.gui.vizualize.calibration.capture_volume_visualizer import CaptureVolumeVisualizer
 from calipod.gui.vizualize.calibration.capture_volume_widget import CaptureVolumeWidget
 from calipod.gui.workspace_widget import WorkspaceSummaryWidget
-
-
 
 logger = calipod_logger.get(__name__)
 
@@ -192,8 +190,7 @@ class MainWindow(QMainWindow):
         # create log window which is fixed below main window
         self.docked_logger = QDockWidget("Log", self)
         self.docked_logger.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
         self.docked_logger.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self.log_widget = LogWidget()

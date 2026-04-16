@@ -50,7 +50,9 @@ def darken_rgba(
     return darkened
 
 
-def camera_color_maps_for_ports(ports: list[int]) -> tuple[dict[int, tuple[float, float, float, float]], dict[int, str]]:
+def camera_color_maps_for_ports(
+    ports: list[int],
+) -> tuple[dict[int, tuple[float, float, float, float]], dict[int, str]]:
     """Build RGBA and hex colour maps for the supplied camera port ordering."""
     cam_colors: dict[int, tuple[float, float, float, float]] = {}
     cam_hexes: dict[int, str] = {}

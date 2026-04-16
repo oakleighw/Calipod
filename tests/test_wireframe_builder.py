@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
+from calipod.core import logger as calipod_logger
 from calipod.tracker import Segment, WireFrameView
 from calipod.trackers.holistic.holistic_tracker import POINT_NAMES, HolisticTracker
 from calipod.trackers.wireframe_builder import get_wireframe

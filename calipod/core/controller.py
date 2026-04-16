@@ -147,7 +147,7 @@ class Controller(QObject):
 
     def annotations_available(self) -> bool:
         return len(self.workspace_guide.valid_annotation_dirs()) > 0
-    
+
     def get_annotation_summary(self) -> str:
         return self.workspace_guide.valid_annotation_dir_text()
 
@@ -407,7 +407,9 @@ class Controller(QObject):
             logger.info(f"Creating post processor for {recording_path}")
             ground_truth_path = self.workspace_guide.ground_truth_dir
             predictions_path = self.workspace_guide.predictions_dir
-            self.post_processor = PostProcessor(self.camera_array, recording_path, ground_truth_path, predictions_path, tracker_enum)
+            self.post_processor = PostProcessor(
+                self.camera_array, recording_path, ground_truth_path, predictions_path, tracker_enum
+            )
 
             # config settings that help to throttle processing rate to manage resource demands
             include_video = self.config.get_save_tracked_points()

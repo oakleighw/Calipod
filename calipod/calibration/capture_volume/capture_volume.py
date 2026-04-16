@@ -102,7 +102,11 @@ class CaptureVolume:
             if key == "overall":
                 pass
             else:
-                rmse_string += f"<pre>    <font color='{self.camera_array.cameras[int(key)].color_hex}'>{key: >9}</font>: {round(float(value), 2)}\n</pre>"
+                rmse_string += (
+                    "<pre>    "
+                    f"<font color='{self.camera_array.cameras[int(key)].color_hex}'>{key: >9}</font>: "
+                    f"{round(float(value), 2)}\n</pre>"
+                )
 
         return rmse_string
 
@@ -135,7 +139,9 @@ class CaptureVolume:
             cam_1_port = cam_ports[0]
             cam_2_port = cam_ports[1]
             cam_dist_string += (
-                f"<pre>    <font face='{font_family}' color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>{cam_1_port}</font>"
+                "<pre>    "
+                f"<font face='{font_family}' color='{self.camera_array.cameras[int(cam_1_port)].color_hex}'>"
+                f"{cam_1_port}</font>"
                 f"-<font color='{self.camera_array.cameras[int(cam_2_port)].color_hex}'>{cam_2_port}</font>:"
                 f"{round(float(value) * 100, 3)} cm\n</pre>"
             )  # x100 for cm

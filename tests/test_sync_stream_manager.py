@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
+from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
 from calipod.core.helper import copy_contents
 from calipod.synchronized_stream_manager import SynchronizedStreamManager

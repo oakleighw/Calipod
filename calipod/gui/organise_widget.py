@@ -1,4 +1,5 @@
-"""This widget will allow user to link videos/annotations to the project if not already placed in the project folder. Aids transparent project management and organisation."""
+"""Allow linking videos/annotations to the project when files are stored
+outside the project folder to support transparent project organization."""
 
 import html
 from pathlib import Path
@@ -8,7 +9,6 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QSi
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
-
 from calipod.gui.utils.collapsible_container import create_collapsible_container
 from calipod.gui.utils.file_tree import create_project_file_tree_view
 from calipod.gui.utils.path_url_entry import create_path_url_entry
@@ -19,6 +19,7 @@ from calipod.gui.utils.styles import (
 )
 
 logger = calipod_logger.get(__name__)
+
 
 class OrganisationWidget(QWidget):
     def __init__(self, controller: Controller):
@@ -49,7 +50,8 @@ class OrganisationWidget(QWidget):
         self.layout().addLayout(self.top_vbox, stretch=1)
         self.layout().addWidget(self.file_tree_scroll, stretch=1)
 
-    # This section will have sub-headings for each pipeline stage that requires data, which each having a url to the file in use.
+    # This section has sub-headings for each pipeline stage requiring data,
+    # each with a URL to the file in use.
     # Next to each url is a browse button that changes the url to a different path.
     def url_widget(self):
         url_group, url_layout = create_styled_groupbox("Data Locations")
@@ -89,7 +91,7 @@ class OrganisationWidget(QWidget):
                     camera_index,
                     fallback_name=f"port_{camera_index}.mp4",
                 ),
-                context= "Intrinsic"
+                context="Intrinsic",
             )
             self._add_camera_path_row(
                 calibration_layout,
@@ -146,7 +148,6 @@ class OrganisationWidget(QWidget):
                 context="Ext. Predicted Detections",
                 select_directory=True,
             )
-
 
         url_content_layout.addStretch(1)
 
@@ -235,7 +236,11 @@ class OrganisationWidget(QWidget):
         )
 
     def _annotation_path_display(self, camera_index: int, is_prediction: bool) -> str:
-        base_dir = self.controller.workspace_guide.predictions_dir if is_prediction else self.controller.workspace_guide.ground_truth_dir
+        base_dir = (
+            self.controller.workspace_guide.predictions_dir
+            if is_prediction
+            else self.controller.workspace_guide.ground_truth_dir
+        )
         camera_dir = base_dir / f"port_{camera_index}"
         existing_file = self._first_file_in_tree(camera_dir)
         if existing_file is not None:

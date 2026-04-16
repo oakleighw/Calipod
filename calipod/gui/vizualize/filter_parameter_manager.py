@@ -85,9 +85,17 @@ class FilterParameterManager:
             if widget_name in self.ui_widgets:
                 self.ui_widgets[widget_name].setEnabled(is_hybrid_enabled)
 
-    def save_metadata(self, filtered_csv_path: Path, motion_trial=None, filtered_df: Optional[pd.DataFrame] = None, kalman_fps_override: Optional[int] = None, precomputed_metrics: Optional[dict] = None, precomputed_metrics_by_source: Optional[dict] = None):
+    def save_metadata(
+        self,
+        filtered_csv_path: Path,
+        motion_trial=None,
+        filtered_df: Optional[pd.DataFrame] = None,
+        kalman_fps_override: Optional[int] = None,
+        precomputed_metrics: Optional[dict] = None,
+        precomputed_metrics_by_source: Optional[dict] = None,
+    ):
         """Save filter parameters as JSON metadata alongside the filtered predictions CSV.
-        
+
         Args:
             filtered_csv_path: Path where filtered CSV is/will be saved
             motion_trial: MotionTrial object (optional, for ground truth data)
@@ -95,7 +103,8 @@ class FilterParameterManager:
                         If not provided, will read from filtered_csv_path if it exists
             kalman_fps_override: FPS override value that was used for computation (None for video default)
             precomputed_metrics: Optional dict of already-computed overall metrics (skip recomputation if provided)
-            precomputed_metrics_by_source: Optional dict of already-computed per-source metrics (skip recomputation if provided)
+            precomputed_metrics_by_source: Optional dict of already-computed
+                per-source metrics (skip recomputation if provided)
         """
         overall_metrics = precomputed_metrics if precomputed_metrics is not None else {}
         metrics_by_source = precomputed_metrics_by_source if precomputed_metrics_by_source is not None else {}
@@ -111,7 +120,7 @@ class FilterParameterManager:
                     pred_df_for_metrics = pd.read_csv(filtered_csv_path, engine="pyarrow")
                 if pred_df_for_metrics is None:
                     pred_df_for_metrics = motion_trial.predictions_df
-                    
+
                 metrics = computer._compute_metrics_from_dataframes(pred_df_for_metrics, motion_trial.xyz_df)
                 # Convert numpy types to native Python types for JSON serialization
                 overall_metrics = {
@@ -127,7 +136,7 @@ class FilterParameterManager:
                     filtered_data = pd.read_csv(filtered_csv_path, engine="pyarrow")
                 else:
                     filtered_data = None
-                    
+
                 if filtered_data is not None and "measurement_source" in filtered_data.columns:
                     computer = MetricsComputer(None)
                     for source in ["YOLO", "BGS", "filter_only"]:
@@ -138,9 +147,7 @@ class FilterParameterManager:
                             orig_gt_df = motion_trial.xyz_df
                             # Filter both to only point_id == 0 (the tracked fly)
                             motion_trial.predictions_df = (
-                                source_df[source_df["point_id"] == 0]
-                                if "point_id" in source_df.columns
-                                else source_df
+                                source_df[source_df["point_id"] == 0] if "point_id" in source_df.columns else source_df
                             )
                             motion_trial.xyz_df = (
                                 orig_gt_df[orig_gt_df["point_id"] == 0] if not orig_gt_df.empty else orig_gt_df
@@ -164,7 +171,7 @@ class FilterParameterManager:
                                 )
                                 source_data["frame_count"] = int(source_df["sync_index"].nunique())
                                 metrics_by_source[source] = source_data
-                            except:
+                            except Exception:
                                 pass
                             finally:
                                 motion_trial.predictions_df = orig_pred_df
@@ -187,14 +194,14 @@ class FilterParameterManager:
                 else pd.DataFrame()
             )
             total_gt_fly_points = len(gt_fly_df) if not gt_fly_df.empty else 0
-            
+
             # Use filtered_df for prediction counts if available, otherwise read from disk
             predictions_to_count = filtered_df
             if predictions_to_count is None and filtered_csv_path.exists():
                 predictions_to_count = pd.read_csv(filtered_csv_path, engine="pyarrow")
             if predictions_to_count is None:
                 predictions_to_count = motion_trial.predictions_df
-                
+
             pred_fly_df = (
                 predictions_to_count[predictions_to_count["point_id"] == 0]
                 if not predictions_to_count.empty
@@ -212,9 +219,7 @@ class FilterParameterManager:
         extend_filtered_track_to_save = self.extend_filtered_track
         if "extend_filtered_track_checkbox" in self.ui_widgets:
             extend_filtered_track_to_save = self.ui_widgets["extend_filtered_track_checkbox"].isChecked()
-            logger.debug(
-                f"Reading extend_filtered_track_checkbox state for saving: {extend_filtered_track_to_save}"
-            )
+            logger.debug(f"Reading extend_filtered_track_checkbox state for saving: {extend_filtered_track_to_save}")
         else:
             logger.warning("extend_filtered_track_checkbox not in ui_widgets when saving metadata")
 
@@ -358,21 +363,18 @@ class FilterParameterManager:
 
             if "gap_fill_only_checkbox" in self.ui_widgets:
                 self.ui_widgets["gap_fill_only_checkbox"].setChecked(self.gap_fill_only)
-                logger.debug(
-                    f"Set gap_fill_only_checkbox to {self.gap_fill_only}"
-                )
+                logger.debug(f"Set gap_fill_only_checkbox to {self.gap_fill_only}")
             if "extend_filtered_track_checkbox" in self.ui_widgets:
                 self.ui_widgets["extend_filtered_track_checkbox"].setChecked(self.extend_filtered_track)
                 logger.debug(
-                    f"Set extend_filtered_track_checkbox to {self.extend_filtered_track} "
-                    f"(was loaded from metadata)"
+                    f"Set extend_filtered_track_checkbox to {self.extend_filtered_track} (was loaded from metadata)"
                 )
             else:
                 logger.warning(
                     f"extend_filtered_track_checkbox not found in ui_widgets! "
                     f"Available keys: {list(self.ui_widgets.keys())}"
                 )
-            
+
             # Load cut_video_to_filter_frames state
             cut_video_to_filter_frames = metadata.get("cut_video_to_filter_frames", False)
             if "cut_video_to_filter_frames_checkbox" in self.ui_widgets:
@@ -382,9 +384,7 @@ class FilterParameterManager:
                     f"(was loaded from metadata)"
                 )
             else:
-                logger.debug(
-                    f"cut_video_to_filter_frames_checkbox not found in ui_widgets; will use default (False)"
-                )
+                logger.debug("cut_video_to_filter_frames_checkbox not found in ui_widgets; will use default (False)")
 
             # Load use_hybrid_bgs state and apply it
             use_hybrid_bgs = metadata.get("use_hybrid_bgs", False)

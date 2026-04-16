@@ -2,8 +2,8 @@
 import json
 from pathlib import Path
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
+from calipod.core import logger as calipod_logger
 from calipod.post_processing.metarig_config import generate_metarig_config
 from calipod.trackers.tracker_enum import TrackerEnum
 

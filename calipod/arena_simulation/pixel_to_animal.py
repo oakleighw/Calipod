@@ -134,7 +134,10 @@ def compute_pixel_to_animal_result(inputs: PixelToAnimalInputs) -> PixelToAnimal
         computed_insect_pixel_count = float(inputs.animal_pixel_size)
         computed_furthest_distance_mm = float(computed_furthest_distance_mm)
         return PixelToAnimalResult(
-            insect_label_text=f"{computed_insect_pixel_count:.{PIXEL_TO_ANIMAL_RESULT_DECIMALS}f} pixels @ furthest distance",
+            insect_label_text=(
+                f"{computed_insect_pixel_count:.{PIXEL_TO_ANIMAL_RESULT_DECIMALS}f} "
+                "pixels @ furthest distance"
+            ),
             distance_label_text=f"{computed_furthest_distance_mm:.{PIXEL_TO_ANIMAL_RESULT_DECIMALS}f} mm",
             computed_insect_pixel_count=computed_insect_pixel_count,
             computed_furthest_distance_mm=computed_furthest_distance_mm,

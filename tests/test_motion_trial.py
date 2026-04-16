@@ -1,17 +1,23 @@
 from pathlib import Path
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
-from calipod.motion_trial import MotionTrial
+from calipod.core import logger as calipod_logger
 from calipod.core.packets import XYZPacket
+from calipod.motion_trial import MotionTrial
 
 logger = calipod_logger.get(__name__)
 
 
 def test_motion_trial():
     test_csv = Path(
-        __root__, "tests", "sessions", "4_cam_recording", "recordings",
-        "recording_1", "SIMPLE_HOLISTIC", "xyz_SIMPLE_HOLISTIC.csv"
+        __root__,
+        "tests",
+        "sessions",
+        "4_cam_recording",
+        "recordings",
+        "recording_1",
+        "SIMPLE_HOLISTIC",
+        "xyz_SIMPLE_HOLISTIC.csv",
     )
     motion_trial = MotionTrial(test_csv)
 

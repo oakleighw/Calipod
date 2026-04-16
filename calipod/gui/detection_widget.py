@@ -1,4 +1,5 @@
-"""This widget will supply a basic detection tool and also point to Jupyter Notebook / Wandb for extended functionality."""
+"""Supply a basic detection tool and point to notebook/Wandb flows for
+extended functionality."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget

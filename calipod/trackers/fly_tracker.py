@@ -30,7 +30,8 @@ class FlyTracker(Tracker):
     def yolo_to_idloc(self, text_file, frame_shape=None, highest_confidence_only=False):
         """Parse YOLO label file to extract point IDs, locations, and bounding boxes.
 
-        If highest_confidence_only set to true, only the highest confidence detection per class is kept per frame (for single-object scenarios).
+        If highest_confidence_only set to true, only the highest confidence
+        detection per class is kept per frame (for single-object scenarios).
 
         For labels 9 (fruit) and 10 (leaves), also generates corner points for proper 3D triangulation.
         Corner points use IDs: base_id * 1000 + corner_index (0=TL, 1=TR, 2=BR, 3=BL)
@@ -93,7 +94,8 @@ class FlyTracker(Tracker):
                     bboxes.append((width, height))
 
                     logger.debug(
-                        f"Parsed point: class={class_id}, pos=({x_centre}, {y_centre}), bbox=({width}, {height}) from '{line.strip()}' in {text_file}"
+                        f"Parsed point: class={class_id}, pos=({x_centre}, {y_centre}), "
+                        f"bbox=({width}, {height}) from '{line.strip()}' in {text_file}"
                     )
 
                     # For fruit (9) and leaves (10), add 4 corner points for proper 3D triangulation
@@ -116,7 +118,8 @@ class FlyTracker(Tracker):
                             bboxes.append((width, height))  # Store same bbox for reference
 
                         logger.debug(
-                            f"Added 4 corner points for class_id={class_id} with IDs {class_id * 1000} to {class_id * 1000 + 3}"
+                            f"Added 4 corner points for class_id={class_id} with IDs "
+                            f"{class_id * 1000} to {class_id * 1000 + 3}"
                         )
 
         except FileNotFoundError:
@@ -262,11 +265,14 @@ class FlyTracker(Tracker):
                         frame_shape = frame.shape if frame is not None else None
                         point_ids, landmark_xy, bboxes = self.yolo_to_idloc(label_file_path, frame_shape)
                         logger.debug(
-                            f"FlyTracker (Port {port}, Frame {frame_idx}): Found {len(point_ids)} points from {label_file_path}"
+                            f"FlyTracker (Port {port}, Frame {frame_idx}): "
+                            f"Found {len(point_ids)} points from {label_file_path}"
                         )
                     else:
                         logger.debug(
-                            f"FlyTracker (Port {port}, Frame {frame_idx}): No label file found at {label_file_path}. Returning empty points for this frame."
+                            f"FlyTracker (Port {port}, Frame {frame_idx}): "
+                            f"No label file found at {label_file_path}. "
+                            "Returning empty points for this frame."
                         )
 
                 # Store bounding box data for later use in 3D visualization
@@ -352,7 +358,8 @@ class FlyTracker(Tracker):
             logger.debug(f"Predictions file not found: {predictions_file_path}")
             return np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype=float)
 
-        # Reuse yolo_to_idloc parsing logic, set highest_confidence_only=True for predictions until better track handling is implemented
+        # Reuse yolo_to_idloc parsing logic, set highest_confidence_only=True
+        # for predictions until better track handling is implemented.
         return self.yolo_to_idloc(predictions_file_path, frame_shape, highest_confidence_only=True)
 
     def get_average_bbox_by_point_id(self):

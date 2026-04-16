@@ -39,13 +39,7 @@ def create_path_url_entry(
     line_edit = QLineEdit(parent)
     line_edit.setClearButtonEnabled(True)
     line_edit.setPlaceholderText(placeholder_text)
-    line_edit.setStyleSheet(
-        "QLineEdit {"
-        " padding: 5px 8px;"
-        " border: 1px solid #b8b8b8;"
-        " border-radius: 4px;"
-        "}"
-    )
+    line_edit.setStyleSheet("QLineEdit { padding: 5px 8px; border: 1px solid #b8b8b8; border-radius: 4px;}")
 
     if initial_path:
         line_edit.setText(initial_path)

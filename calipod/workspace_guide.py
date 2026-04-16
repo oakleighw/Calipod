@@ -2,8 +2,8 @@ from pathlib import Path
 from threading import Lock, Thread
 
 from calipod.core import logger as calipod_logger
-from calipod.core.configurator import Configurator
 from calipod.core.annotation_checker import AnnotationFormatChecker
+from calipod.core.configurator import Configurator
 
 logger = calipod_logger.get(__name__)
 
@@ -94,7 +94,7 @@ class WorkspaceGuide:
         if len(recording_dir_text) == 0:
             recording_dir_text = "NONE"
         return recording_dir_text
-    
+
     def valid_annotation_dirs(self):
         """
         Check for valid annotation directories and return info about their contents.
@@ -124,14 +124,14 @@ class WorkspaceGuide:
             "pred_has_bboxes": False,
             "pred_classes": set(),
         }
-        
+
         # Check if annotations directory exists
         if not self.annotations_dir.exists():
             logger.info(f"Annotations directory does not exist: {self.annotations_dir}")
             return anno_info
         else:
             logger.info(f"Found annotations directory: {self.annotations_dir}")
-        
+
         try:
             # Look for ground truth files in annotations/ground_truth/port_n/**/ recursively
             if self.ground_truth_dir.exists():
@@ -140,7 +140,7 @@ class WorkspaceGuide:
                         # Find first valid annotation file to detect format
                         format_info = None
                         all_files = []
-                        
+
                         for pattern in ["**/*.txt", "**/*.json", "**/*.xml", "**/*.csv"]:
                             for file in p.rglob(pattern):
                                 if file.is_file():
@@ -150,22 +150,22 @@ class WorkspaceGuide:
                                         gt_info = AnnotationFormatChecker.detect_format(file)
                                         if gt_info["format"] != "Unknown":
                                             format_info = gt_info
-                        
+
                         # If we found a valid format, aggregate classes from all files
                         if format_info is not None:
                             anno_info["has_ground_truth"] = True
                             anno_info["gt_format"] = format_info["format"]
                             anno_info["gt_has_bboxes"] = format_info["has_bboxes"]
                             anno_info["gt_classes"].update(format_info["classes"])
-                            
+
                             # For remaining files, extract classes only (skip format detection)
                             for file in all_files[1:]:  # Skip first file already processed
                                 classes = AnnotationFormatChecker._extract_classes_only(file, format_info["format"])
                                 anno_info["gt_classes"].update(classes)
-                            
+
                             if p.name not in anno_info["gt_subdirs"]:
                                 anno_info["gt_subdirs"].append(p.name)
-            
+
             # Look for prediction files in annotations/predictions/port_n/**/ recursively
             if self.predictions_dir.exists():
                 for p in self.predictions_dir.iterdir():
@@ -173,7 +173,7 @@ class WorkspaceGuide:
                         # Find first valid annotation file to detect format
                         format_info = None
                         all_files = []
-                        
+
                         for pattern in ["**/*.txt", "**/*.json", "**/*.xml", "**/*.csv"]:
                             for file in p.rglob(pattern):
                                 if file.is_file():
@@ -183,23 +183,22 @@ class WorkspaceGuide:
                                         pred_info = AnnotationFormatChecker.detect_format(file)
                                         if pred_info["format"] != "Unknown":
                                             format_info = pred_info
-                        
+
                         # If we found a valid format, aggregate classes from all files
                         if format_info is not None:
                             anno_info["has_predictions"] = True
                             anno_info["pred_format"] = format_info["format"]
                             anno_info["pred_has_bboxes"] = format_info["has_bboxes"]
                             anno_info["pred_classes"].update(format_info["classes"])
-                            
+
                             # For remaining files, extract classes only (skip format detection)
                             for file in all_files[1:]:  # Skip first file already processed
                                 classes = AnnotationFormatChecker._extract_classes_only(file, format_info["format"])
                                 anno_info["pred_classes"].update(classes)
-                            
+
                             if p.name not in anno_info["pred_subdirs"]:
                                 anno_info["pred_subdirs"].append(p.name)
 
-            
             # Sort subdirectories and convert classes to sorted lists
             anno_info["gt_subdirs"] = sorted(anno_info["gt_subdirs"])
             anno_info["pred_subdirs"] = sorted(anno_info["pred_subdirs"])
@@ -207,29 +206,29 @@ class WorkspaceGuide:
             anno_info["pred_classes"] = sorted(list(anno_info["pred_classes"]))
         except Exception as e:
             logger.debug(f"Error reading annotation directories: {e}")
-        
+
         return anno_info
-    
+
     def valid_annotation_dir_text(self) -> str:
         annotation_info = self.valid_annotation_dirs()
-        
+
         if not annotation_info["has_ground_truth"] and not annotation_info["has_predictions"]:
             return "NONE"
-        
+
         text_parts = ["annotation directories:"]
-        
+
         if annotation_info["has_ground_truth"]:
             text_parts.append("  ground truth:")
             text_parts.append(f"    subdirectories: {', '.join(annotation_info['gt_subdirs'])}")
             text_parts.append(f"    format: {annotation_info['gt_format']}")
             text_parts.append(f"    classes: {annotation_info['gt_classes']}")
-        
+
         if annotation_info["has_predictions"]:
             text_parts.append("  predictions:")
             text_parts.append(f"    subdirectories: {', '.join(annotation_info['pred_subdirs'])}")
             text_parts.append(f"    format: {annotation_info['pred_format']}")
             text_parts.append(f"    classes: {annotation_info['pred_classes']}")
-        
+
         return "\n".join(text_parts)
 
     def _annotation_scan_worker(self):

@@ -41,7 +41,6 @@ class Interactive3DGraphWindow(QWidget):
             import matplotlib.pyplot as plt
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
             from matplotlib.figure import Figure
-            from mpl_toolkits.mplot3d import Axes3D
             from mpl_toolkits.mplot3d.art3d import Poly3DCollection
         except ImportError:
             logger.error("Matplotlib not available; cannot create interactive graph.")

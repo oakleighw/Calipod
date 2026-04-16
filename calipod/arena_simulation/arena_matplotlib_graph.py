@@ -23,8 +23,8 @@ from calipod.arena_simulation.arena_overlap import (
     halfspaces_from_convex_mesh,
     intersection_vertices_from_halfspaces,
 )
-from calipod.core.camera_colours import camera_rgba
 from calipod.core import logger as calipod_logger
+from calipod.core.camera_colours import camera_rgba
 
 logger = calipod_logger.get(__name__)
 

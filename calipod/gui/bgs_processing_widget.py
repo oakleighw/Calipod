@@ -35,7 +35,8 @@ REGION_CLASS_MAP = {
 }
 
 
-# BGS Processing Widget - generates parallel background subtraction detections and triangulates to 3D for hybrid filtering.
+# BGS Processing Widget - generates background-subtraction detections in
+# parallel and triangulates them to 3D for hybrid filtering.
 class BGSProcessingWidget(QWidget):
     def __init__(self, controller: Controller):
         super(BGSProcessingWidget, self).__init__()
@@ -488,7 +489,7 @@ class BGSProcessingWidget(QWidget):
                 logger.warning(f"Could not read FPS from video {video_path}, using config value")
                 try:
                     fps = self.controller.config.get_fps_sync_stream_processing()
-                except:
+                except Exception:
                     fps = 100  # Final fallback
             else:
                 # Save the detected FPS to config for future reference

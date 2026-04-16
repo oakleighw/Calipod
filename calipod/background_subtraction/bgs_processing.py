@@ -231,7 +231,8 @@ class BGSProcessor(QThread):
             end_frame = int(self.end_sec * fps)
 
             logger.info(
-                f"Frame calculations: warmup_start={warmup_start}, analysis_start={analysis_start}, end_frame={end_frame}"
+                "Frame calculations: "
+                f"warmup_start={warmup_start}, analysis_start={analysis_start}, end_frame={end_frame}"
             )
             logger.info(f"Expected total frames: {end_frame - warmup_start} (including warmup)")
 
@@ -369,7 +370,9 @@ class BGSProcessor(QThread):
 
             logger.info(f"Processing complete. Output saved to: {output_path}")
             logger.info(
-                f"Output video contains approximately {frame_idx - warmup_start} frames (from frame {warmup_start} to {frame_idx})"
+                "Output video contains approximately "
+                f"{frame_idx - warmup_start} frames "
+                f"(from frame {warmup_start} to {frame_idx})"
             )
 
             # Save detections in YOLO format if enabled
@@ -393,7 +396,8 @@ class BGSProcessor(QThread):
                     f.write(f"  Bright Cutoff: {self.bright_cutoff}\n")
                     f.write(f"  Replacement: {self.replacement}\n")
                     f.write(
-                        f"  Opening Size: {self.opening_size if self.opening_size and self.opening_size > 0 else 'None (disabled)'}\n"
+                        "  Opening Size: "
+                        f"{self.opening_size if self.opening_size and self.opening_size > 0 else 'None (disabled)'}\n"
                     )
                     f.write(f"  Warmup Duration: {self.warmup_secs} seconds\n\n")
                     f.write("Timing:\n")
@@ -406,7 +410,9 @@ class BGSProcessor(QThread):
                     f.write(f"  Output Resolution: {out_w}x{out_h}\n")
                     if self.bounding_box != (0, 0, frame_w, frame_h):
                         f.write(
-                            f"  Bounding Box (Region): ({self.bounding_box[0]}, {self.bounding_box[1]}, {self.bounding_box[2]}, {self.bounding_box[3]})\n"
+                            "  Bounding Box (Region): "
+                            f"({self.bounding_box[0]}, {self.bounding_box[1]}, "
+                            f"{self.bounding_box[2]}, {self.bounding_box[3]})\n"
                         )
                     f.write("\n")
                     from datetime import datetime

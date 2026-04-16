@@ -33,7 +33,12 @@ class PostProcessor:
     """
 
     def __init__(
-        self, camera_array: CameraArray, recording_path: Path, ground_truth_path: Path, predictions_path: Path, tracker_enum: TrackerEnum
+        self,
+        camera_array: CameraArray,
+        recording_path: Path,
+        ground_truth_path: Path,
+        predictions_path: Path,
+        tracker_enum: TrackerEnum,
     ):
         self.camera_array = camera_array
         self.recording_path = recording_path
@@ -221,7 +226,8 @@ class PostProcessor:
                 cap = cv2.VideoCapture(str(mp4_path))
                 if not cap.isOpened():
                     logger.warning(
-                        f"(Predictions) Could not open video {mp4_path} to read frame size; predictions will be skipped for this port."
+                        f"(Predictions) Could not open video {mp4_path} to read frame size; "
+                        "predictions will be skipped for this port."
                     )
                     continue
                 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -334,7 +340,8 @@ class PostProcessor:
                 else None
             )
             logger.info(
-                f"(Predictions) XY predictions written to {xy_pred_path} (rows={len(df_xy_pred)}; sync_index range={sync_min}..{sync_max})"
+                f"(Predictions) XY predictions written to {xy_pred_path} "
+                f"(rows={len(df_xy_pred)}; sync_index range={sync_min}..{sync_max})"
             )
         except Exception:
             logger.info(f"(Predictions) XY predictions written to {xy_pred_path}")
@@ -378,7 +385,8 @@ class PostProcessor:
                 sync_min = int(xyz_pred["sync_index"].min())
                 sync_max = int(xyz_pred["sync_index"].max())
                 logger.info(
-                    f"Predictions triangulated and saved to {xyz_pred_path} (rows={len(xyz_pred)}; sync_index range={sync_min}..{sync_max})"
+                    f"Predictions triangulated and saved to {xyz_pred_path} "
+                    f"(rows={len(xyz_pred)}; sync_index range={sync_min}..{sync_max})"
                 )
             except Exception:
                 logger.info(f"Predictions triangulated and saved to {xyz_pred_path}")

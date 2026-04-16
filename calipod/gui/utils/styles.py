@@ -1,12 +1,14 @@
 """Helper functions for consistent styling across the GUI."""
 
-from calipod.core.camera_colours import camera_rgba, rgba_to_css
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QVBoxLayout,
 )
+
+from calipod.core.camera_colours import camera_rgba, rgba_to_css
+
 
 # Helper function to create section titles
 def create_section_font(point_size: int = 11) -> QFont:
@@ -16,11 +18,13 @@ def create_section_font(point_size: int = 11) -> QFont:
     font.setPointSize(point_size)
     return font
 
+
 def create_section_title(text: str) -> QLabel:
     """Create a styled section title label."""
     title = QLabel(text)
     title.setFont(create_section_font(11))
     return title
+
 
 # Helper function to create subsection titles
 def create_subsection_title(text: str, color: str | None = None) -> QLabel:
@@ -31,6 +35,7 @@ def create_subsection_title(text: str, color: str | None = None) -> QLabel:
         title.setStyleSheet(f"color: {color};")
     return title
 
+
 def create_subsubsection_title(text: str, color: str | None = None) -> QLabel:
     """Create a styled subsubsection title label."""
     title = QLabel(text)
@@ -38,6 +43,7 @@ def create_subsubsection_title(text: str, color: str | None = None) -> QLabel:
     if color is not None:
         title.setStyleSheet(f"color: {color};")
     return title
+
 
 def resolve_camera_title_color(
     camera_index: int,
@@ -55,6 +61,7 @@ def resolve_camera_title_color(
 
     palette_index = camera_index if zero_based_index else camera_index - 1
     return rgba_to_css(camera_rgba(palette_index, max(1, int(camera_count or 0))))
+
 
 def create_styled_groupbox(title: str) -> tuple[QGroupBox, QVBoxLayout]:
     """Create a QGroupBox with styled section title (returns group and layout)."""

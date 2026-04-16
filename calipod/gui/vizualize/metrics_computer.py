@@ -87,8 +87,14 @@ class MetricsComputer:
                 logger.warning("  [filter_manager not available]")
 
             # ===== LOG DATA COORDINATES =====
-            num_gt_coords = len(motion_trial.xyz_df) if hasattr(motion_trial, "xyz_df") and not motion_trial.xyz_df.empty else 0
-            num_pred_coords = len(motion_trial.predictions_df) if hasattr(motion_trial, "predictions_df") and not motion_trial.predictions_df.empty else 0
+            num_gt_coords = (
+                len(motion_trial.xyz_df) if hasattr(motion_trial, "xyz_df") and not motion_trial.xyz_df.empty else 0
+            )
+            num_pred_coords = (
+                len(motion_trial.predictions_df)
+                if hasattr(motion_trial, "predictions_df") and not motion_trial.predictions_df.empty
+                else 0
+            )
             logger.info("\n" + "=" * 80)
             logger.info("DATA COORDINATES USED IN CALCULATION:")
             logger.info("=" * 80)
@@ -117,7 +123,7 @@ class MetricsComputer:
                     count = len(motion_trial.predictions_df[motion_trial.predictions_df["measurement_source"] == src])
                     logger.info(f"    {src}: {count} rows")
                 logger.info("=" * 80 + "\n")
-                
+
                 for source in ["YOLO", "BGS", "filter_only"]:
                     source_df = motion_trial.predictions_df[motion_trial.predictions_df["measurement_source"] == source]
                     if not source_df.empty:
@@ -152,7 +158,7 @@ class MetricsComputer:
 
             # Display the results
             self._display_metrics_dialog(metrics, metrics_by_source, motion_trial)
-            
+
             # Return computed metrics for reuse (e.g., in metadata saving)
             return metrics, metrics_by_source
 
@@ -188,7 +194,7 @@ class MetricsComputer:
         logger.info(f"xyz_df shape: {gt_df.shape}, columns: {list(gt_df.columns)[:5]}")
         logger.info(f"predictions_df shape: {pred_df.shape}, columns: {list(pred_df.columns)}")
         logger.info(f"predictions_df ALL COLUMNS: {list(pred_df.columns)}")
-        
+
         # If measurement_source exists, log its distribution
         if "measurement_source" in pred_df.columns:
             logger.info("MEASUREMENT SOURCE DISTRIBUTION IN DATAFRAME:")
@@ -203,7 +209,8 @@ class MetricsComputer:
             logger.info(f"Pred unique point_ids: {sorted(pred_df['point_id'].unique())}")
 
         # Merge ground truth and predictions on sync_index and point_id
-        # Filters to only those points present in both ground truth and predictions (does not include false positives/negatives)
+        # Filters to points present in both GT and predictions (excludes
+        # false positives and false negatives).
         merged_df = pd.merge(gt_df, pred_df, on=["sync_index", "point_id"], suffixes=("_gt", "_pred"))
 
         if merged_df.empty:
@@ -318,7 +325,9 @@ class MetricsComputer:
             gt_max_frame = motion_trial.xyz_df["sync_index"].max() if not motion_trial.xyz_df.empty else 0
 
             lines.append(
-                f"[Pred frame range: {int(pred_min_frame)}-{int(pred_max_frame)} | GT frame range: {int(gt_min_frame)}-{int(gt_max_frame)}]"
+                "[Pred frame range: "
+                f"{int(pred_min_frame)}-{int(pred_max_frame)} | "
+                f"GT frame range: {int(gt_min_frame)}-{int(gt_max_frame)}]"
             )
             lines.append("")
             lines.append("=== OVERALL METRICS ===")
@@ -395,7 +404,8 @@ class MetricsComputer:
 
             if start_frame > 0 or end_frame > 0:
                 lines.append(
-                    f"(% based on GT frames with fly point in range {start_frame}-{end_frame}: {int(total_gt_frames_in_range)} frames)"
+                    "(% based on GT frames with fly point in range "
+                    f"{start_frame}-{end_frame}: {int(total_gt_frames_in_range)} frames)"
                 )
             else:
                 lines.append(
@@ -415,7 +425,8 @@ class MetricsComputer:
                         (frame_count / total_gt_frames_in_range * 100) if total_gt_frames_in_range > 0 else 0
                     )
                     lines.append(
-                        f"\n--- {source} ({frame_count} frames, {point_count} points = {pct_of_pred:.1f}% of predictions, {pct_of_frames:.1f}% of GT frames) ---"
+                        f"\n--- {source} ({frame_count} frames, {point_count} points = "
+                        f"{pct_of_pred:.1f}% of predictions, {pct_of_frames:.1f}% of GT frames) ---"
                     )
                     # Display accuracy metrics, skip context metrics (point_count, frame_count)
                     skip_keys = {"point_count", "frame_count"}

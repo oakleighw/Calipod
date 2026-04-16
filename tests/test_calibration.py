@@ -1,7 +1,6 @@
 from pathlib import Path
 from time import sleep
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.calibration.capture_volume.helper_functions.get_point_estimates import (
@@ -12,6 +11,7 @@ from calipod.calibration.capture_volume.quality_controller import QualityControl
 from calipod.calibration.stereocalibrator import StereoCalibrator
 from calipod.cameras.camera_array import CameraArray
 from calipod.cameras.camera_array_initializer import CameraArrayInitializer
+from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
 from calipod.core.controller import FILTERED_FRACTION
 from calipod.core.helper import copy_contents
@@ -56,7 +56,9 @@ def test_xy_charuco_creation():
         logger.info("Waiting for point_data.csv to populate...")
         sleep(1)
 
-    assert(point_data_path.exists())
+    assert point_data_path.exists()
+
+
 def test_calibration():
     version = "larger_calibration_post_monocal"
     # version = "larger_calibration_post_bundle_adjustment"  # needed for test_stereocalibrate
@@ -93,14 +95,13 @@ def test_calibration():
     logger.info(f"  Camera indices length: {len(capture_volume.point_estimates.camera_indices)}")
     logger.info(f"  Saving to path: {config.point_estimates_toml_path}")
 
-
     quality_controller = QualityController(capture_volume, charuco)
 
     # Verify initial state
     assert capture_volume.stage == 0
     rmse_initial = capture_volume.rmse
     assert rmse_initial is not None
-    assert 'overall' in rmse_initial
+    assert "overall" in rmse_initial
     assert all(str(port) in rmse_initial for port in capture_volume.camera_array.cameras.keys())
 
     # Log initial RMSE values
@@ -123,10 +124,10 @@ def test_calibration():
     assert rmse_post_bundle_adj["overall"] <= rmse_initial["overall"]
 
     # Second stage - filter out worse points
-    logger.info(f"Filtering out worse fitting {FILTERED_FRACTION*100:.1f}% of points")
+    logger.info(f"Filtering out worse fitting {FILTERED_FRACTION * 100:.1f}% of points")
     quality_controller.filter_point_estimates(FILTERED_FRACTION)
 
-   # After filtering - log filtered point counts
+    # After filtering - log filtered point counts
     logger.info("Point counts AFTER filtering:")
     logger.info(f"  3D points (obj.shape[0]): {capture_volume.point_estimates.obj.shape[0]}")
     logger.info(f"  2D observations (img.shape[0]): {capture_volume.point_estimates.img.shape[0]}")
@@ -160,6 +161,6 @@ def test_calibration():
     config.save_point_estimates(capture_volume.point_estimates)
     config.save_camera_array(capture_volume.camera_array)
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     test_calibration()

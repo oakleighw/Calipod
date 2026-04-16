@@ -408,7 +408,8 @@ class PlaybackTriangulationWidget(QWidget):
             export_start_frame = 0
             export_end_frame = self.video_framerate * 3
             logger.warning(
-                f"No valid motion trial or session range available. Exporting {export_end_frame - export_start_frame + 1} frames of empty scene."
+                "No valid motion trial or session range available. "
+                f"Exporting {export_end_frame - export_start_frame + 1} frames of empty scene."
             )
             if self.visualizer.motion_trial is None:
                 self.visualizer.motion_trial = MotionTrial()
@@ -665,7 +666,7 @@ class PlaybackTriangulationWidget(QWidget):
             try:
                 proc.stdin.close()
                 proc.terminate()
-            except:
+            except Exception:
                 pass
             if output_path.exists():
                 try:
@@ -689,7 +690,8 @@ class PlaybackTriangulationWidget(QWidget):
             return
 
         logger.info(
-            f"Combined video saved to: {output_path} ({frame_count} frames at {target_fps} fps, base quad {quad_width}x{quad_height})"
+            f"Combined video saved to: {output_path} "
+            f"({frame_count} frames at {target_fps} fps, base quad {quad_width}x{quad_height})"
         )
 
     def export_real_video_compare(self):
@@ -834,22 +836,26 @@ class PlaybackTriangulationWidget(QWidget):
                             "fps_sync_stream_processing", 60
                         )
                         logger.info(
-                            f"Video export framerate set from project config ({project_config_path}) to: {self.video_framerate}"
+                            "Video export framerate set from project config "
+                            f"({project_config_path}) to: {self.video_framerate}"
                         )
                     else:
                         logger.info(
-                            f"Project config.toml not found at {project_config_path}. Using default video framerate: {self.video_framerate}"
+                            f"Project config.toml not found at {project_config_path}. "
+                            f"Using default video framerate: {self.video_framerate}"
                         )
                 except Exception as e:
                     logger.error(
-                        f"Error reading project config.toml for framerate: {e}. Using default video framerate: {self.video_framerate}"
+                        "Error reading project config.toml for framerate: "
+                        f"{e}. Using default video framerate: {self.video_framerate}"
                     )
 
             # Update the FPS label display
             self.video_fps_label.setText(f"Video FPS: {self.video_framerate:.1f}")
         else:
             logger.warning(
-                "Motion trial path not available, cannot load project-specific config.toml for framerate. Using default."
+                "Motion trial path not available, cannot load project-specific "
+                "config.toml for framerate. Using default."
             )
 
         self._session_start_frame = None
@@ -864,15 +870,19 @@ class PlaybackTriangulationWidget(QWidget):
                         self._session_start_frame = int(frame_time_df["sync_index"].min())
                         self._session_end_frame = int(frame_time_df["sync_index"].max())
                         logger.info(
-                            f"Session frame range loaded from {frame_time_history_path}: {self._session_start_frame} to {self._session_end_frame}"
+                            f"Session frame range loaded from {frame_time_history_path}: "
+                            f"{self._session_start_frame} to {self._session_end_frame}"
                         )
                     else:
                         logger.warning(
-                            f"frame_time_history.csv at {frame_time_history_path} is empty or missing 'sync_index' column. Cannot determine full session frame range."
+                            f"frame_time_history.csv at {frame_time_history_path} is empty "
+                            "or missing 'sync_index' column. Cannot determine full "
+                            "session frame range."
                         )
                 else:
                     logger.warning(
-                        f"frame_time_history.csv not found at {frame_time_history_path}. Cannot determine full session frame range."
+                        f"frame_time_history.csv not found at {frame_time_history_path}. "
+                        "Cannot determine full session frame range."
                     )
             except Exception as e:
                 logger.error(f"Error reading frame_time_history.csv: {e}. Cannot determine full session frame range.")
@@ -916,7 +926,9 @@ class PlaybackTriangulationWidget(QWidget):
                 "bgs_gate_distance_sigma": self.filter_manager.bgs_gate_distance_sigma,
                 "bgs_max_distance_threshold": self.filter_manager.bgs_max_distance_threshold,
             }
-            logger.info(f"Loaded _last_computed_params from metadata file with kalman_fps_override={fps_override_from_meta}")
+            logger.info(
+                f"Loaded _last_computed_params from metadata file with kalman_fps_override={fps_override_from_meta}"
+            )
             # Enable the toggle, which will trigger apply the extend logic and update metadata
             self.toggle_filtered_button.setChecked(True)
 
@@ -930,33 +942,34 @@ class PlaybackTriangulationWidget(QWidget):
         use_filtered = self.toggle_filtered_button.isChecked()
         # Compute metrics and get them for reuse in metadata saving
         metrics, metrics_by_source = self.metrics_computer.compute_and_display(self.motion_trial, use_filtered)
-        
+
         # Save metadata after computing metrics; pass pre-computed metrics to avoid redundant recomputation
         if use_filtered and self.motion_trial.predictions_csv:
             try:
                 filtered_path = Path(self.motion_trial.predictions_csv)
                 filtered_df = pd.read_csv(filtered_path, engine="pyarrow") if filtered_path.exists() else None
-                
+
                 # Get fps_override: try from current session, fallback to metadata file to preserve value
-                fps_override = getattr(self, 'kalman_fps_override', None)
+                fps_override = getattr(self, "kalman_fps_override", None)
                 if fps_override is None:
                     try:
-                        metadata_path = filtered_path.with_suffix('.json').with_stem(filtered_path.stem + '_metadata')
+                        metadata_path = filtered_path.with_suffix(".json").with_stem(filtered_path.stem + "_metadata")
                         if metadata_path.exists():
                             import json
-                            with open(metadata_path, 'r') as f:
+
+                            with open(metadata_path, "r") as f:
                                 existing_metadata = json.load(f)
-                                fps_override = existing_metadata.get('kalman_fps_override')
+                                fps_override = existing_metadata.get("kalman_fps_override")
                     except Exception as e:
                         logger.debug(f"Could not load metadata for fps_override: {e}")
-                
+
                 self.filter_manager.save_metadata(
-                    filtered_path, 
-                    self.motion_trial, 
+                    filtered_path,
+                    self.motion_trial,
                     filtered_df=filtered_df,
                     kalman_fps_override=fps_override,
                     precomputed_metrics=metrics,
-                    precomputed_metrics_by_source=metrics_by_source
+                    precomputed_metrics_by_source=metrics_by_source,
                 )
             except Exception as e:
                 logger.warning(f"Failed to save metadata after metrics computation: {e}")
@@ -1008,21 +1021,20 @@ class PlaybackTriangulationWidget(QWidget):
 
                 # Check if we should recompute or load cached filtered CSV
                 force_recompute = True
-                
-                if filtered_path.exists() and hasattr(self, '_last_computed_params') and self._last_computed_params:
+
+                if filtered_path.exists() and hasattr(self, "_last_computed_params") and self._last_computed_params:
                     # Check if current params match the loaded params
                     params_match = all(
-                        current_params.get(key) == self._last_computed_params.get(key)
-                        for key in current_params.keys()
+                        current_params.get(key) == self._last_computed_params.get(key) for key in current_params.keys()
                     )
-                    
+
                     if params_match:
                         force_recompute = False
 
                 if force_recompute:
-                    logger.info("\n" + "="*80)
+                    logger.info("\n" + "=" * 80)
                     logger.info("COMPUTING FILTERED PREDICTIONS")
-                    logger.info("="*80 + "\n")
+                    logger.info("=" * 80 + "\n")
                     # Set spinbox ranges based on actual prediction data
                     pred_df = self.motion_trial.predictions_df
                     if pred_df is not None and not pred_df.empty:
@@ -1059,10 +1071,21 @@ class PlaybackTriangulationWidget(QWidget):
                     self.filter_start_frame = self.filter_start_spin.value()
                     self.filter_end_frame = self.filter_end_spin.value()
                     logger.debug(
-                        f"Captured filter frame range from spinboxes: start={self.filter_start_frame}, end={self.filter_end_frame}"
+                        "Captured filter frame range from spinboxes: "
+                        f"start={self.filter_start_frame}, end={self.filter_end_frame}"
                     )
 
-                    msg = f"Beginning Kalman filter computation (process_noise={self.kalman_process_noise_scale}, meas_noise={self.kalman_measurement_noise_std * 1000:.2f}mm, fps={self.kalman_fps_override or self.video_framerate or 60}, gate={self.gate_distance_sigma:.1f}σ, max_dist={self.max_distance_threshold:.1f}mm, mode={'gap-fill-only' if self.gap_fill_only else 'full-smooth'}, extend_past_pred={'yes' if self.extend_filtered_track else 'no'})"
+                    mode_label = "gap-fill-only" if self.gap_fill_only else "full-smooth"
+                    extend_label = "yes" if self.extend_filtered_track else "no"
+                    fps_value = self.kalman_fps_override or self.video_framerate or 60
+                    msg = (
+                        "Beginning Kalman filter computation ("
+                        f"process_noise={self.kalman_process_noise_scale}, "
+                        f"meas_noise={self.kalman_measurement_noise_std * 1000:.2f}mm, "
+                        f"fps={fps_value}, gate={self.gate_distance_sigma:.1f}σ, "
+                        f"max_dist={self.max_distance_threshold:.1f}mm, "
+                        f"mode={mode_label}, extend_past_pred={extend_label})"
+                    )
                     logger.info(msg)
 
                     # Check if hybrid YOLO+BGS mode is enabled
@@ -1083,11 +1106,14 @@ class PlaybackTriangulationWidget(QWidget):
                         self.toggle_filtered_button.setChecked(False)
                         self.toggle_filtered_button.setEnabled(True)
                         return
-                    
+
                     # Log measurement source distribution
                     if "measurement_source" in filtered_df.columns:
                         src_counts = filtered_df["measurement_source"].value_counts().to_dict()
-                        logger.info("Measurement source distribution: " + ", ".join(f"{src}: {cnt}" for src, cnt in sorted(src_counts.items())))
+                        logger.info(
+                            "Measurement source distribution: "
+                            + ", ".join(f"{src}: {cnt}" for src, cnt in sorted(src_counts.items()))
+                        )
 
                     logger.info(f"Computed {len(filtered_df)} frames")
 
@@ -1098,10 +1124,10 @@ class PlaybackTriangulationWidget(QWidget):
                     # Save metadata immediately after computing to preserve parameters
                     try:
                         self.filter_manager.save_metadata(
-                            filtered_path, 
-                            self.motion_trial, 
+                            filtered_path,
+                            self.motion_trial,
                             filtered_df=filtered_df,
-                            kalman_fps_override=self.kalman_fps_override
+                            kalman_fps_override=self.kalman_fps_override,
                         )
                     except Exception as e:
                         logger.warning(f"Could not save metadata after filter computation: {e}")
@@ -1114,29 +1140,34 @@ class PlaybackTriangulationWidget(QWidget):
                     self.filtered_predictions_path = filtered_path
 
                 else:
-                    logger.info("\n" + "="*80)
+                    logger.info("\n" + "=" * 80)
                     logger.info("LOADING CACHED FILTERED PREDICTIONS")
-                    logger.info("="*80 + "\n")
-                    
+                    logger.info("=" * 80 + "\n")
+
                     # Restore UI spinbox values to match cached parameters
                     if self._last_computed_params:
-                        cached_fps = self._last_computed_params.get('kalman_fps_override')
+                        cached_fps = self._last_computed_params.get("kalman_fps_override")
                         if cached_fps is None:
                             self.fps_spin.setValue(0)
                         else:
                             self.fps_spin.setValue(int(cached_fps))
-                        self.process_noise_spin.setValue(self._last_computed_params.get('kalman_process_noise_scale', 1.0))
-                        meas_noise_mm = self._last_computed_params.get('kalman_measurement_noise_std', 0.01) * 1000.0
+                        self.process_noise_spin.setValue(
+                            self._last_computed_params.get("kalman_process_noise_scale", 1.0)
+                        )
+                        meas_noise_mm = self._last_computed_params.get("kalman_measurement_noise_std", 0.01) * 1000.0
                         self.meas_noise_spin.setValue(int(meas_noise_mm))
-                    
+
                     self.motion_trial.predictions_csv = filtered_path
                     self.motion_trial.predictions_df = pd.read_csv(filtered_path, engine="pyarrow")
                     self.filtered_predictions_path = filtered_path
-                    
+
                     # Log measurement source distribution
                     if "measurement_source" in self.motion_trial.predictions_df.columns:
                         src_counts = self.motion_trial.predictions_df["measurement_source"].value_counts().to_dict()
-                        logger.info("Measurement source distribution (cached): " + ", ".join(f"{src}: {cnt}" for src, cnt in sorted(src_counts.items())))
+                        logger.info(
+                            "Measurement source distribution (cached): "
+                            + ", ".join(f"{src}: {cnt}" for src, cnt in sorted(src_counts.items()))
+                        )
 
                 # Refresh display with filtered predictions
                 if hasattr(self.visualizer, "update_motion_trial"):
@@ -1220,7 +1251,8 @@ class PlaybackTriangulationWidget(QWidget):
             pred_max = frames[-1] if frames else 0
             if ground_truth_end > pred_max:
                 logger.info(
-                    f"Extending filter from prediction end frame {pred_max} to ground truth end frame {ground_truth_end}"
+                    f"Extending filter from prediction end frame {pred_max} "
+                    f"to ground truth end frame {ground_truth_end}"
                 )
                 frames = list(range(frames[0], ground_truth_end + 1))
             else:
@@ -1242,10 +1274,8 @@ class PlaybackTriangulationWidget(QWidget):
             frames = [f for f in frames if f >= start_frame]
         if end_frame > 0:
             frames = [f for f in frames if f <= end_frame]
-        
-        logger.info(
-            f"After applying frame range filters (start={start_frame}, end={end_frame}): {len(frames)} frames"
-        )
+
+        logger.info(f"After applying frame range filters (start={start_frame}, end={end_frame}): {len(frames)} frames")
 
         fps_used = self.kalman_fps_override or self.video_framerate or 60
         base_dt = 1.0 / fps_used
@@ -1319,7 +1349,8 @@ class PlaybackTriangulationWidget(QWidget):
 
             updated = False
 
-            # Hybrid measurement selection: pick best available measurement (YOLO or BGS) based on distance to prediction
+            # Hybrid measurement selection: pick best available measurement
+            # (YOLO or BGS) based on distance to prediction.
             z = None
             z_source = None
 
@@ -1399,9 +1430,11 @@ class PlaybackTriangulationWidget(QWidget):
                         # For BGS-only measurements (extended frames), use prediction instead of resetting
                         if consecutive_rejections > 5:
                             if z_source == "BGS" and frame not in measurements:
-                                # For extended BGS frames, just continue with prediction instead of resetting to noisy measurement
+                                # For extended BGS frames, continue with prediction
+                                # instead of resetting to noisy measurement.
                                 logger.debug(
-                                    f"Frame {frame}: BGS measurement rejected too many times; using filter prediction instead of resetting"
+                                    f"Frame {frame}: BGS measurement rejected too many times; "
+                                    "using filter prediction instead of resetting"
                                 )
                                 consecutive_rejections = 0
                             else:
@@ -1486,11 +1519,12 @@ class PlaybackTriangulationWidget(QWidget):
             return
 
         try:
-            import matplotlib.pyplot as plt
-            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-            from matplotlib.figure import Figure
-            from mpl_toolkits.mplot3d import Axes3D
-            from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+            import importlib.util
+
+            if importlib.util.find_spec("matplotlib") is None:
+                raise ImportError("matplotlib is not installed")
+            if importlib.util.find_spec("mpl_toolkits.mplot3d.art3d") is None:
+                raise ImportError("mpl_toolkits.mplot3d is not installed")
         except ImportError:
             logger.error("Matplotlib not available; cannot generate graph.")
             return
@@ -1694,7 +1728,9 @@ class TriangulationVisualizer:
             )
 
             logger.info(
-                f"has_fly_tracker: {has_fly_tracker}, tracker: {self.motion_trial.tracker if hasattr(self.motion_trial, 'tracker') else 'None'}, point_ids: {point_ids}, num_points: {len(xyz_coords)}"
+                f"has_fly_tracker: {has_fly_tracker}, tracker: "
+                f"{self.motion_trial.tracker if hasattr(self.motion_trial, 'tracker') else 'None'}, "
+                f"point_ids: {point_ids}, num_points: {len(xyz_coords)}"
             )
 
             if has_fly_tracker and len(xyz_coords) > 0:
@@ -1820,7 +1856,8 @@ class TriangulationVisualizer:
                                 logger.info(f"Created hemisphere mesh for fruit with radius={radius_3d:.4f}")
                         else:
                             logger.warning(
-                                f"Could not find all 4 corners for point_id={point_id_int}, found {len(corner_xyzs)} corners"
+                                f"Could not find all 4 corners for point_id={point_id_int}, "
+                                f"found {len(corner_xyzs)} corners"
                             )
                             # Fall back to showing just the center point
 
@@ -1989,7 +2026,8 @@ class TriangulationVisualizer:
                             self.pred_overlay.setVisible(True)
                             self.pred_overlay.setData(pos=pred_xyz, color=(1, 0.5, 0, 1))
                             logger.info(
-                                f"Plotted prediction fly overlay at sync_index={sync_index}: {pred_xyz.shape[0]} point(s)"
+                                "Plotted prediction fly overlay at sync_index="
+                                f"{sync_index}: {pred_xyz.shape[0]} point(s)"
                             )
                         else:
                             self.pred_overlay.setVisible(False)
@@ -2031,7 +2069,9 @@ class TriangulationVisualizer:
                             current_height, current_width = cv2_frame.shape[:2]
                             if current_width != self.locked_export_width or current_height != self.locked_export_height:
                                 logger.debug(
-                                    f"Frame {sync_index} size mismatch: {current_width}x{current_height}, expected {self.locked_export_width}x{self.locked_export_height}. Resizing..."
+                                    f"Frame {sync_index} size mismatch: "
+                                    f"{current_width}x{current_height}, expected "
+                                    f"{self.locked_export_width}x{self.locked_export_height}. Resizing..."
                                 )
                                 import cv2
 
@@ -2039,7 +2079,8 @@ class TriangulationVisualizer:
 
                         self.collected_frames.append(cv2_frame)
                         logger.debug(
-                            f"Successfully collected frame {sync_index} to memory. Total frames: {len(self.collected_frames)}"
+                            f"Successfully collected frame {sync_index} to memory. "
+                            f"Total frames: {len(self.collected_frames)}"
                         )
                     else:
                         logger.warning(

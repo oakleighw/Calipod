@@ -40,7 +40,8 @@ from calipod.gui.utils.styles import (
 logger = calipod_logger.get(__name__)
 
 
-# Arena sim widget - this is a widget that simulates the camera arrangement to check for frustum overlap (triangulatable) and ensures the arena is within this overlap.
+# Arena sim widget - this widget simulates camera arrangement, checks for
+# frustum overlap (triangulatable), and ensures the arena sits within overlap.
 class ArenaSimWidget(QWidget):
     def __init__(self, controller: Controller):
         super(ArenaSimWidget, self).__init__()
@@ -61,7 +62,6 @@ class ArenaSimWidget(QWidget):
         self.place_widgets()
         self.load_arena_config()
         self.connect_widgets()
-
 
     def place_widgets(self):
         self.setLayout(QHBoxLayout())
@@ -218,7 +218,8 @@ class ArenaSimWidget(QWidget):
 
         self.left_vbox.addWidget(pixel_group)
 
-    # Camera placement controls - sliders to adjust camera position and orientation within the visualizer, with the option to sync these to the extrinsic calibration values for each camera once calibrated.
+    # Camera placement controls adjust camera pose and can optionally sync to
+    # per-camera extrinsic calibration values once calibrated.
     def cam_controls_widget(self):
         controls_group, controls_layout = create_styled_groupbox("Camera Placement Controls")
         controls_row = QHBoxLayout()
@@ -227,7 +228,8 @@ class ArenaSimWidget(QWidget):
         self.camera_position_spinboxes = {}
         self.camera_rotation_spinboxes = {}
 
-        # For each camera, create control sliders to adjust position and orientation, displayed left to right with scrollbar
+        # For each camera, create position/orientation controls displayed
+        # left-to-right with horizontal scrolling.
         for i in range(self.cameras):
             position_spinboxes = {}
             rotation_spinboxes = {}

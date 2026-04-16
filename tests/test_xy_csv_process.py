@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
+from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
 
 # specify a source directory (with recordings)

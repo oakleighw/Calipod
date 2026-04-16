@@ -321,7 +321,7 @@ class FrameCompositor:
                 cap.release()
             try:
                 proc.terminate()
-            except:
+            except Exception:
                 pass
 
     @staticmethod
