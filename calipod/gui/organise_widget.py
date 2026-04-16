@@ -4,7 +4,7 @@ import html
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
@@ -262,8 +262,15 @@ class OrganisationWidget(QWidget):
         project_dir_path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         project_dir_path_label.setWordWrap(True)
         project_dir_path_label.setStyleSheet("color: #444;")
+        self.refresh_file_tree_btn = QPushButton("Refresh", self)
+        self.refresh_file_tree_btn.clicked.connect(self.refresh_project_file_tree)
 
-        file_tree_layout.addWidget(project_dir_label)
+        project_dir_header_layout = QHBoxLayout()
+        project_dir_header_layout.addWidget(project_dir_label)
+        project_dir_header_layout.addStretch(1)
+        project_dir_header_layout.addWidget(self.refresh_file_tree_btn)
+
+        file_tree_layout.addLayout(project_dir_header_layout)
         file_tree_layout.addWidget(project_dir_path_label)
         self.project_file_tree, self.project_file_tree_model = create_project_file_tree_view(
             root_path=self.controller.workspace,
@@ -271,3 +278,8 @@ class OrganisationWidget(QWidget):
         )
         file_tree_layout.addWidget(self.project_file_tree)
         self.bottom_vbox.addWidget(file_tree_group)
+
+    def refresh_project_file_tree(self):
+        root_str = str(self.controller.workspace)
+        self.project_file_tree_model.setRootPath(root_str)
+        self.project_file_tree.setRootIndex(self.project_file_tree_model.index(root_str))
