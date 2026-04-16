@@ -78,7 +78,15 @@ class OrganisationWidget(QWidget):
                 url_content_layout,
                 camera_index,
                 self.calibration_path_rows,
-                "C:/data/project",  # set this to current calibration paths if found in project config.
+                "C:/data/project",  # set this to current intrinsic calibration paths if found in project config.
+                context= "Intrinsic"
+            )
+            self._add_camera_path_row(
+                url_content_layout,
+                camera_index,
+                self.calibration_path_rows,
+                "C:/data/project",  # set this to current extrinsiccalibration paths if found in project config.
+                context="Extrinsic",
             )
 
         # Action video "recordings" URLS
@@ -109,14 +117,18 @@ class OrganisationWidget(QWidget):
 
         self.top_vbox.addWidget(url_group)
 
-    def _add_camera_path_row(self, layout, camera_index: int, path_rows: list, initial_path: str):
+    def _add_camera_path_row(self, layout, camera_index: int, path_rows: list, initial_path: str, context: str = None):
         camera_data = self.controller.camera_array.cameras.get(camera_index)
         camera_label_color = resolve_camera_title_color(
             camera_index=camera_index,
             camera_count=self.controller.get_camera_count(),
             camera_data=camera_data,
         )
-        camera_label = create_subsubsection_title(f"Camera {camera_index}", color=camera_label_color)
+        if context:
+            camera_label = camera_label = create_subsubsection_title(f"Camera {camera_index} {context}", color=camera_label_color)
+        else:
+            camera_label = create_subsubsection_title(f"Camera {camera_index}", color=camera_label_color)
+
         camera_path_row = create_path_url_entry(
             initial_path=initial_path,
             parent=self,
