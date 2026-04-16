@@ -75,8 +75,8 @@ class CustomSlider(QSlider):
 
 
 # icons from https://iconoir.com
-CAM_ROTATE_RIGHT_PATH = Path(__root__, "caliscope", "gui", "icons", "rotate-camera-right.svg")
-CAM_ROTATE_LEFT_PATH = Path(__root__, "caliscope", "gui", "icons", "rotate-camera-left.svg")
+CAM_ROTATE_RIGHT_PATH = Path(__root__, "calipod", "gui", "icons", "rotate-camera-right.svg")
+CAM_ROTATE_LEFT_PATH = Path(__root__, "calipod", "gui", "icons", "rotate-camera-left.svg")
 
 
 class IntrinsicCalibrationWidget(QWidget):
@@ -87,6 +87,8 @@ class IntrinsicCalibrationWidget(QWidget):
 
         self.total_frames = self.controller.get_intrinsic_stream_frame_count(self.port)
         self.frame_image = QLabel(self)
+        self.frame_image.setScaledContents(True)
+        self.frame_image.setMinimumSize(320, 240)
         self.frame_index_label = QLabel(self)
         self.play_button = QPushButton("", self)
         self.play_icon = self.style().standardIcon(QStyle.SP_MediaPlay)

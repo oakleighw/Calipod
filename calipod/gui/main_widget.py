@@ -55,7 +55,7 @@ class MainWindow(QMainWindow):
         self.app_settings = rtoml.load(__settings_path__)
 
         self.setWindowTitle("Calipod")
-        self.setWindowIcon(QIcon(str(Path(__root__, "caliscope/gui/icons/box3d-center.svg"))))
+        self.setWindowIcon(QIcon(str(Path(__root__, "calipod/gui/icons/box3d-center.svg"))))
         self.setMinimumSize(500, 500)
         self.central_tab = QWidget(self)
         self.setCentralWidget(self.central_tab)
