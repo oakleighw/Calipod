@@ -1,16 +1,19 @@
 """This widget will allow user to link videos/annotations to the project if not already placed in the project folder. Aids transparent project management and organisation."""
 
+import html
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 
+from calipod.gui.utils.collapsible_container import create_collapsible_container
 from calipod.gui.utils.file_tree import create_project_file_tree_view
 from calipod.gui.utils.path_url_entry import create_path_url_entry
 from calipod.gui.utils.styles import (
     create_styled_groupbox,
-    create_subsection_title,
     create_subsubsection_title,
     resolve_camera_title_color,
 )
@@ -70,55 +73,78 @@ class OrganisationWidget(QWidget):
         ### SUBSECTIONS ###
 
         # Calibration video URLS
-        self.calibration_video_url_label = create_subsection_title("Calibration Video URLs", color="black")
-        url_content_layout.addWidget(self.calibration_video_url_label)
+        calibration_layout = self._add_collapsible_section(
+            parent_layout=url_content_layout,
+            title="Calibration Video URLs",
+            expanded=False,
+        )
         self.calibration_path_rows = []
         for camera_index in range(1, camera_count + 1):
             self._add_camera_path_row(
-                url_content_layout,
+                calibration_layout,
                 camera_index,
                 self.calibration_path_rows,
-                "C:/data/project",  # set this to current intrinsic calibration paths if found in project config.
+                self._path_display_for_camera(
+                    self.controller.workspace_guide.intrinsic_dir,
+                    camera_index,
+                    fallback_name=f"port_{camera_index}.mp4",
+                ),
                 context= "Intrinsic"
             )
             self._add_camera_path_row(
-                url_content_layout,
+                calibration_layout,
                 camera_index,
                 self.calibration_path_rows,
-                "C:/data/project",  # set this to current extrinsiccalibration paths if found in project config.
+                self._path_display_for_camera(
+                    self.controller.workspace_guide.extrinsic_dir,
+                    camera_index,
+                    fallback_name=f"port_{camera_index}.mp4",
+                ),
                 context="Extrinsic",
             )
 
         # Action video "recordings" URLS
-        self.action_video_url_label = create_subsection_title("Action Video URLs", color="black")
-        url_content_layout.addWidget(self.action_video_url_label)
-        self.action_recordings_path_rows = []
-        for camera_index in range(1, camera_count + 1):
-            self._add_camera_path_row(
-                url_content_layout,
-                camera_index,
-                self.action_recordings_path_rows,
-                "C:/data/project",  # set this to current behaviour recordings paths if found in project config.
+        action_layout = self._add_collapsible_section(
+            parent_layout=url_content_layout,
+            title="Action Video URLs",
+            expanded=False,
+        )
+        self.action_recordings_path_rows = {}
+        recording_dirs = self._recording_directories()
+        if not recording_dirs:
+            recording_dirs = [self.controller.workspace_guide.recording_dir / "recording_1"]
+
+        for index, recording_dir in enumerate(recording_dirs):
+            self._add_recording_section(
+                parent_layout=action_layout,
+                recording_dir=recording_dir,
+                camera_count=camera_count,
+                expanded=False,
             )
 
         # Annotation URLS
-        self.annotation_url_label = create_subsection_title("Annotation URLs", color="black")
-        url_content_layout.addWidget(self.annotation_url_label)
+        annotation_layout = self._add_collapsible_section(
+            parent_layout=url_content_layout,
+            title="Annotation URLs",
+            expanded=False,
+        )
         self.annotation_path_rows = []
         for camera_index in range(1, camera_count + 1):
             self._add_camera_path_row(
-                url_content_layout,
+                annotation_layout,
                 camera_index,
                 self.annotation_path_rows,
-                "C:/data/project",  # set this to current annotation paths if found in project config.,
-                context = "Ground Truth"
+                self._annotation_path_display(camera_index, is_prediction=False),
+                context="Ground Truth",
+                select_directory=True,
             )
             self._add_camera_path_row(
-                url_content_layout,
+                annotation_layout,
                 camera_index,
                 self.annotation_path_rows,
-                "C:/data/project",  # set this to current annotation paths if found in project config.,
-                context = "Ext. Predicted Detections"
+                self._annotation_path_display(camera_index, is_prediction=True),
+                context="Ext. Predicted Detections",
+                select_directory=True,
             )
 
 
@@ -126,7 +152,15 @@ class OrganisationWidget(QWidget):
 
         self.top_vbox.addWidget(url_group)
 
-    def _add_camera_path_row(self, layout, camera_index: int, path_rows: list, initial_path: str, context: str = None):
+    def _add_camera_path_row(
+        self,
+        layout,
+        camera_index: int,
+        path_rows: list,
+        initial_path: str,
+        context: str = None,
+        select_directory: bool = False,
+    ):
         camera_data = self.controller.camera_array.cameras.get(camera_index)
         camera_label_color = resolve_camera_title_color(
             camera_index=camera_index,
@@ -134,7 +168,10 @@ class OrganisationWidget(QWidget):
             camera_data=camera_data,
         )
         if context:
-            camera_label = camera_label = create_subsubsection_title(f"Camera {camera_index} {context}", color=camera_label_color)
+            camera_label = create_subsubsection_title(
+                f'<span style="color: {camera_label_color};">Camera {camera_index}</span> '
+                f'<span style="color: black;">{html.escape(context)}</span>'
+            )
         else:
             camera_label = create_subsubsection_title(f"Camera {camera_index}", color=camera_label_color)
 
@@ -142,11 +179,79 @@ class OrganisationWidget(QWidget):
             initial_path=initial_path,
             parent=self,
             dialog_caption="Select Data Folder",
-            select_directory=False,
+            select_directory=select_directory,
         )
         path_rows.append(camera_path_row)
         layout.addWidget(camera_label)
         layout.addWidget(camera_path_row.container)
+
+    def _path_display_for_camera(self, root_dir: Path, camera_index: int, fallback_name: str) -> str:
+        candidate = root_dir / fallback_name
+        if candidate.exists():
+            return str(candidate)
+        return f"{candidate} (not uploaded/found yet)"
+
+    def _recording_directories(self) -> list[Path]:
+        recording_root = self.controller.workspace_guide.recording_dir
+        if not recording_root.exists():
+            return []
+        return sorted([p for p in recording_root.iterdir() if p.is_dir()])
+
+    def _recording_path_display_for_camera(self, recording_dir: Path, camera_index: int) -> str:
+        return self._path_display_for_camera(
+            recording_dir,
+            camera_index,
+            fallback_name=f"port_{camera_index}.mp4",
+        )
+
+    def _add_recording_section(self, parent_layout, recording_dir: Path, camera_count: int, expanded: bool):
+        content_layout = create_collapsible_container(
+            parent=self,
+            parent_layout=parent_layout,
+            title=recording_dir.name,
+            expanded=expanded,
+            font_weight=600,
+            content_left_indent=12,
+        )
+
+        rows_for_recording = []
+        for camera_index in range(1, camera_count + 1):
+            self._add_camera_path_row(
+                content_layout,
+                camera_index,
+                rows_for_recording,
+                self._recording_path_display_for_camera(recording_dir, camera_index),
+            )
+        self.action_recordings_path_rows[recording_dir.name] = rows_for_recording
+
+    def _add_collapsible_section(self, parent_layout, title: str, expanded: bool = False):
+        return create_collapsible_container(
+            parent=self,
+            parent_layout=parent_layout,
+            title=title,
+            expanded=expanded,
+            font_weight=700,
+            content_left_indent=8,
+        )
+
+    def _annotation_path_display(self, camera_index: int, is_prediction: bool) -> str:
+        base_dir = self.controller.workspace_guide.predictions_dir if is_prediction else self.controller.workspace_guide.ground_truth_dir
+        camera_dir = base_dir / f"port_{camera_index}"
+        existing_file = self._first_file_in_tree(camera_dir)
+        if existing_file is not None:
+            return str(existing_file.parent)
+
+        sample_dir = camera_dir / "labels" / "train"
+        return f"{sample_dir} (not uploaded/found yet)"
+
+    def _first_file_in_tree(self, root_dir: Path) -> Path | None:
+        if not root_dir.exists():
+            return None
+
+        for file_path in sorted(root_dir.rglob("*")):
+            if file_path.is_file():
+                return file_path
+        return None
 
     # This section will have a file tree of the project folder,
     # with the option to add files to the project folder by dragging and dropping.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -52,8 +53,17 @@ def create_path_url_entry(
     browse_button = QPushButton(browse_button_text, parent)
     browse_button.setAutoDefault(False)
 
+    def _browse_start_path() -> str:
+        text = line_edit.text().strip()
+        if " (" in text:
+            text = text.split(" (", 1)[0].strip()
+        return text
+
     def on_browse_clicked() -> None:
-        start_path = line_edit.text().strip()
+        start_path = _browse_start_path()
+
+        if start_path:
+            start_path = str(Path(start_path))
 
         if select_directory:
             selected_path = QFileDialog.getExistingDirectory(
