@@ -30,7 +30,8 @@ def test_xy_point_creation():
     post_processor = PostProcessor(
         camera_array=camera_array,
         recording_path=recording_path,
-        annotations_path=copy_session_path,
+        ground_truth_path=copy_session_path,
+        predictions_path=copy_session_path,
         tracker_enum=tracker_enum,
     )
 

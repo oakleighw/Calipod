@@ -36,10 +36,15 @@ class PostProcessor:
         self,
         camera_array: CameraArray,
         recording_path: Path,
-        ground_truth_path: Path,
-        predictions_path: Path,
-        tracker_enum: TrackerEnum,
+        ground_truth_path: Path = None,
+        predictions_path: Path = None,
+        tracker_enum: TrackerEnum = TrackerEnum.HAND,
+        annotations_path: Path = None,
     ):
+        # Backward compatibility: older callers passed `annotations_path`.
+        if ground_truth_path is None and annotations_path is not None:
+            ground_truth_path = annotations_path
+
         self.camera_array = camera_array
         self.recording_path = recording_path
         self.ground_truth_path = ground_truth_path
@@ -54,7 +59,7 @@ class PostProcessor:
         logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
         logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
         logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
-        if self.tracker_name == "FLY":
+        if self.tracker_name == "FLY" and self.ground_truth_path is not None:
             # Instantiate FlyTracker WITHOUT arguments
             # NOW SET THE PROPERTIES
 
