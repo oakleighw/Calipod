@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 
-from PySide6.QtCore import QFileSystemWatcher, Qt
+from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QSpinBox, QTextBrowser, QWidget
 
 from calipod.core import logger as calipod_logger
@@ -19,6 +19,9 @@ class WorkspaceSummaryWidget(QWidget):
 
         self.controller = controller
         self.watcher = QFileSystemWatcher()
+        self.annotation_refresh_timer = QTimer(self)
+        self.annotation_refresh_timer.setInterval(500)
+        self.annotation_refresh_timer.timeout.connect(self.update_status)
 
         # self.directory = QLabel(str(self.controller.workspace))
         self.open_workspace_folder_btn = QPushButton("Open Workspace Folder", self)
@@ -84,3 +87,8 @@ class WorkspaceSummaryWidget(QWidget):
 
     def update_status(self):
         self.status_HTML.setHtml(self.controller.workspace_guide.get_html_summary())
+        if self.controller.workspace_guide.annotation_scan_in_progress():
+            if not self.annotation_refresh_timer.isActive():
+                self.annotation_refresh_timer.start()
+        elif self.annotation_refresh_timer.isActive():
+            self.annotation_refresh_timer.stop()

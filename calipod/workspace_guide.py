@@ -1,4 +1,5 @@
 from pathlib import Path
+from threading import Lock, Thread
 
 from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
@@ -18,6 +19,9 @@ class WorkspaceGuide:
         self.ground_truth_dir = Path(workspace_dir, "annotations", "ground_truth")
         self.predictions_dir = Path(workspace_dir, "annotations", "predictions")
         self.arena_sim_dir = Path(workspace_dir, "arena_sim")
+        self._annotation_text_cache = None
+        self._annotation_scan_in_progress = False
+        self._annotation_lock = Lock()
 
     def get_ports_in_dir(self, directory: Path) -> list:
         """
@@ -228,6 +232,41 @@ class WorkspaceGuide:
         
         return "\n".join(text_parts)
 
+    def _annotation_scan_worker(self):
+        try:
+            annotation_text = self.valid_annotation_dir_text()
+        except Exception as e:
+            logger.debug(f"Error while scanning annotations in background: {e}")
+            annotation_text = "NONE"
+
+        with self._annotation_lock:
+            self._annotation_text_cache = annotation_text
+            self._annotation_scan_in_progress = False
+
+    def _start_annotation_scan_if_needed(self):
+        with self._annotation_lock:
+            if self._annotation_scan_in_progress or self._annotation_text_cache is not None:
+                return
+            self._annotation_scan_in_progress = True
+
+        worker = Thread(target=self._annotation_scan_worker, daemon=True)
+        worker.start()
+
+    def get_cached_annotation_dir_text(self) -> str:
+        """
+        Return cached annotation summary if available.
+        If no cached summary exists yet, start a background scan and return a loading message.
+        """
+        self._start_annotation_scan_if_needed()
+        with self._annotation_lock:
+            if self._annotation_text_cache is not None:
+                return self._annotation_text_cache
+        return "Checking for annotations..."
+
+    def annotation_scan_in_progress(self) -> bool:
+        with self._annotation_lock:
+            return self._annotation_scan_in_progress
+
     def get_html_summary(self) -> str:
         """
         Provide granular summary of where the workspace is in the calibration process
@@ -239,7 +278,7 @@ class WorkspaceGuide:
         self.camera_count = config.get_camera_count()
 
         # Get annotation text and convert newlines to <br> for HTML display
-        anno_text = self.valid_annotation_dir_text()
+        anno_text = self.get_cached_annotation_dir_text()
         anno_html = anno_text.replace("\n", "<br>")
 
         html = f"""
