@@ -110,8 +110,17 @@ class OrganisationWidget(QWidget):
                 url_content_layout,
                 camera_index,
                 self.annotation_path_rows,
-                "C:/data/project",  # set this to current annotation paths if found in project config.
+                "C:/data/project",  # set this to current annotation paths if found in project config.,
+                context = "Ground Truth"
             )
+            self._add_camera_path_row(
+                url_content_layout,
+                camera_index,
+                self.annotation_path_rows,
+                "C:/data/project",  # set this to current annotation paths if found in project config.,
+                context = "Ext. Predicted Detections"
+            )
+
 
         url_content_layout.addStretch(1)
 
