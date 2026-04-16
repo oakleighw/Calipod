@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +32,7 @@ def create_path_url_entry(
     browse_button_text: str = "Browse...",
     select_directory: bool = True,
     file_filter: str = "All Files (*)",
+    on_path_selected: Callable[[str], str | None] | None = None,
 ) -> PathUrlEntryWidgets:
     """Create a styled path entry row with a browse button.
 
@@ -73,6 +75,9 @@ def create_path_url_entry(
                 start_path,
                 file_filter,
             )
+
+        if selected_path and on_path_selected is not None:
+            selected_path = on_path_selected(selected_path)
 
         if selected_path:
             line_edit.setText(selected_path)

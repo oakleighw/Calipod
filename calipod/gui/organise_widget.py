@@ -5,11 +5,19 @@ import html
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
-from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.collapsible_container import create_collapsible_container
+from calipod.gui.utils.external_path_linker import link_external_path_selection
 from calipod.gui.utils.file_tree import create_project_file_tree_view
 from calipod.gui.utils.path_url_entry import create_path_url_entry
 from calipod.gui.utils.styles import (
@@ -17,9 +25,6 @@ from calipod.gui.utils.styles import (
     create_subsubsection_title,
     resolve_camera_title_color,
 )
-
-logger = calipod_logger.get(__name__)
-
 
 class OrganisationWidget(QWidget):
     def __init__(self, controller: Controller):
@@ -92,6 +97,8 @@ class OrganisationWidget(QWidget):
                     fallback_name=f"port_{camera_index}.mp4",
                 ),
                 context="Intrinsic",
+                link_destination=self.controller.workspace_guide.intrinsic_dir / f"port_{camera_index}.mp4",
+                link_label=f"Camera {camera_index} intrinsic calibration video",
             )
             self._add_camera_path_row(
                 calibration_layout,
@@ -103,6 +110,8 @@ class OrganisationWidget(QWidget):
                     fallback_name=f"port_{camera_index}.mp4",
                 ),
                 context="Extrinsic",
+                link_destination=self.controller.workspace_guide.extrinsic_dir / f"port_{camera_index}.mp4",
+                link_label=f"Camera {camera_index} extrinsic calibration video",
             )
 
         # Action video "recordings" URLS
@@ -139,6 +148,8 @@ class OrganisationWidget(QWidget):
                 self._annotation_path_display(camera_index, is_prediction=False),
                 context="Ground Truth",
                 select_directory=True,
+                link_destination=self.controller.workspace_guide.ground_truth_dir / f"port_{camera_index}",
+                link_label=f"Camera {camera_index} ground truth annotations directory",
             )
             self._add_camera_path_row(
                 annotation_layout,
@@ -147,6 +158,8 @@ class OrganisationWidget(QWidget):
                 self._annotation_path_display(camera_index, is_prediction=True),
                 context="Ext. Predicted Detections",
                 select_directory=True,
+                link_destination=self.controller.workspace_guide.predictions_dir / f"port_{camera_index}",
+                link_label=f"Camera {camera_index} predicted detections directory",
             )
 
         url_content_layout.addStretch(1)
@@ -161,6 +174,8 @@ class OrganisationWidget(QWidget):
         initial_path: str,
         context: str = None,
         select_directory: bool = False,
+        link_destination: Path | None = None,
+        link_label: str | None = None,
     ):
         camera_data = self.controller.camera_array.cameras.get(camera_index)
         camera_label_color = resolve_camera_title_color(
@@ -181,6 +196,17 @@ class OrganisationWidget(QWidget):
             parent=self,
             dialog_caption="Select Data Folder",
             select_directory=select_directory,
+            on_path_selected=(
+                lambda selected_path, destination=link_destination, is_dir=select_directory, label=link_label: link_external_path_selection(
+                    parent=self,
+                    selected_path=selected_path,
+                    link_destination=destination,
+                    workspace_root=Path(self.controller.workspace),
+                    expect_directory=is_dir,
+                    target_label=label,
+                    on_link_created=self.refresh_project_file_tree,
+                )
+            ),
         )
         path_rows.append(camera_path_row)
         layout.addWidget(camera_label)
@@ -222,6 +248,8 @@ class OrganisationWidget(QWidget):
                 camera_index,
                 rows_for_recording,
                 self._recording_path_display_for_camera(recording_dir, camera_index),
+                link_destination=recording_dir / f"port_{camera_index}.mp4",
+                link_label=f"{recording_dir.name} camera {camera_index} action recording video",
             )
         self.action_recordings_path_rows[recording_dir.name] = rows_for_recording
 
