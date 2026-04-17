@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
@@ -15,6 +15,11 @@ logger = calipod_logger.get(__name__)
 CONNECTOR_IMAGE_PATHS = {
     "Hirose 6 Pin": Path(__file__).parent / "icons" / "connectors" / "6_pin_hirose_female.png",
     "Hirose 4 Pin": Path(__file__).parent / "icons" / "connectors" / "4_pin_hirose_female.png",
+}
+
+CONNECTOR_PIN_COUNTS = {
+    "Hirose 6 Pin": 6,
+    "Hirose 4 Pin": 4,
 }
 
 
@@ -56,18 +61,31 @@ class CircuitManagementWidget(QWidget):
         self.connector_preview = QLabel()
         self.connector_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.connector_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.connector_preview.setMinimumHeight(220)
 
         selector_row = QHBoxLayout()
         selector_row.addWidget(self.wire_camera_selector)
         selector_row.addWidget(self.connector_selector)
 
+        self.connector_table_widget = QWidget()
+        self.connector_table_layout = QGridLayout()
+        self.connector_table_widget.setLayout(self.connector_table_layout)
+        self._build_connector_table()
+
         wire_label_layout.addLayout(selector_row)
-        wire_label_layout.addWidget(self.connector_preview)
+        content_row = QHBoxLayout()
+        content_row.setAlignment(Qt.AlignmentFlag.AlignTop)
+        content_row.addWidget(self.connector_table_widget, stretch=3)
+        content_row.addWidget(self.connector_preview, stretch=2)
+        wire_label_layout.addLayout(content_row)
         self._update_connector_preview(self.connector_selector.currentIndex())
         self.top_vbox.addWidget(wire_label_group)
 
     def _update_connector_preview(self, _index: int):
         connector_name = self.connector_selector.currentData()
+        row_count = CONNECTOR_PIN_COUNTS.get(connector_name, 0)
+        self._set_connector_table_visible_rows(row_count)
+
         image_path = CONNECTOR_IMAGE_PATHS.get(connector_name)
         if image_path is None or not image_path.exists():
             self.connector_preview.setText("Connector image not found")
@@ -89,6 +107,33 @@ class CircuitManagementWidget(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
+
+    def _build_connector_table(self):
+        self.connector_row_widgets: list[tuple[QLabel, QComboBox, QComboBox]] = []
+        headers = ("Connector Port", "Wire Type", "Colour")
+        for col, header in enumerate(headers):
+            header_label = QLabel(header)
+            self.connector_table_layout.addWidget(header_label, 0, col)
+
+        for row in range(1, 7):
+            port_label = QLabel(str(row))
+            wire_type_combo = QComboBox()
+            colour_combo = QComboBox()
+
+            self.connector_table_layout.addWidget(port_label, row, 0)
+            self.connector_table_layout.addWidget(wire_type_combo, row, 1)
+            self.connector_table_layout.addWidget(colour_combo, row, 2)
+
+            self.connector_row_widgets.append((port_label, wire_type_combo, colour_combo))
+
+        for col in range(3):
+            self.connector_table_layout.setColumnStretch(col, 1)
+
+    def _set_connector_table_visible_rows(self, row_count: int):
+        for row_index, row_widgets in enumerate(self.connector_row_widgets, start=1):
+            is_visible = row_index <= row_count
+            for widget in row_widgets:
+                widget.setVisible(is_visible)
 
     def triggerbox_test_widget(self):
         triggerbox_test_group, triggerbox_test_layout = create_styled_groupbox("Trigger Box Testing")
