@@ -1,14 +1,21 @@
 """This widget acts as a guide for creating a camera trigger circuit and wiring guidelines"""
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QComboBox, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.styles import create_styled_groupbox, resolve_camera_title_color
 
 logger = calipod_logger.get(__name__)
+
+CONNECTOR_IMAGE_PATHS = {
+    "Hirose 6 Pin": Path(__file__).parent / "icons" / "connectors" / "6_pin_hirose_female.png",
+    "Hirose 4 Pin": Path(__file__).parent / "icons" / "connectors" / "4_pin_hirose_female.png",
+}
 
 
 class CircuitManagementWidget(QWidget):
@@ -40,8 +47,48 @@ class CircuitManagementWidget(QWidget):
             self.wire_camera_selector.addItem(f"Camera {port}", userData=port)
             combo_index = self.wire_camera_selector.count() - 1
             self.wire_camera_selector.setItemData(combo_index, QColor(color), Qt.ItemDataRole.ForegroundRole)
-        wire_label_layout.addWidget(self.wire_camera_selector)
+
+        self.connector_selector = QComboBox()
+        for connector_name in CONNECTOR_IMAGE_PATHS:
+            self.connector_selector.addItem(connector_name, userData=connector_name)
+        self.connector_selector.currentIndexChanged.connect(self._update_connector_preview)
+
+        self.connector_preview = QLabel()
+        self.connector_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.connector_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+        selector_row = QHBoxLayout()
+        selector_row.addWidget(self.wire_camera_selector)
+        selector_row.addWidget(self.connector_selector)
+
+        wire_label_layout.addLayout(selector_row)
+        wire_label_layout.addWidget(self.connector_preview)
+        self._update_connector_preview(self.connector_selector.currentIndex())
         self.top_vbox.addWidget(wire_label_group)
+
+    def _update_connector_preview(self, _index: int):
+        connector_name = self.connector_selector.currentData()
+        image_path = CONNECTOR_IMAGE_PATHS.get(connector_name)
+        if image_path is None or not image_path.exists():
+            self.connector_preview.setText("Connector image not found")
+            self.connector_preview.setPixmap(QPixmap())
+            return
+
+        pixmap = QPixmap(str(image_path))
+        if pixmap.isNull():
+            self.connector_preview.setText("Connector image not found")
+            self.connector_preview.setPixmap(QPixmap())
+            return
+
+        self.connector_preview.setText("")
+        self.connector_preview.setPixmap(
+            pixmap.scaled(
+                320,
+                220,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
 
     def triggerbox_test_widget(self):
         triggerbox_test_group, triggerbox_test_layout = create_styled_groupbox("Trigger Box Testing")
