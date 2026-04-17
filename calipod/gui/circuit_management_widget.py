@@ -1,10 +1,10 @@
 """This widget acts as a guide for creating a camera trigger circuit and wiring guidelines"""
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
+from calipod.gui.utils.styles import create_styled_groupbox
 
 logger = calipod_logger.get(__name__)
 
@@ -16,8 +16,26 @@ class CircuitManagementWidget(QWidget):
         self.place_widgets()
 
     def place_widgets(self):
-        temp_to_do_widget = QLabel("To do: circuit management widget")
-        temp_to_do_widget.setAlignment(Qt.AlignCenter)
-        layout = QVBoxLayout()
-        layout.addWidget(temp_to_do_widget)
-        self.setLayout(layout)
+        self.setLayout(QVBoxLayout())
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.top_vbox = QVBoxLayout()
+        self.bottom_vbox = QVBoxLayout()
+
+        self.bottom_container = QWidget()
+        self.bottom_container.setLayout(self.bottom_vbox)
+        self.bottom_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+        self.wire_labeling()
+        self.triggerbox_test()
+
+        self.layout().addLayout(self.top_vbox, stretch=1)
+        self.layout().addLayout(self.bottom_vbox, stretch=1)
+
+    def wire_labeling(self):
+        wire_label_group, wire_label_layout = create_styled_groupbox("Wire Labeling")
+        self.top_vbox.addWidget(wire_label_group)
+
+    def triggerbox_test(self):
+        triggerbox_test_group, triggerbox_test_layout = create_styled_groupbox("Trigger Box Testing")
+        triggerbox_test_layout.addWidget(QLabel("Coming Soon!"))
+        self.top_vbox.addWidget(triggerbox_test_group)
