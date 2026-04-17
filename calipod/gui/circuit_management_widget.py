@@ -54,6 +54,21 @@ WIRE_TYPE_MAX_COUNTS = {
     },
 }
 
+WIRE_COLOUR_OPTIONS = [
+    ("black", "#000000"),
+    ("white", "#6E6E6E"),
+    ("red", "#D32F2F"),
+    ("green", "#2E7D32"),
+    ("brown", "#795548"),
+    ("blue", "#1976D2"),
+    ("orange", "#EF6C00"),
+    ("yellow", "#C9A200"),
+    ("violet", "#7B1FA2"),
+    ("grey", "#616161"),
+    ("pink", "#C2185B"),
+    ("light blue", "#2A9DDF"),
+]
+
 
 class CircuitManagementWidget(QWidget):
     def __init__(self, controller: Controller):
@@ -153,6 +168,11 @@ class CircuitManagementWidget(QWidget):
             wire_type_combo = QComboBox()
             colour_combo = QComboBox()
             wire_type_combo.currentIndexChanged.connect(self._on_wire_type_changed)
+            colour_combo.currentIndexChanged.connect(
+                lambda _index, combo=colour_combo: self._on_colour_selection_changed(combo)
+            )
+
+            self._populate_colour_dropdown(colour_combo)
 
             self.connector_table_layout.addWidget(port_label, row, 0)
             self.connector_table_layout.addWidget(wire_type_combo, row, 1)
@@ -162,6 +182,31 @@ class CircuitManagementWidget(QWidget):
 
         for col in range(3):
             self.connector_table_layout.setColumnStretch(col, 1)
+
+    def _populate_colour_dropdown(self, combo: QComboBox):
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("")
+
+        for colour_name, colour_hex in WIRE_COLOUR_OPTIONS:
+            combo.addItem(colour_name, userData=colour_hex)
+            combo_index = combo.count() - 1
+            combo.setItemData(combo_index, QColor(colour_hex), Qt.ItemDataRole.ForegroundRole)
+
+        combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+        self._update_colour_combo_style(combo)
+
+    def _on_colour_selection_changed(self, combo: QComboBox):
+        self._update_colour_combo_style(combo)
+
+    def _update_colour_combo_style(self, combo: QComboBox):
+        colour_hex = combo.currentData()
+        if not colour_hex:
+            combo.setStyleSheet("")
+            return
+
+        combo.setStyleSheet(f"QComboBox {{ color: {colour_hex}; }}")
 
     def _set_connector_table_visible_rows(self, row_count: int):
         for row_index, row_widgets in enumerate(self.connector_row_widgets, start=1):
