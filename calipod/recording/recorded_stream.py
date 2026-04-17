@@ -192,11 +192,11 @@ class RecordedStream:
         # If the queue is full, discard the old value and put the new one
         try:
             self._jump_q.put_nowait(frame_index)
-        except:
+        except Exception:
             # Queue is full, drain the old value first then put the new one
             try:
                 self._jump_q.get_nowait()
-            except:
+            except Exception:
                 pass  # Queue was empty, that's fine
             self._jump_q.put_nowait(frame_index)
 
@@ -313,7 +313,8 @@ class RecordedStream:
                 )
 
                 logger.debug(
-                    f"Placing frame on q {self.port} for frame time: {self.frame_time} and frame index: {self.frame_index}"
+                    f"Placing frame on q {self.port} for frame time: "
+                    f"{self.frame_time} and frame index: {self.frame_index}"
                 )
 
                 for q in self.subscribers:

@@ -10,7 +10,6 @@ from PySide6.QtCore import QPoint, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QFileSystemModel, QMenu, QStyle, QTreeView, QWidget
 
-
 ORGANISATION_DIR_NAME = "organisation"
 EXTERNAL_LINKS_MANIFEST_NAME = "external_file_links.json"
 

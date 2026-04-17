@@ -26,6 +26,7 @@ from calipod.gui.utils.styles import (
     resolve_camera_title_color,
 )
 
+
 class OrganisationWidget(QWidget):
     def __init__(self, controller: Controller):
         super(OrganisationWidget, self).__init__()
@@ -197,7 +198,8 @@ class OrganisationWidget(QWidget):
             dialog_caption="Select Data Folder",
             select_directory=select_directory,
             on_path_selected=(
-                lambda selected_path, destination=link_destination, is_dir=select_directory, label=link_label: link_external_path_selection(
+                lambda selected_path, destination=link_destination, is_dir=select_directory,
+                label=link_label: link_external_path_selection(
                     parent=self,
                     selected_path=selected_path,
                     link_destination=destination,

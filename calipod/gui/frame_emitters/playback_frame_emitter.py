@@ -53,7 +53,7 @@ class PlaybackFrameEmitter(QThread):
             self.connected_points = self.stream.tracker.get_connected_points()
         else:
             self.connected_points = None
-        
+
         width = self.stream.size[0]
         height = self.stream.size[1]
         channels = 3
