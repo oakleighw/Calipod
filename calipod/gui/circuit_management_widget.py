@@ -22,6 +22,38 @@ CONNECTOR_PIN_COUNTS = {
     "Hirose 4 Pin": 4,
 }
 
+WIRE_TYPE_OPTIONS = {
+    "Hirose 4 Pin": [
+        "External Ground",
+        "Octo-coupled Output",
+        "Octo-coupled Ground",
+        "Octo-coupled Input",
+    ],
+    "Hirose 6 Pin": [
+        "General purpose I/O (GPIO) line",
+        "Octo-coupled Output",
+        "Octo-coupled Input",
+        "GPIO Ground",
+        "Octo-coupled Ground",
+    ],
+}
+
+WIRE_TYPE_MAX_COUNTS = {
+    "Hirose 4 Pin": {
+        "External Ground": 1,
+        "Octo-coupled Output": 1,
+        "Octo-coupled Ground": 1,
+        "Octo-coupled Input": 1,
+    },
+    "Hirose 6 Pin": {
+        "General purpose I/O (GPIO) line": 2,
+        "Octo-coupled Output": 1,
+        "Octo-coupled Input": 1,
+        "GPIO Ground": 1,
+        "Octo-coupled Ground": 1,
+    },
+}
+
 
 class CircuitManagementWidget(QWidget):
     def __init__(self, controller: Controller):
@@ -85,6 +117,7 @@ class CircuitManagementWidget(QWidget):
         connector_name = self.connector_selector.currentData()
         row_count = CONNECTOR_PIN_COUNTS.get(connector_name, 0)
         self._set_connector_table_visible_rows(row_count)
+        self._refresh_wire_type_dropdowns()
 
         image_path = CONNECTOR_IMAGE_PATHS.get(connector_name)
         if image_path is None or not image_path.exists():
@@ -119,6 +152,7 @@ class CircuitManagementWidget(QWidget):
             port_label = QLabel(str(row))
             wire_type_combo = QComboBox()
             colour_combo = QComboBox()
+            wire_type_combo.currentIndexChanged.connect(self._on_wire_type_changed)
 
             self.connector_table_layout.addWidget(port_label, row, 0)
             self.connector_table_layout.addWidget(wire_type_combo, row, 1)
@@ -134,6 +168,45 @@ class CircuitManagementWidget(QWidget):
             is_visible = row_index <= row_count
             for widget in row_widgets:
                 widget.setVisible(is_visible)
+
+    def _on_wire_type_changed(self, _index: int):
+        self._refresh_wire_type_dropdowns()
+
+    def _refresh_wire_type_dropdowns(self):
+        connector_name = self.connector_selector.currentData()
+        row_count = CONNECTOR_PIN_COUNTS.get(connector_name, 0)
+        options = WIRE_TYPE_OPTIONS.get(connector_name, [])
+        max_counts = WIRE_TYPE_MAX_COUNTS.get(connector_name, {})
+
+        wire_combos = [row_widgets[1] for row_widgets in self.connector_row_widgets[:row_count]]
+        canonical_values: list[str] = []
+        used_counts: dict[str, int] = {}
+
+        for combo in wire_combos:
+            value = combo.currentText().strip()
+            max_allowed = max_counts.get(value, 1)
+            if value in options and used_counts.get(value, 0) < max_allowed:
+                canonical_values.append(value)
+                used_counts[value] = used_counts.get(value, 0) + 1
+            else:
+                canonical_values.append("")
+
+        for combo, current_value in zip(wire_combos, canonical_values):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("")
+
+            for option in options:
+                used_elsewhere = used_counts.get(option, 0) - (1 if current_value == option else 0)
+                max_allowed = max_counts.get(option, 1)
+                if used_elsewhere < max_allowed:
+                    combo.addItem(option)
+
+            if current_value and combo.findText(current_value) >= 0:
+                combo.setCurrentText(current_value)
+            else:
+                combo.setCurrentIndex(0)
+            combo.blockSignals(False)
 
     def triggerbox_test_widget(self):
         triggerbox_test_group, triggerbox_test_layout = create_styled_groupbox("Trigger Box Testing")
