@@ -4,6 +4,7 @@ Currently includes a constant-velocity 3D model that produces the
 state transition matrix (A) and process noise covariance (Q) for
 position/velocity states [x y z vx vy vz]^T given a timestep ``dt``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,23 +38,25 @@ class ConstantVelocity3DModel:
         A[0, 3] = A[1, 4] = A[2, 5] = dt
 
         # Process noise terms for CV model
-        t33 = (dt ** 3) / 3.0
-        t22 = (dt ** 2) / 2.0
+        t33 = (dt**3) / 3.0
+        t22 = (dt**2) / 2.0
 
         q_pos = np.eye(3) * t33
         q_vel = np.eye(3) * dt
         q_corr = np.eye(3) * t22
 
-        Q = np.block(
-            [
-                [q_pos, q_corr],
-                [q_corr, q_vel],
-            ]
-        ) * self.motion_noise_scale
+        Q = (
+            np.block(
+                [
+                    [q_pos, q_corr],
+                    [q_corr, q_vel],
+                ]
+            )
+            * self.motion_noise_scale
+        )
 
         return {
             "transition_model": A,
             "transition_model_transpose": A.T,
             "transition_noise_covariance": Q,
         }
-

@@ -4,9 +4,9 @@ from time import sleep
 
 import cv2
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.charuco import Charuco
+from calipod.core import logger as calipod_logger
 from calipod.recording.recorded_stream import RecordedStream
 from calipod.trackers.charuco_tracker import CharucoTracker
 

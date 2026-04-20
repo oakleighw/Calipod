@@ -5,11 +5,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
-    QScrollArea,
-    QSizePolicy
 )
 
 from calipod.core import logger as calipod_logger
@@ -49,25 +49,27 @@ class CaptureVolumeWidget(QWidget):
         self.summary_container_widget = QWidget()
         self.summary_container_layout = QVBoxLayout(self.summary_container_widget)
 
-        #self.scroll_area_summaries = QScrollArea()
+        # self.scroll_area_summaries = QScrollArea()
         # self.scroll_area_summaries.setWidgetResizable(True) # Allow the widget inside to resize with the scroll area
         # self.scroll_area_summaries.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # self.scroll_area_summaries.setMinimumHeight(100)
         # self.scroll_area_summaries.setMinimumWidth(200)
         self.rmse_summary = QLabel(self.controller.capture_volume.get_rmse_summary())
         self.rmse_summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.cam_distance_summary = QLabel(self.controller.capture_volume.get_cam_distance_summary(), textFormat=Qt.RichText) #richtext for colour
+        self.cam_distance_summary = QLabel(
+            self.controller.capture_volume.get_cam_distance_summary(), textFormat=Qt.RichText
+        )  # richtext for colour
         self.cam_distance_summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        self.summary_container_layout.addWidget(self.rmse_summary, 2) 
-        self.summary_container_layout.addWidget(self.cam_distance_summary, 2) 
+        self.summary_container_layout.addWidget(self.rmse_summary, 2)
+        self.summary_container_layout.addWidget(self.cam_distance_summary, 2)
 
         self.scroll_area_summaries = QScrollArea()
-        self.scroll_area_summaries.setWidgetResizable(True) 
-        self.scroll_area_summaries.setWidget(self.summary_container_widget) # THIS IS CRUCIAL!
+        self.scroll_area_summaries.setWidgetResizable(True)
+        self.scroll_area_summaries.setWidget(self.summary_container_widget)  # THIS IS CRUCIAL!
         self.scroll_area_summaries.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        #self.scroll_area_summaries.setWidget(self.summary_container_widget) # Put the QLabel inside the scroll area
+        # self.scroll_area_summaries.setWidget(self.summary_container_widget) # Put the QLabel inside the scroll area
 
         self.place_widgets()
         self.connect_widgets()
@@ -89,13 +91,13 @@ class CaptureVolumeWidget(QWidget):
 
         self.world_origin_group = QGroupBox()
         self.world_origin_group.setLayout(QVBoxLayout())
-        self.world_origin_group.layout().addWidget(self.set_origin_btn,1)
+        self.world_origin_group.layout().addWidget(self.set_origin_btn, 1)
         self.world_origin_group.layout().addLayout(self.grid)
 
         self.calibrate_group = QGroupBox()
         self.calibrate_group.setLayout(QVBoxLayout())
         self.calibrate_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.calibrate_group.layout().addWidget(self.scroll_area_summaries,1)
+        self.calibrate_group.layout().addWidget(self.scroll_area_summaries, 1)
         # self.calibrate_group.layout().addWidget(self.recalibrate_btn)
 
         self.hbox = QHBoxLayout()
@@ -131,6 +133,3 @@ class CaptureVolumeWidget(QWidget):
         logger.info(f"Updating board to sync index {sync_index}")
 
         self.visualizer.display_points(sync_index)
-
-
-

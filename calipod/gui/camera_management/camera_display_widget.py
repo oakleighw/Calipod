@@ -124,6 +124,3 @@ if __name__ == "__main__":
     controller.new_camera_data.emit(0, camera_data)
     ex.show()
     sys.exit(app.exec())
-
-
-

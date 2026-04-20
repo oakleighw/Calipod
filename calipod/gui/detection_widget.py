@@ -1,13 +1,13 @@
-"""This widget will supply a basic detection tool and also point to Jupyter Notebook / Wandb for extended functionality."""
+"""Supply a basic detection tool and point to notebook/Wandb flows for
+extended functionality."""
 
-
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 
 logger = calipod_logger.get(__name__)
-
 
 
 class DetectionWidget(QWidget):
@@ -22,4 +22,3 @@ class DetectionWidget(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(temp_to_do_widget)
         self.setLayout(layout)
-

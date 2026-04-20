@@ -1,0 +1,4 @@
+start
+read_ok=True
+tracker_ready
+ids_len=0 img_shape=(0,)

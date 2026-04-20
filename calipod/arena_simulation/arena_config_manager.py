@@ -60,5 +60,3 @@ class ArenaConfigManager:
             logger.info(f"Saved arena metadata to {self.metadata_path}")
         except Exception as e:
             logger.warning(f"Failed to save arena config to {self.config_path}: {e}")
-
-

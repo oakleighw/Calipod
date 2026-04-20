@@ -212,6 +212,3 @@ POINT_ID2NAME = [None for _ in range(478)]
 for i_n, name in enumerate(NAMES):
     for id in NAME2KEYPOINTS[name]:
         POINT_ID2NAME[id] = name
-
-
-

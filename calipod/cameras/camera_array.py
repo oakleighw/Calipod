@@ -6,9 +6,9 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 from numba.typed import Dict
-import colorsys
 
 from calipod.core import logger as calipod_logger
+from calipod.core.camera_colours import camera_color_maps_for_ports
 
 logger = calipod_logger.get(__name__)
 CAMERA_PARAM_COUNT = 6
@@ -27,15 +27,15 @@ class CameraData:
     rotation_count: int = 0
     error: float = None  # the RMSE of reprojection associated with the intrinsic calibration
     matrix: np.ndarray = None
-    distortions: np.ndarray = None  
+    distortions: np.ndarray = None
     exposure: int = None
     grid_count: int = None
     ignore: bool = False
     verified_resolutions: np.ndarray = None
     translation: np.ndarray = None  # camera relative to world
     rotation: np.ndarray = None  # camera relative to world
-    color: tuple = None #used for simulation colour
-    color_hex: str = None #used for qlabel colour
+    color: tuple = None  # used for simulation colour
+    color_hex: str = None  # used for qlabel colour
 
     @property
     def world_origin(self) -> np.ndarray:
@@ -168,7 +168,7 @@ class CameraArray:
     cameras: dict
 
     def __post_init__(self):
-        self._assign_colors_to_cameras()#assign colors to cameras for 3D plot
+        self._assign_colors_to_cameras()  # assign colors to cameras for 3D plot
 
     @property
     def port_index(self):
@@ -210,41 +210,11 @@ class CameraArray:
                 camera_params = np.vstack([camera_params, port_param])
 
         return camera_params
-    
-    def _generate_colors(self): #generates camera colours for plotting purposes
-        saturation=0.9 
-        lightness=0.5
-        cam_colors = {}
-        cam_hexes = {}
-        num_colors = len(self.cameras)
-        
-        for i, port in enumerate(self.port_index):
-            p = port
-            # Distribute hues evenly around the color wheel
-            hue = i / num_colors
 
-            # Convert HSL to RGB
-            # colorsys.hls_to_rgb returns values between 0 and 1
-            r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
+    def _generate_colors(self):  # generates camera colours for plotting purposes
+        return camera_color_maps_for_ports(list(self.port_index))
 
-
-            # Append with alpha = 1 (fully opaque)
-            cam_colors[port] = (r, g, b, 1.0)
-            cam_hexes[port] = self._rgb_to_html_hex(r,g,b)
-
-        return cam_colors, cam_hexes
-
-    def _rgb_to_html_hex(self, r, g, b):
-        """Converts a 0-1 RGB tuple to an HTML hex color string (e.g., #FF0000)."""
-        # Scale 0-1 RGB to 0-255 integers
-        r_int = int(r * 255)
-        g_int = int(g * 255)
-        b_int = int(b * 255)
-        # Format as hex string
-        return f"#{r_int:02X}{g_int:02X}{b_int:02X}"
-
-    
-    def _assign_colors_to_cameras(self): # Uses the generated map to assign
+    def _assign_colors_to_cameras(self):  # Uses the generated map to assign
         """
         Generates colors and then assigns them directly to the 'color'
         attribute of each CameraData object in self.cameras.
@@ -262,7 +232,7 @@ class CameraArray:
                 self.cameras[port].color_hex = hex_val
             else:
                 logger.warning(f"Port {port} not found in cameras dictionary during color assignment.")
-    
+
     def get_world_origins(self):
         """
         contains optical centres for all cameras.
@@ -318,5 +288,3 @@ class CameraArray:
             proj_mat[port] = cam.projection_matrix
 
         return proj_mat
-
-

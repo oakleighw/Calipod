@@ -49,7 +49,11 @@ class PlaybackFrameEmitter(QThread):
         the intrinsic stream manager whenever the intrinsic calibrators data is also
         re-initialized.
         """
-        self.connected_points = self.stream.tracker.get_connected_points()
+        if self.stream.tracker is not None:
+            self.connected_points = self.stream.tracker.get_connected_points()
+        else:
+            self.connected_points = None
+
         width = self.stream.size[0]
         height = self.stream.size[1]
         channels = 3
@@ -57,43 +61,55 @@ class PlaybackFrameEmitter(QThread):
 
     def run(self):
         self.keep_collecting.set()
+        first_frame_emitted = False
 
         while self.keep_collecting.is_set():
-            # Grab a frame from the queue and broadcast to displays
-            # self.monocalibrator.grid_frame_ready_q.get()
-            logger.debug("Getting frame packet from queue")
-            frame_packet = self.frame_packet_q.get()
+            try:
+                # Grab a frame from the queue and broadcast to displays
+                logger.debug("Getting frame packet from queue")
+                frame_packet = self.frame_packet_q.get()
 
-            while self.grid_history_q.qsize() > 0:
-                ids, img_loc = self.grid_history_q.get()
-                self.add_to_grid_history(ids, img_loc)
+                while self.grid_history_q.qsize() > 0:
+                    ids, img_loc = self.grid_history_q.get()
+                    self.add_to_grid_history(ids, img_loc)
 
-            if not self.keep_collecting.is_set():
-                break
+                if not self.keep_collecting.is_set():
+                    break
 
-            if frame_packet.frame is not None:  # stream end signal when None frame placed on out queue
-                self.frame = frame_packet.frame_with_points
+                if not hasattr(frame_packet, "frame"):
+                    continue
 
-                logger.debug(f"Frame size is {self.frame.shape}")
-                logger.debug(f"Grid Capture History size is {self.grid_capture_history.shape}")
-                self.frame = cv2.addWeighted(self.frame, 1, self.grid_capture_history, 1, 0)
+                if frame_packet.frame is not None:  # stream end signal when None frame placed on out queue
+                    self.frame = frame_packet.frame_with_points
 
-                self._apply_undistortion()
+                    logger.debug(f"Frame size is {self.frame.shape}")
+                    logger.debug(f"Grid Capture History size is {self.grid_capture_history.shape}")
+                    self.frame = cv2.addWeighted(self.frame, 1, self.grid_capture_history, 1, 0)
 
-                logger.debug(f"Frame size is {self.frame.shape} following undistortion")
-                self.frame = resize_to_square(self.frame)
-                self.frame = apply_rotation(self.frame, self.stream.rotation_count)
-                image = cv2_to_qlabel(self.frame)
-                pixmap = QPixmap.fromImage(image)
+                    self._apply_undistortion()
 
-                if self.pixmap_edge_length:
-                    pixmap = pixmap.scaled(
-                        int(self.pixmap_edge_length),
-                        int(self.pixmap_edge_length),
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                    )
-                self.ImageBroadcast.emit(self.port, pixmap)
-                self.FrameIndexBroadcast.emit(self.port, frame_packet.frame_index)
+                    logger.debug(f"Frame size is {self.frame.shape} following undistortion")
+                    self.frame = resize_to_square(self.frame)
+                    self.frame = apply_rotation(self.frame, self.stream.rotation_count)
+                    image = cv2_to_qlabel(self.frame)
+                    pixmap = QPixmap.fromImage(image)
+
+                    if self.pixmap_edge_length:
+                        pixmap = pixmap.scaled(
+                            int(self.pixmap_edge_length),
+                            int(self.pixmap_edge_length),
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                        )
+                    self.ImageBroadcast.emit(self.port, pixmap)
+                    self.FrameIndexBroadcast.emit(self.port, frame_packet.frame_index)
+
+                    if not first_frame_emitted:
+                        logger.info(
+                            f"First frame emitted for port {self.port} at frame index {frame_packet.frame_index}"
+                        )
+                        first_frame_emitted = True
+            except Exception:
+                logger.exception(f"PlaybackFrameEmitter failed while processing frame at port {self.port}")
 
         logger.info(f"Thread loop within frame emitter at port {self.stream.port} successfully ended")
 
@@ -160,7 +176,7 @@ class PlaybackFrameEmitter(QThread):
             adjusted_width = int(w * scale_x)
             adjusted_height = int(h * scale_y)
 
-            logger.info(f"New image size for undistorted frame: {(adjusted_width,adjusted_height)}")
+            logger.info(f"New image size for undistorted frame: {(adjusted_width, adjusted_height)}")
             # Now use new_width and new_height as your NewImageSize for undistortion
             # newImageSize = (new_width, new_height)
             self.new_matrix, valid_roi = cv2.getOptimalNewCameraMatrix(
@@ -180,7 +196,7 @@ class PlaybackFrameEmitter(QThread):
         a reference should be past to the frame emitter
         """
         # logger.info("Attempting to add to grid history")
-        if len(ids) > 3:
+        if self.connected_points is not None and len(ids) > 3:
             # logger.info("enough points to add")
             self.grid_capture_history = draw_charuco.grid_history(
                 self.grid_capture_history,
@@ -190,5 +206,3 @@ class PlaybackFrameEmitter(QThread):
             )
         else:
             logger.info("Not enough points....grid not added...")
-
-

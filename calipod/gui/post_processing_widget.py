@@ -4,6 +4,7 @@ import pandas as pd
 from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -12,16 +13,12 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
-    QCheckBox,
 )
 
 from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
 from calipod.core.controller import Controller
-from calipod.gui.vizualize.playback_triangulation_widget import (
-    PlaybackTriangulationWidget,
-    TriangulationVisualizer
-)
+from calipod.gui.vizualize.playback_triangulation_widget import PlaybackTriangulationWidget
 from calipod.post_processing.metarig_config import generate_metarig_config
 from calipod.trackers.tracker_enum import TrackerEnum
 
@@ -41,7 +38,7 @@ class PostProcessingWidget(QWidget):
         self.update_recording_folders()
 
         self.vis_widget = PlaybackTriangulationWidget(self.controller.camera_array, config=self.config)
-        
+
         # Hybrid YOLO+BGS filtering checkbox
         # When enabled, Kalman filtering will select the best measurement (YOLO or BGS) at each frame
         # based on which is closest to the Kalman-predicted position. This helps:
@@ -67,11 +64,11 @@ class PostProcessingWidget(QWidget):
         self.open_folder_btn = QPushButton("&Open Folder")
         self.process_current_btn = QPushButton("&Process")
         self.generate_metarig_config_btn = QPushButton("Generate Metarig Config")
-        
+
         # Pass reference to hybrid mode checkbox to visualizer
         self.vis_widget.use_hybrid_bgs = self.use_hybrid_filtering_checkbox
         self.vis_widget.update_filter_options_row()  # Rebuild filter options row with hybrid checkbox
-        
+
         self.refresh_visualizer()  # must happen before placement to create vis_widget and vizualizer_title
         self.place_widgets()
         self.connect_widgets()
@@ -123,14 +120,14 @@ class PostProcessingWidget(QWidget):
             bgs_xyz_path = Path(
                 self.processed_subfolder.parent,  # Go up to FLY folder
                 "bgs",
-                f"xyz_FLY_bgs_predictions.csv"
+                "xyz_FLY_bgs_predictions.csv",
             )
             if bgs_xyz_path.exists():
                 logger.info(f"Using hybrid filtering with BGS predictions: {bgs_xyz_path}")
                 return bgs_xyz_path
             else:
                 logger.warning(f"BGS predictions not found, using original YOLO: {bgs_xyz_path}")
-        
+
         # Use original predictions
         file_name = f"xyz_{self.tracker_combo.currentData().name}.csv"
         result = Path(self.processed_subfolder, file_name)
@@ -215,24 +212,24 @@ class PostProcessingWidget(QWidget):
 
         self.controller.post_processing_complete.connect(self.enable_all_inputs)
         self.controller.post_processing_complete.connect(self.refresh_visualizer)
-    
+
     def on_hybrid_filtering_toggled(self):
         """Handle hybrid YOLO+BGS filtering toggle"""
         # Store current filtering state before switching
         was_filtering_enabled = False
-        if hasattr(self.vis_widget, 'toggle_filtered_button'):
+        if hasattr(self.vis_widget, "toggle_filtered_button"):
             was_filtering_enabled = self.vis_widget.toggle_filtered_button.isChecked()
-        
+
         if self.use_hybrid_filtering_checkbox.isChecked():
             logger.info("Enabled hybrid YOLO+BGS measurement selection during Kalman filtering")
         else:
             logger.info("Disabled hybrid mode - using YOLO predictions only")
-        
+
         # Reload the motion trial with the current prediction source
         self.set_current_xyz()
-        
+
         # If filtering was enabled, reapply it to use the new hybrid setting
-        if was_filtering_enabled and hasattr(self.vis_widget, 'toggle_filtered_button'):
+        if was_filtering_enabled and hasattr(self.vis_widget, "toggle_filtered_button"):
             logger.info("Reapplying Kalman filtering with updated measurement selection...")
             # Reset the button state first to avoid double-toggle
             self.vis_widget.toggle_filtered_button.setChecked(False)
@@ -287,12 +284,7 @@ class PostProcessingWidget(QWidget):
         self.vis_widget.update_camera_array(presented_camera_array)
 
         # Check if BGS predictions exist and enable hybrid filtering checkbox if so
-        bgs_xyz_path = Path(
-            self.active_recording_path,
-            "FLY",
-            "bgs",
-            "xyz_FLY_bgs_predictions.csv"
-        )
+        bgs_xyz_path = Path(self.active_recording_path, "FLY", "bgs", "xyz_FLY_bgs_predictions.csv")
         if bgs_xyz_path.exists():
             self.use_hybrid_filtering_checkbox.setEnabled(True)
             logger.info(f"BGS predictions available at {bgs_xyz_path}")
@@ -327,7 +319,7 @@ class PostProcessingWidget(QWidget):
     def update_enabled_disabled(self):
         # set availability of metarig generation
         logger.info("Checking if metarig config can be created...")
-        tracker = self.tracker_combo.currentData().value() #error here...
+        tracker = self.tracker_combo.currentData().value()  # error here...
         logger.info(tracker)
         if tracker.metarig_mapped() and self.xyz_processed_path.exists() and not self.metarig_config_path.exists():
             self.generate_metarig_config_btn.setEnabled(True)
@@ -377,6 +369,3 @@ class PostProcessingWidget(QWidget):
         xyz_csv_path = Path(self.processed_subfolder, f"xyz_{tracker_enum.name}_labelled.csv")
         generate_metarig_config(tracker_enum, xyz_csv_path)
         self.update_enabled_disabled()
-
-
-

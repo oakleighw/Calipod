@@ -97,7 +97,7 @@ class Tracker(ABC):
         will be calculated and stored as the measure
         """
         raise NotImplementedError(f"Tracker {self.name} has not provided its measures for configuring a metarig")
-    
+
     @classmethod
     def metarig_mapped(cls) -> bool:
         """
@@ -105,7 +105,7 @@ class Tracker(ABC):
         This is a classmethod, so it can be called on the class itself (e.g., `FlyTracker.metarig_mapped()`).
         Subclasses should override this.
         """
-        return False # Default for all trackers if not explicitly overridden
+        return False  # Default for all trackers if not explicitly overridden
 
 
 @dataclass(slots=True, frozen=True)
@@ -136,5 +136,3 @@ class WireFrameView:
             A_id = self.point_ids[segment.point_A]
             B_id = self.point_ids[segment.point_B]
             self.line_plots[segment.name].setData(pos=xyz_packet.get_segment_ends(A_id, B_id))
-
-

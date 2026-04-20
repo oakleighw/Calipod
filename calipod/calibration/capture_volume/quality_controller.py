@@ -6,10 +6,10 @@ import numpy as np
 import pandas as pd
 import rtoml
 
-from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume, xy_reprojection_error
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.charuco import Charuco
+from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
 
@@ -18,7 +18,6 @@ class QualityController:
     def __init__(self, capture_volume: CaptureVolume, charuco: Charuco = None):
         self.charuco = charuco
         self.capture_volume = capture_volume
-
 
     @property
     def data_2d(self) -> pd.DataFrame:
@@ -74,7 +73,6 @@ class QualityController:
         ranks = np.empty_like(sorted_indices)
         ranks[sorted_indices] = np.linspace(0, 100, len(reproj_errors))
         summarized_data["reproj_error_percentile"] = ranks
-
 
         return summarized_data
 
@@ -235,7 +233,7 @@ class QualityController:
         """
         # filter data based on reprojection error
         filtered_data_2d = self.data_2d.query(
-            f"reproj_error_percentile <{percentile_cutoff*100!s}",
+            f"reproj_error_percentile <{percentile_cutoff * 100!s}",
         )
 
         # get the count of obj_ids to understand how many times
@@ -298,6 +296,7 @@ class QualityController:
         if hasattr(self.capture_volume, "least_sq_result"):
             delattr(self.capture_volume, "least_sq_result")
 
+
 def get_capture_volume(capture_volume_pkl_path: Path) -> CaptureVolume:
     logger.info(f"loading capture volume from {capture_volume_pkl_path}")
     with open(capture_volume_pkl_path, "rb") as file:
@@ -341,8 +340,9 @@ def cartesian_product(*arrays):
 
 if __name__ == "__main__":
     # if True:
-    from calipod import __root__
     from calipod.session.session import LiveSession
+
+    from calipod import __root__
 
     session_directory = Path(__root__, "tests", "217")
     # config_path = Path(session_directory, "config.toml")
@@ -363,5 +363,3 @@ if __name__ == "__main__":
         logger.info("Filtering out worst fitting point estimates")
         quality_controller.filter_point_estimates(0.95)
         quality_controller.capture_volume.optimize()
-
-

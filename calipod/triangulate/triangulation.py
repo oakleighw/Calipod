@@ -6,8 +6,8 @@ import pandas as pd
 from numba import jit
 from numba.typed import Dict, List
 
-from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraArray, CameraData
+from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
 
@@ -205,11 +205,7 @@ def undistort_batch(xy_df: pd.DataFrame, camera_array: CameraArray) -> pd.DataFr
     return xy_undistorted_df
 
 
-def triangulate_from_files(
-    config_path: Path,
-    xy_path: Path,
-    output_path: Path = None
-) -> pd.DataFrame:
+def triangulate_from_files(config_path: Path, xy_path: Path, output_path: Path = None) -> pd.DataFrame:
     """
     Triangulate 2D points to 3D using camera calibration from config.toml
 
@@ -276,6 +272,3 @@ def triangulate_from_files(
 
     logger.info("Triangulation complete")
     return xyz_data
-
-
-

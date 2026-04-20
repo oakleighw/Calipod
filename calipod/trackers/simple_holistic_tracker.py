@@ -323,6 +323,3 @@ class SimpleHolisticTracker(Tracker):
             rules = {"radius": 3, "color": (0, 220, 220), "thickness": 3}
 
         return rules
-
-
-

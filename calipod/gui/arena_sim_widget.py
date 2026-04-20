@@ -1,60 +1,57 @@
-from pathlib import Path
-import re
 from itertools import combinations
-import cv2
-import numpy as np
 
+import numpy as np
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QComboBox,
-    QTreeWidget,
-    QListWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-    QScrollArea,
-    QMessageBox,
-    QSlider,
-    QCheckBox,
-    QRadioButton,
     QButtonGroup,
-    QListWidgetItem,
     QDoubleSpinBox,
     QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QRadioButton,
+    QScrollArea,
     QSizePolicy,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtGui import QImage, QPixmap, QFont
-from PySide6.QtCore import Qt, QTimer
 
-from calipod.gui.utils.spinbox_utils import create_labeled_spinbox_row
+from calipod.arena_simulation.arena_config_manager import ArenaConfigManager
+from calipod.arena_simulation.arena_designer import ArenaDesignerVisualizer
+from calipod.arena_simulation.arena_matplotlib_graph import ArenaMatplotlibGraphWindow
 from calipod.arena_simulation.pixel_to_animal import (
     PixelToAnimalInputs,
     compute_pixel_to_animal_result,
     resolve_input_mode_for_distance_change,
     resolve_input_mode_for_pixel_size_change,
 )
-from calipod.arena_simulation.arena_designer import ArenaDesignerVisualizer
-from calipod.arena_simulation.arena_config_manager import ArenaConfigManager
-from calipod.arena_simulation.arena_matplotlib_graph import ArenaMatplotlibGraphWindow
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
+from calipod.gui.utils.spinbox_utils import create_labeled_spinbox_row
+from calipod.gui.utils.styles import (
+    create_styled_groupbox,
+    create_subsection_title,
+    resolve_camera_title_color,
+)
 
 logger = calipod_logger.get(__name__)
 
-# Arena sim widget - this is a widget that simulates the camera arrangement to check for frustum overlap (triangulatable) and ensures the arena is within this overlap.
+
+# Arena sim widget - this widget simulates camera arrangement, checks for
+# frustum overlap (triangulatable), and ensures the arena sits within overlap.
 class ArenaSimWidget(QWidget):
     def __init__(self, controller: Controller):
         super(ArenaSimWidget, self).__init__()
         self.controller = controller
         self.cameras = self.controller.get_camera_count()
 
-
         # Arena designer starts with camera cubes and can be updated by controls later.
         self.visualizer = ArenaDesignerVisualizer(camera_count=self.cameras)
-        
-        #calculated pixel-to-animal values
+
+        # calculated pixel-to-animal values
         self.furthest_distance_mm = None
         self.insect_pixel_count = None
         self.pixel_to_animal_input_mode = None
@@ -65,41 +62,6 @@ class ArenaSimWidget(QWidget):
         self.place_widgets()
         self.load_arena_config()
         self.connect_widgets()
-
-    # Helper function to create section titles
-    def _create_section_font(self, point_size: int = 11) -> QFont:
-        """Create a styled font for section headers."""
-        font = QFont()
-        font.setBold(True)
-        font.setPointSize(point_size)
-        return font
-
-    def _create_section_title(self, text: str) -> QLabel:
-        """Create a styled section title label."""
-        title = QLabel(text)
-        title.setFont(self._create_section_font(11))
-        return title
-    
-    # Helper function to create subsection titles
-    def _create_subsection_title(self, text: str, color: str | None = None) -> QLabel:
-        """Create a styled subsection title label."""
-        title = QLabel(text)
-        title.setFont(self._create_section_font(10))
-        if color is not None:
-            title.setStyleSheet(f"color: {color};")
-        return title
-
-    def _create_styled_groupbox(self, title: str) -> tuple[QGroupBox, QVBoxLayout]:
-        """Create a QGroupBox with styled section title (returns group and layout)."""
-        group = QGroupBox()
-        layout = QVBoxLayout()
-        
-        # Add styled title as a label, not as QGroupBox title
-        title_label = self._create_section_title(title)
-        layout.addWidget(title_label)
-        
-        group.setLayout(layout)
-        return group, layout
 
     def place_widgets(self):
         self.setLayout(QHBoxLayout())
@@ -136,7 +98,7 @@ class ArenaSimWidget(QWidget):
 
     # Widgets for simulation parameters
     def simulation_parameters_widget(self):
-        params_group, params_layout = self._create_styled_groupbox("Simulation Parameters")
+        params_group, params_layout = create_styled_groupbox("Simulation Parameters")
 
         # Camera count entry
         self.camera_count_label = QLabel(f"Camera count: {self.cameras}")
@@ -144,13 +106,13 @@ class ArenaSimWidget(QWidget):
         # Overlap visualisation toggle
         self.overlap_visualization_layout = QVBoxLayout()
         self.overlap_visualization_group = QButtonGroup()
-        
+
         self.overlap_min_radio = QRadioButton("Min Coverage (2 cameras)")
         self.overlap_max_radio = QRadioButton("Max Coverage (All cameras)")
         self.overlap_visualization_group.addButton(self.overlap_min_radio, 0)
         self.overlap_visualization_group.addButton(self.overlap_max_radio, 1)
         self.overlap_min_radio.setChecked(True)
-        
+
         self.overlap_visualization_layout.addWidget(self.overlap_min_radio)
         self.overlap_visualization_layout.addWidget(self.overlap_max_radio)
         self.overlap_visualization_layout.addStretch()
@@ -174,19 +136,21 @@ class ArenaSimWidget(QWidget):
         self.visualised_frustum_depth.setValue(100.0)
         params_layout.addLayout(self.overlap_visualization_layout)
         params_layout.addStretch()
-        
+
         self.left_vbox.addWidget(params_group)
 
     # Widgets for lens parameters
     def lens_widget(self, cam_num):
-        lens_group, lens_layout = self._create_styled_groupbox("Lens Angles")
+        lens_group, lens_layout = create_styled_groupbox("Lens Angles")
         self.lens_angle_spinboxes = {}
 
         # Create lens angle entries based on camera count
         for i in range(cam_num):
-            cam_label = self._create_subsection_title(f"Camera {i+1}")
+            cam_label = create_subsection_title(f"Camera {i + 1}")
             lens_layout.addWidget(cam_label)
-            min_working_distance_spinbox = create_labeled_spinbox_row(lens_layout, "Min Working Distance (mm):", 1, 100000.00)
+            min_working_distance_spinbox = create_labeled_spinbox_row(
+                lens_layout, "Min Working Distance (mm):", 1, 100000.00
+            )
             horizontal_spinbox = create_labeled_spinbox_row(lens_layout, "Horizontal Angle (deg):", 1, 360.00)
             vertical_spinbox = create_labeled_spinbox_row(lens_layout, "Vertical Angle (deg):", 1, 360.00)
 
@@ -196,43 +160,50 @@ class ArenaSimWidget(QWidget):
                 "vertical": vertical_spinbox,
             }
 
-            min_working_distance_spinbox.valueChanged.connect(lambda _, cam_index=i: self._update_camera_min_working_distance(cam_index))
+            min_working_distance_spinbox.valueChanged.connect(
+                lambda _, cam_index=i: self._update_camera_min_working_distance(cam_index)
+            )
             horizontal_spinbox.valueChanged.connect(lambda _, cam_index=i: self._update_camera_frustum(cam_index))
             vertical_spinbox.valueChanged.connect(lambda _, cam_index=i: self._update_camera_frustum(cam_index))
 
             self._update_camera_min_working_distance(i)
             self._update_camera_frustum(i)
-        
+
         lens_layout.addStretch()
         self.left_vbox.addWidget(lens_group)
 
     def pixel_to_animal_widget(self):
         # Widgets for pixel to animal calculation parameters
-        pixel_group, pixel_layout = self._create_styled_groupbox("Pixel-To-Animal Calculation")
-        
+        pixel_group, pixel_layout = create_styled_groupbox("Pixel-To-Animal Calculation")
+
         self.min_insect_size_mm_spinbox = create_labeled_spinbox_row(pixel_layout, "Min Insect Size (mm):", 0.1, 1000.0)
-        self.pixel_size_on_sensor_um_spinbox = create_labeled_spinbox_row(pixel_layout, "Pixel Size on Sensor (μm):", 0.001, 10.0, decimals=3)
-        self.furthest_distance_mm_spinbox = create_labeled_spinbox_row(pixel_layout, "Furthest Distance (mm):", 0.0, 10000.0, decimals=4)
-        self.animal_pixel_size_spinbox = create_labeled_spinbox_row(pixel_layout, "Animal Pixel Size (pixels):", 0.0, 10000.0, decimals=4)
+        self.pixel_size_on_sensor_um_spinbox = create_labeled_spinbox_row(
+            pixel_layout, "Pixel Size on Sensor (μm):", 0.001, 10.0, decimals=3
+        )
+        self.furthest_distance_mm_spinbox = create_labeled_spinbox_row(
+            pixel_layout, "Furthest Distance (mm):", 0.0, 10000.0, decimals=4
+        )
+        self.animal_pixel_size_spinbox = create_labeled_spinbox_row(
+            pixel_layout, "Animal Pixel Size (pixels):", 0.0, 10000.0, decimals=4
+        )
         self.focal_length_mm_spinbox = create_labeled_spinbox_row(pixel_layout, "Focal Length (mm):", 0.1, 1000.0)
 
         self.min_insect_size_mm_spinbox.setValue(3.0)
         self.pixel_size_on_sensor_um_spinbox.setValue(5.0)
         self.focal_length_mm_spinbox.setValue(16.0)
 
-        #results
+        # results
         insect_pixel_count_result = QHBoxLayout()
-        self.insect_pixel_count_label = self._create_subsection_title("Insect size:")
-        self.insect_pixel_count_value =  QLabel("Enter either furthest distance or animal pixel size")
+        self.insect_pixel_count_label = create_subsection_title("Insect size:")
+        self.insect_pixel_count_value = QLabel("Enter either furthest distance or animal pixel size")
         insect_pixel_count_result.addWidget(self.insect_pixel_count_label)
         insect_pixel_count_result.addWidget(self.insect_pixel_count_value)
         pixel_layout.addLayout(insect_pixel_count_result)
 
-
         furthest_distance_mm_result = QHBoxLayout()
-        self.furthest_distance_mm_label = self._create_subsection_title("Furthest Distance:")
+        self.furthest_distance_mm_label = create_subsection_title("Furthest Distance:")
         self.furthest_distance_mm_value = QLabel("Enter either furthest distance or animal pixel size")
-        
+
         furthest_distance_mm_result.addWidget(self.furthest_distance_mm_label)
         furthest_distance_mm_result.addWidget(self.furthest_distance_mm_value)
         pixel_layout.addLayout(furthest_distance_mm_result)
@@ -244,35 +215,46 @@ class ArenaSimWidget(QWidget):
         pixel_layout.addLayout(pixel_reset_row)
 
         pixel_layout.addStretch()
-        
+
         self.left_vbox.addWidget(pixel_group)
 
-
-
-    # Camera placement controls - sliders to adjust camera position and orientation within the visualizer, with the option to sync these to the extrinsic calibration values for each camera once calibrated.
+    # Camera placement controls adjust camera pose and can optionally sync to
+    # per-camera extrinsic calibration values once calibrated.
     def cam_controls_widget(self):
-        controls_group, controls_layout = self._create_styled_groupbox("Camera Placement Controls")
+        controls_group, controls_layout = create_styled_groupbox("Camera Placement Controls")
         controls_row = QHBoxLayout()
         self.cam_placement = QListWidget()
         self.cam_placement.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.camera_position_spinboxes = {}
         self.camera_rotation_spinboxes = {}
 
-        # For each camera, create control sliders to adjust position and orientation, displayed left to right with scrollbar
+        # For each camera, create position/orientation controls displayed
+        # left-to-right with horizontal scrolling.
         for i in range(self.cameras):
             position_spinboxes = {}
             rotation_spinboxes = {}
-            camera_color = self.visualizer.color_to_css(self.visualizer.get_camera_color(i))
-            cam_label = self._create_subsection_title(f"Camera {i+1}", color=camera_color)
+            camera_color = resolve_camera_title_color(
+                camera_index=i,
+                camera_count=self.cameras,
+                zero_based_index=True,
+            )
+            cam_label = create_subsection_title(f"Camera {i + 1}", color=camera_color)
             item = QListWidgetItem()
             self.cam_placement.addItem(item)
             self.cam_placement.setItemWidget(item, cam_label)
 
             # Create sliders for X, Y, Z position and Pan, Tilt, Roll orientation
-            for param in ["X Position (mm)", "Y Position (mm)", "Z Position (mm)", "Pan (deg)", "Tilt (deg)", "Roll (deg)"]:
+            for param in [
+                "X Position (mm)",
+                "Y Position (mm)",
+                "Z Position (mm)",
+                "Pan (deg)",
+                "Tilt (deg)",
+                "Roll (deg)",
+            ]:
                 slider_layout = QHBoxLayout()
                 slider_label = QLabel(param)
-                
+
                 # Spinbox to display/edit the value
                 value_spinbox = QDoubleSpinBox()
                 value_spinbox.setMinimum(-1000)
@@ -282,12 +264,12 @@ class ArenaSimWidget(QWidget):
                 value_spinbox.setSingleStep(1)
                 value_spinbox.setMaximumWidth(80)
                 value_spinbox.setMinimumHeight(24)
-                
+
                 slider = QSlider(Qt.Orientation.Horizontal)
                 slider.setMinimum(-1000)
                 slider.setMaximum(1000)
                 slider.setValue(0)
-                
+
                 # Sync spinbox and slider
                 value_spinbox.valueChanged.connect(lambda value, s=slider: s.setValue(int(value)))
                 slider.valueChanged.connect(value_spinbox.setValue)
@@ -304,21 +286,27 @@ class ArenaSimWidget(QWidget):
                     rotation_spinboxes["tilt"] = value_spinbox
                 elif param == "Roll (deg)":
                     rotation_spinboxes["roll"] = value_spinbox
-                
+
                 slider_layout.addWidget(slider_label)
                 slider_layout.addWidget(value_spinbox)
                 slider_layout.addWidget(slider)
                 self.cam_placement.addItem(QListWidgetItem())
-                self.cam_placement.setItemWidget(self.cam_placement.item(self.cam_placement.count()-1), QWidget())
-                self.cam_placement.itemWidget(self.cam_placement.item(self.cam_placement.count()-1)).setLayout(slider_layout)
+                self.cam_placement.setItemWidget(self.cam_placement.item(self.cam_placement.count() - 1), QWidget())
+                self.cam_placement.itemWidget(self.cam_placement.item(self.cam_placement.count() - 1)).setLayout(
+                    slider_layout
+                )
 
             self.camera_position_spinboxes[i] = position_spinboxes
             self.camera_rotation_spinboxes[i] = rotation_spinboxes
             for axis in ["x", "y", "z"]:
-                position_spinboxes[axis].valueChanged.connect(lambda _, cam_index=i: self._update_camera_translation(cam_index))
+                position_spinboxes[axis].valueChanged.connect(
+                    lambda _, cam_index=i: self._update_camera_translation(cam_index)
+                )
 
             for axis in ["pan", "tilt", "roll"]:
-                rotation_spinboxes[axis].valueChanged.connect(lambda _, cam_index=i: self._update_camera_rotation(cam_index))
+                rotation_spinboxes[axis].valueChanged.connect(
+                    lambda _, cam_index=i: self._update_camera_rotation(cam_index)
+                )
 
             self._update_camera_translation(i)
             self._update_camera_rotation(i)
@@ -333,7 +321,7 @@ class ArenaSimWidget(QWidget):
 
     def _create_optical_centres_distance_widget(self) -> QGroupBox:
         """Create a scrollable box showing pairwise distances between camera optical centres."""
-        group, layout = self._create_styled_groupbox("Optical Centre Distances")
+        group, layout = create_styled_groupbox("Optical Centre Distances")
         self.optical_centres_distance_layout = QVBoxLayout()
 
         self.optical_centres_distance_scroll = QScrollArea()
@@ -363,10 +351,20 @@ class ArenaSimWidget(QWidget):
             return f"{distance_mm / 10.0:.1f} cm".rstrip("0").rstrip(".")
         return f"{distance_mm:.0f} mm"
 
-    def _pair_distance_block(self, camera_a: int, camera_b: int, distance_3d_mm: float, distance_xy_mm: float, distance_z_mm: float) -> str:
+    def _pair_distance_block(
+        self, camera_a: int, camera_b: int, distance_3d_mm: float, distance_xy_mm: float, distance_z_mm: float
+    ) -> str:
         """Build a capture-volume-style rich-text block for one camera pair."""
-        color_a = self.visualizer.color_to_css(self.visualizer.get_camera_color(camera_a))
-        color_b = self.visualizer.color_to_css(self.visualizer.get_camera_color(camera_b))
+        color_a = resolve_camera_title_color(
+            camera_index=camera_a,
+            camera_count=self.cameras,
+            zero_based_index=True,
+        )
+        color_b = resolve_camera_title_color(
+            camera_index=camera_b,
+            camera_count=self.cameras,
+            zero_based_index=True,
+        )
         total_text = self._format_distance_mm(distance_3d_mm)
         xy_text = self._format_distance_mm(distance_xy_mm)
         z_text = self._format_distance_mm(distance_z_mm)
@@ -416,7 +414,9 @@ class ArenaSimWidget(QWidget):
             line = QLabel(self._pair_distance_block(camera_a, camera_b, distance_mm, distance_xy_mm, distance_z_mm))
             line.setTextFormat(Qt.TextFormat.RichText)
             line.setWordWrap(True)
-            self.optical_centres_distance_content_layout.insertWidget(self.optical_centres_distance_content_layout.count() - 1, line)
+            self.optical_centres_distance_content_layout.insertWidget(
+                self.optical_centres_distance_content_layout.count() - 1, line
+            )
             self.optical_centres_distance_labels.append(line)
             pair_count += 1
 
@@ -446,7 +446,6 @@ class ArenaSimWidget(QWidget):
         roll_deg = rotation_spinboxes.get("roll").value()
         self.visualizer.set_camera_rotation(camera_index, pan_deg, tilt_deg, roll_deg)
         self._update_optical_centres_distances()
-
 
     def connect_widgets(self):
         self.arena_scale_depth_cm.valueChanged.connect(self._update_arena_scale)
@@ -605,10 +604,7 @@ class ArenaSimWidget(QWidget):
             except Exception:
                 pass
 
-        camera_colors = {
-            i: self.visualizer.get_camera_color(i)
-            for i in range(self.cameras)
-        }
+        camera_colors = {i: self.visualizer.get_camera_color(i) for i in range(self.cameras)}
         arena_state = {
             "camera_count": self.cameras,
             "overlap_mode": "max_all" if self.overlap_max_radio.isChecked() else "min_two",
@@ -633,7 +629,9 @@ class ArenaSimWidget(QWidget):
             return
 
         self.arena_scale_depth_cm.setValue(float(config.get("arena_scale_depth_cm", self.arena_scale_depth_cm.value())))
-        self.visualised_frustum_depth.setValue(float(config.get("visualised_frustum_depth_cm", self.visualised_frustum_depth.value())))
+        self.visualised_frustum_depth.setValue(
+            float(config.get("visualised_frustum_depth_cm", self.visualised_frustum_depth.value()))
+        )
         if config.get("overlap_mode", "min_two") == "max_all":
             self.overlap_max_radio.setChecked(True)
         else:
@@ -642,11 +640,21 @@ class ArenaSimWidget(QWidget):
         pixel_to_animal = config.get("pixel_to_animal", {})
         if pixel_to_animal:
             self._updating_pixel_to_animal_widgets = True
-            self.min_insect_size_mm_spinbox.setValue(float(pixel_to_animal.get("min_insect_size_mm", self.min_insect_size_mm_spinbox.value())))
-            self.pixel_size_on_sensor_um_spinbox.setValue(float(pixel_to_animal.get("pixel_size_on_sensor_um", self.pixel_size_on_sensor_um_spinbox.value())))
-            self.focal_length_mm_spinbox.setValue(float(pixel_to_animal.get("focal_length_mm", self.focal_length_mm_spinbox.value())))
-            self.furthest_distance_mm_spinbox.setValue(float(pixel_to_animal.get("furthest_distance_mm", self.furthest_distance_mm_spinbox.value())))
-            self.animal_pixel_size_spinbox.setValue(float(pixel_to_animal.get("animal_pixel_size", self.animal_pixel_size_spinbox.value())))
+            self.min_insect_size_mm_spinbox.setValue(
+                float(pixel_to_animal.get("min_insect_size_mm", self.min_insect_size_mm_spinbox.value()))
+            )
+            self.pixel_size_on_sensor_um_spinbox.setValue(
+                float(pixel_to_animal.get("pixel_size_on_sensor_um", self.pixel_size_on_sensor_um_spinbox.value()))
+            )
+            self.focal_length_mm_spinbox.setValue(
+                float(pixel_to_animal.get("focal_length_mm", self.focal_length_mm_spinbox.value()))
+            )
+            self.furthest_distance_mm_spinbox.setValue(
+                float(pixel_to_animal.get("furthest_distance_mm", self.furthest_distance_mm_spinbox.value()))
+            )
+            self.animal_pixel_size_spinbox.setValue(
+                float(pixel_to_animal.get("animal_pixel_size", self.animal_pixel_size_spinbox.value()))
+            )
             self._updating_pixel_to_animal_widgets = False
 
             input_mode = pixel_to_animal.get("input_mode")
@@ -686,6 +694,3 @@ class ArenaSimWidget(QWidget):
                 rotation_spinboxes.get("roll").setValue(float(rotation["roll"]))
 
         self._update_optical_centres_distances()
-        
-
-

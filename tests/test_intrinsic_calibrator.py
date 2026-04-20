@@ -4,11 +4,11 @@ from time import sleep
 
 import numpy as np
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.charuco import Charuco
 from calipod.calibration.intrinsic_calibrator import IntrinsicCalibrator
 from calipod.cameras.camera_array import CameraData
+from calipod.core import logger as calipod_logger
 from calipod.core.helper import copy_contents
 from calipod.recording.recorded_stream import RecordedStream
 from calipod.trackers.charuco_tracker import CharucoTracker

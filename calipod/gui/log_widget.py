@@ -1,9 +1,10 @@
 from time import time
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (
     QApplication,
     QPushButton,
+    QSizePolicy,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -19,8 +20,8 @@ class LogWidget(QWidget):
         super(LogWidget, self).__init__()
         self.setWindowTitle(message)
         self._console = LogMessageViewer(self)
-
-        self.setWindowFlags(Qt.WindowType.WindowTitleHint)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumHeight(120)
 
         layout = QVBoxLayout()
 
@@ -48,6 +49,7 @@ class LogMessageViewer(QTextBrowser):
         self.setReadOnly(True)
         # self.setLineWrapMode(QtGui.QTextEdit.NoWrap)
         self.setEnabled(True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.verticalScrollBar().setVisible(True)
 
     @Slot(str)
@@ -72,5 +74,3 @@ if __name__ == "__main__":
     dlg.show()
 
     app.exec()
-
-

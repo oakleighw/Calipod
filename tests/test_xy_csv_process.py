@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
+from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
 
 # specify a source directory (with recordings)
@@ -30,7 +30,8 @@ def test_xy_point_creation():
     post_processor = PostProcessor(
         camera_array=camera_array,
         recording_path=recording_path,
-        annotations_path=copy_session_path,
+        ground_truth_path=copy_session_path,
+        predictions_path=copy_session_path,
         tracker_enum=tracker_enum,
     )
 

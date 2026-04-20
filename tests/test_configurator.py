@@ -5,11 +5,11 @@ from pathlib import Path
 
 import numpy as np
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.charuco import Charuco
 from calipod.cameras.camera_array import CameraArray, CameraData
+from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
 from calipod.core.helper import copy_contents
 

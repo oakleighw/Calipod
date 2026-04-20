@@ -2,12 +2,12 @@ import shutil
 from pathlib import Path
 from time import sleep
 
-import pandas as pd
 import cv2
 import numpy as np
+import pandas as pd
 
-from calipod.core import logger as calipod_logger
 from calipod.cameras.camera_array import CameraArray
+from calipod.core import logger as calipod_logger
 from calipod.export import xyz_to_trc, xyz_to_wide_labelled
 from calipod.post_processing.gap_filling import gap_fill_xy, gap_fill_xyz
 from calipod.post_processing.smoothing import smooth_xyz
@@ -32,27 +32,38 @@ class PostProcessor:
     The post processor will archive the active config.toml file into the subdirectory
     """
 
-    def __init__(self, camera_array: CameraArray, recording_path: Path, annotations_path: Path, tracker_enum: TrackerEnum):
+    def __init__(
+        self,
+        camera_array: CameraArray,
+        recording_path: Path,
+        ground_truth_path: Path = None,
+        predictions_path: Path = None,
+        tracker_enum: TrackerEnum = TrackerEnum.HAND,
+        annotations_path: Path = None,
+    ):
+        # Backward compatibility: older callers passed `annotations_path`.
+        if ground_truth_path is None and annotations_path is not None:
+            ground_truth_path = annotations_path
+
         self.camera_array = camera_array
         self.recording_path = recording_path
-        self.annotations_path = annotations_path
+        self.ground_truth_path = ground_truth_path
+        self.predictions_path = predictions_path
         self.tracker_enum = tracker_enum
         self.tracker_name = tracker_enum.name
         self.tracker = tracker_enum.value()
 
         logger.info(f"!!!!!!!!!SET ANNOTATIONS name here {self.tracker_name} !!!!!!!!!")
-        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
-        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
-        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
-        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
-        logger.info(f"!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
-        if self.tracker_name == "FLY":
+        logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
+        if self.tracker_name == "FLY" and self.ground_truth_path is not None:
             # Instantiate FlyTracker WITHOUT arguments
             # NOW SET THE PROPERTIES
-            
-            self.tracker.annotations_dir = self.annotations_path
 
-        
+            self.tracker.annotations_dir = self.ground_truth_path
 
         # save out current camera array to output folder
         tracker_subdirectory = Path(self.recording_path, self.tracker_name)
@@ -70,15 +81,15 @@ class PostProcessor:
         The xy_TrackerName.csv file is saved out to the same directory by the VideoRecorder
 
         Note that high fps target and including video will increase processing overhead
-        
+
         For FlyTracker with annotations, automatically uses annotations-only mode for faster processing.
         """
         # Auto-detect if we should use annotations-only mode
-        if self.tracker_name == "FLY" and hasattr(self.tracker, 'check_annotations_available'):
+        if self.tracker_name == "FLY" and hasattr(self.tracker, "check_annotations_available"):
             if self.tracker.check_annotations_available(self.recording_path, self.camera_array.cameras):
                 logger.info("✓ Using annotations-only mode for faster post-processing")
                 include_video = False
-        
+
         self.sync_stream_manager.process_streams(include_video=include_video, fps_target=fps_target)
 
         while self.sync_stream_manager.recorder.recording:
@@ -152,40 +163,41 @@ class PostProcessor:
             except Exception as e:
                 logger.warning(f"Failed to export TRC file: {type(e).__name__}: {e}")
                 logger.warning("Continuing with predictions pipeline despite TRC export failure...")
-        
+
         # Attempt to build and triangulate predictions if available
         logger.info("(Predictions) Checking for prediction label files to process...")
-        logger.info(f"(Predictions) annotations_path={self.annotations_path}")
+        logger.info(f"(Predictions) predictions_path={self.predictions_path}")
         try:
             self.create_xy_predictions()
             logger.info("(Predictions) create_xy_predictions() completed successfully")
         except Exception as e:
             logger.error(f"(Predictions) EXCEPTION in create_xy_predictions(): {type(e).__name__}: {e}", exc_info=True)
-        
+
         xy_pred_path = Path(tracker_output_path, f"xy_predictions_{self.tracker_name}.csv")
         if xy_pred_path.exists():
             logger.info(f"(Predictions) XY predictions file confirmed to exist at {xy_pred_path}")
         else:
             logger.info(f"(Predictions) XY predictions file NOT found at {xy_pred_path}")
-        
+
         logger.info("(Predictions) Attempting triangulation of predictions (if XY exists)...")
         try:
             self.triangulate_predictions()
             logger.info("(Predictions) triangulate_predictions() completed successfully")
         except Exception as e:
-            logger.error(f"(Predictions) EXCEPTION in triangulate_predictions(): {type(e).__name__}: {e}", exc_info=True)
-        
+            logger.error(
+                f"(Predictions) EXCEPTION in triangulate_predictions(): {type(e).__name__}: {e}", exc_info=True
+            )
+
         xyz_pred_path = Path(tracker_output_path, f"xyz_{self.tracker_name}_predictions.csv")
         if xyz_pred_path.exists():
             logger.info(f"(Predictions) XYZ predictions file confirmed to exist at {xyz_pred_path}")
         else:
             logger.info(f"(Predictions) XYZ predictions file NOT found at {xyz_pred_path}")
 
-
     def create_xy_predictions(self) -> None:
         """Create xy_predictions_{tracker_name}.csv from YOLO prediction label files.
 
-        Expects prediction labels under: {annotations_path}/predictions/port_{port}/labels/frame_######.txt
+        Expects prediction labels under: {predictions_path}/port_{port}/labels/frame_######.txt
         Writes consolidated XY CSV to: {recording_path}/{tracker_name}/xy_predictions_{tracker_name}.csv
         """
         logger.info(f"(Predictions) create_xy_predictions() called; tracker_name={self.tracker_name}")
@@ -205,20 +217,23 @@ class PostProcessor:
             except Exception:
                 pass
 
-        if not hasattr(self, "annotations_path") or self.annotations_path is None:
-            logger.info("(Predictions) No annotations_path set; skipping predictions XY creation.")
+        if not hasattr(self, "predictions_path") or self.predictions_path is None:
+            logger.info("(Predictions) No predictions_path set; skipping predictions XY creation.")
             return
 
-        logger.info(f"(Predictions) annotations_path is set: {self.annotations_path}")
+        logger.info(f"(Predictions) predictions_path is set: {self.predictions_path}")
 
         # Determine frame dimensions per port from recorded videos
-        port_frame_size: dict[int, tuple[int,int]] = {}
+        port_frame_size: dict[int, tuple[int, int]] = {}
         for port, cam in self.camera_array.cameras.items():
             mp4_path = Path(self.recording_path, f"port_{cam.port}.mp4")
             try:
                 cap = cv2.VideoCapture(str(mp4_path))
                 if not cap.isOpened():
-                    logger.warning(f"(Predictions) Could not open video {mp4_path} to read frame size; predictions will be skipped for this port.")
+                    logger.warning(
+                        f"(Predictions) Could not open video {mp4_path} to read frame size; "
+                        "predictions will be skipped for this port."
+                    )
                     continue
                 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -229,8 +244,7 @@ class PostProcessor:
 
         logger.info(f"(Predictions) Frame sizes determined: {port_frame_size}")
         logger.info(f"(Predictions) Recording path: {self.recording_path}")
-        logger.info(f"(Predictions) Annotations path: {self.annotations_path}")
-
+        logger.info(f"(Predictions) Predictions path: {self.predictions_path}")
 
         rows = {
             "sync_index": [],
@@ -247,11 +261,11 @@ class PostProcessor:
         # Walk prediction label files per port
         any_found = False
         for port, cam in self.camera_array.cameras.items():
-            labels_dir = Path(self.annotations_path, "predictions", f"port_{port}", "labels")
+            labels_dir = Path(self.predictions_path, f"port_{port}", "labels")
             logger.info(f"(Predictions) Checking for labels at port {port}:")
             logger.info(f"  Full path: {labels_dir.resolve()}")
             logger.info(f"  Path exists: {labels_dir.exists()}")
-            
+
             if not labels_dir.exists():
                 logger.info(f"(Predictions) No labels directory for port {port}")
                 continue
@@ -266,7 +280,6 @@ class PostProcessor:
             # Support multiple naming conventions
             txt_files = sorted(labels_dir.glob("*.txt"))
             logger.info(f"(Predictions) Port {port}: found {len(txt_files)} prediction label files")
-
 
             for txt_path in txt_files:
                 # Parse sync index from file name - support multiple conventions
@@ -283,7 +296,9 @@ class PostProcessor:
                     elif stem.isdigit():
                         idx = int(stem)
                     else:
-                        logger.warning(f"(Predictions) Cannot parse frame index from filename: {txt_path.name}; skipping")
+                        logger.warning(
+                            f"(Predictions) Cannot parse frame index from filename: {txt_path.name}; skipping"
+                        )
                         continue
                 except (ValueError, IndexError) as e:
                     logger.warning(f"(Predictions) Failed to parse filename {txt_path.name}: {e}; skipping")
@@ -319,51 +334,65 @@ class PostProcessor:
         tracker_output_path.mkdir(exist_ok=True, parents=True)
         df_xy_pred.to_csv(xy_pred_path, index=False)
         try:
-            sync_min = int(df_xy_pred["sync_index"].min()) if "sync_index" in df_xy_pred.columns and len(df_xy_pred) > 0 else None
-            sync_max = int(df_xy_pred["sync_index"].max()) if "sync_index" in df_xy_pred.columns and len(df_xy_pred) > 0 else None
-            logger.info(f"(Predictions) XY predictions written to {xy_pred_path} (rows={len(df_xy_pred)}; sync_index range={sync_min}..{sync_max})")
+            sync_min = (
+                int(df_xy_pred["sync_index"].min())
+                if "sync_index" in df_xy_pred.columns and len(df_xy_pred) > 0
+                else None
+            )
+            sync_max = (
+                int(df_xy_pred["sync_index"].max())
+                if "sync_index" in df_xy_pred.columns and len(df_xy_pred) > 0
+                else None
+            )
+            logger.info(
+                f"(Predictions) XY predictions written to {xy_pred_path} "
+                f"(rows={len(df_xy_pred)}; sync_index range={sync_min}..{sync_max})"
+            )
         except Exception:
             logger.info(f"(Predictions) XY predictions written to {xy_pred_path}")
 
     def triangulate_predictions(self) -> None:
         """
         Triangulate predictions from 2D to 3D coordinates using the same process as ground truth.
-        
+
         Looks for xy_predictions_{tracker_name}.csv in the tracker output directory.
         Saves the triangulated predictions to xyz_{tracker_name}_predictions.csv.
         """
         tracker_output_path = Path(self.recording_path, self.tracker_name)
         xy_pred_path = Path(tracker_output_path, f"xy_predictions_{self.tracker_name}.csv")
-        
+
         if not xy_pred_path.exists():
             logger.warning(f"Predictions XY file not found at {xy_pred_path}. Skipping prediction triangulation.")
             return
-        
+
         logger.info(f"Loading predictions from {xy_pred_path}")
         try:
             xy_pred = pd.read_csv(xy_pred_path)
         except Exception as e:
             logger.error(f"Failed to read predictions CSV: {e}")
             return
-        
+
         if xy_pred.shape[0] == 0:
             logger.warning("Predictions CSV is empty. Skipping prediction triangulation.")
             return
-        
+
         logger.info(f"Triangulating {xy_pred.shape[0]} prediction points using camera array")
         try:
             xyz_pred = triangulate_xy(xy_pred, self.camera_array)
         except Exception as e:
             logger.error(f"Failed to triangulate predictions: {e}")
             return
-        
+
         if xyz_pred.shape[0] > 0:
             xyz_pred_path = Path(tracker_output_path, f"xyz_{self.tracker_name}_predictions.csv")
             xyz_pred.to_csv(xyz_pred_path, index=False)
             try:
                 sync_min = int(xyz_pred["sync_index"].min())
                 sync_max = int(xyz_pred["sync_index"].max())
-                logger.info(f"Predictions triangulated and saved to {xyz_pred_path} (rows={len(xyz_pred)}; sync_index range={sync_min}..{sync_max})")
+                logger.info(
+                    f"Predictions triangulated and saved to {xyz_pred_path} "
+                    f"(rows={len(xyz_pred)}; sync_index range={sync_min}..{sync_max})"
+                )
             except Exception:
                 logger.info(f"Predictions triangulated and saved to {xyz_pred_path}")
         else:
@@ -387,6 +416,3 @@ if __name__ == "__main__":
     )
 
     post_processor.create_xyz()
-
-
-

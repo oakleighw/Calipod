@@ -3,12 +3,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.helper_functions.get_stereotriangulated_table import (
     get_stereotriangulated_table,
 )
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.cameras.camera_array import CameraArray
+from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
 
@@ -104,5 +104,3 @@ def get_point_estimates(camera_array: CameraArray, point_data_path: Path) -> Poi
         obj=obj,
         # obj_corner_id=obj_corner_id,
     )
-
-

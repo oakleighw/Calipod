@@ -1,13 +1,13 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional 
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 
+from calipod.core import logger
 from calipod.core.packets import XYZPacket
 from calipod.trackers.tracker_enum import TrackerEnum
-from calipod.core import logger
 
 
 @dataclass
@@ -28,14 +28,14 @@ class MotionTrial:
         # MODIFIED: Handle the case where no CSV path is provided
         if self.xyz_csv is None:
             self.is_empty = True
-            self.xyz_df = pd.DataFrame() # Initialize with an empty DataFrame
+            self.xyz_df = pd.DataFrame()  # Initialize with an empty DataFrame
             self.predictions_df = pd.DataFrame()  # Initialize predictions as empty
             self.start_index = 0
             self.end_index = 0
-            self.tracker = None # No tracker associated if no CSV
+            self.tracker = None  # No tracker associated if no CSV
             self.wireframe = None
             logger.get(__name__).debug("MotionTrial initialized as empty (no CSV path provided).")
-            return # Exit __post_init__ early if no CSV
+            return  # Exit __post_init__ early if no CSV
 
         # Assertions for when xyz_csv IS provided
         assert isinstance(self.xyz_csv, Path), f"xyz_csv must be a Path object, got {type(self.xyz_csv)}"
@@ -50,23 +50,23 @@ class MotionTrial:
             self.wireframe = None
 
         self.xyz_df = pd.read_csv(self.xyz_csv, engine="pyarrow")
-        
+
         # Auto-detect and load predictions if not explicitly provided
         if self.predictions_csv is None:
             # Try to find predictions CSV in the same directory as ground truth
             tracker_name = self.xyz_csv.stem[4:]  # peel off "xyz_"
-            
+
             # Prefer filtered predictions if they exist, otherwise fall back to original
             filtered_pred_path = self.xyz_csv.parent / f"xyz_{tracker_name}_predictions_filtered.csv"
             original_pred_path = self.xyz_csv.parent / f"xyz_{tracker_name}_predictions.csv"
-            
+
             if filtered_pred_path.exists():
                 self.predictions_csv = filtered_pred_path
                 logger.get(__name__).debug(f"Auto-detected filtered predictions CSV at {filtered_pred_path}")
             elif original_pred_path.exists():
                 self.predictions_csv = original_pred_path
                 logger.get(__name__).debug(f"Auto-detected original predictions CSV at {original_pred_path}")
-        
+
         # Load predictions if provided or auto-detected
         if self.predictions_csv is not None and self.predictions_csv.exists():
             try:
@@ -74,11 +74,21 @@ class MotionTrial:
                 logger.get(__name__).info(f"Loaded predictions from {self.predictions_csv}")
                 try:
                     pred_count = len(self.predictions_df)
-                    if pred_count > 0 and {"sync_index","point_id","x_coord","y_coord","z_coord"}.issubset(self.predictions_df.columns):
+                    if pred_count > 0 and {"sync_index", "point_id", "x_coord", "y_coord", "z_coord"}.issubset(
+                        self.predictions_df.columns
+                    ):
                         syncs = self.predictions_df["sync_index"].unique()
-                        logger.get(__name__).info(f"Predictions summary: rows={pred_count}, sync_index range={syncs.min()}..{syncs.max()}, point_id counts={self.predictions_df['point_id'].value_counts().to_dict()}")
+                        logger.get(__name__).info(
+                            f"Predictions summary: rows={pred_count}, "
+                            f"sync_index range={syncs.min()}..{syncs.max()}, "
+                            "point_id counts="
+                            f"{self.predictions_df['point_id'].value_counts().to_dict()}"
+                        )
                     else:
-                        logger.get(__name__).info(f"Predictions loaded but missing expected columns or empty; columns={list(self.predictions_df.columns)}")
+                        logger.get(__name__).info(
+                            "Predictions loaded but missing expected columns or empty; "
+                            f"columns={list(self.predictions_df.columns)}"
+                        )
                 except Exception as e2:
                     logger.get(__name__).warning(f"Error summarizing predictions_df: {e2}")
             except Exception as e:
@@ -86,18 +96,20 @@ class MotionTrial:
                 self.predictions_df = pd.DataFrame()
         else:
             self.predictions_df = pd.DataFrame()
-        
+
         sync_indices = self.xyz_df["sync_index"].unique()
 
         # MODIFIED: Ensure start/end indices are 0 if no sync_indices are found even if CSV exists
         self.start_index = sync_indices.min() if len(sync_indices) > 0 else 0
         self.end_index = sync_indices.max() if len(sync_indices) > 0 else 0
-        
+
         self.is_empty = len(sync_indices) == 0
         if self.is_empty:
-             logger.get(__name__).debug(f"MotionTrial initialized from {self.xyz_csv} but found no sync_indices, marking as empty.")
+            logger.get(__name__).debug(
+                f"MotionTrial initialized from {self.xyz_csv} but found no sync_indices, marking as empty."
+            )
         else:
-             logger.get(__name__).debug(f"MotionTrial initialized from {self.xyz_csv} with data.")
+            logger.get(__name__).debug(f"MotionTrial initialized from {self.xyz_csv} with data.")
 
     def get_xyz(self, sync_index: int) -> XYZPacket:
         """
@@ -108,15 +120,19 @@ class MotionTrial:
         if self.is_empty:
             logger.get(__name__).debug(f"MotionTrial is empty. Returning empty XYZPacket for sync index {sync_index}.")
             # Return an XYZPacket with empty arrays for points
-            return XYZPacket(sync_index=sync_index, point_ids=np.array([]), point_xyz=np.array([]).reshape(0,3))
+            return XYZPacket(sync_index=sync_index, point_ids=np.array([]), point_xyz=np.array([]).reshape(0, 3))
 
         if sync_index not in self.xyz_packets:
             current_sync_index = self.xyz_df["sync_index"] == sync_index
-            
+
             # MODIFIED: Handle case where sync_index might not be in DataFrame for a loaded trial
             if not current_sync_index.any():
-                logger.get(__name__).debug(f"Sync index {sync_index} not found in MotionTrial DataFrame. Returning empty XYZPacket.")
-                self.xyz_packets[sync_index] = XYZPacket(sync_index=sync_index, point_ids=np.array([]), point_xyz=np.array([]).reshape(0,3))
+                logger.get(__name__).debug(
+                    f"Sync index {sync_index} not found in MotionTrial DataFrame. Returning empty XYZPacket."
+                )
+                self.xyz_packets[sync_index] = XYZPacket(
+                    sync_index=sync_index, point_ids=np.array([]), point_xyz=np.array([]).reshape(0, 3)
+                )
             else:
                 point_ids = self.xyz_df["point_id"][current_sync_index]
                 x = self.xyz_df["x_coord"][current_sync_index]
@@ -134,5 +150,7 @@ class MotionTrial:
         if self.wireframe is not None:
             self.wireframe.set_points(xyz_packet)
         else:
-            logger.get(__name__).debug(f"Skipping wireframe update for sync index {sync_index}: self.wireframe is None (no tracker or no wireframe for tracker).")
-
+            logger.get(__name__).debug(
+                f"Skipping wireframe update for sync index {sync_index}: "
+                "self.wireframe is None (no tracker or no wireframe for tracker)."
+            )

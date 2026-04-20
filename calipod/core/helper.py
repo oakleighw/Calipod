@@ -8,9 +8,9 @@ def copy_contents(src_folder, dst_folder):
     used for testing purposes so that the test case data doesn't get overwritten
     """
     from calipod.core import logger as calipod_logger
-    
+
     logger = calipod_logger.get(__name__)
-    
+
     src_path = Path(src_folder)
     dst_path = Path(dst_folder)
 
@@ -33,5 +33,3 @@ def copy_contents(src_folder, dst_folder):
         elif src_item.is_dir():
             logger.info(f"Copying directory at {src_item} to {dst_item}")
             shutil.copytree(src_item, dst_item)
-
-

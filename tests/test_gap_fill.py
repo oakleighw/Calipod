@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from calipod.core import logger as calipod_logger
 from calipod import __root__
+from calipod.core import logger as calipod_logger
 from calipod.core.helper import copy_contents
 from calipod.post_processing.gap_filling import gap_fill_xy, gap_fill_xyz
 from calipod.trackers.tracker_enum import TrackerEnum

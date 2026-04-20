@@ -204,7 +204,7 @@ class Camera:
 
         # only grab if they exist
         if self.error and self.error != "NA":
-            error_text = f"Error:\t{round(self.error,3)} "
+            error_text = f"Error:\t{round(self.error, 3)} "
             cam_matrix_text = "Camera Matrix:\n" + (
                 "\n".join(["\t".join([str(round(float(cell), 1)) for cell in row]) for row in self.matrix])
             )
@@ -306,5 +306,3 @@ if __name__ == "__main__":
             break
 
 # %%
-
-

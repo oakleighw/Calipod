@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from calipod.core import logger as calipod_logger
-from calipod.core.packets import FramePacket, Tracker
+from calipod.core.packets import FramePacket, PointPacket, Tracker
 
 logger = calipod_logger.get(__name__)
 logger.setLevel(logging.INFO)
@@ -45,9 +45,16 @@ class RecordedStream:
 
         video_path = str(Path(self.directory, f"port_{self.port}.mp4"))
         self.capture = cv2.VideoCapture(video_path)
+        if not self.capture.isOpened():
+            logger.error(f"Unable to open video stream at {video_path}")
 
         # for playback, set the fps target to the actual
         self.original_fps = int(self.capture.get(cv2.CAP_PROP_FPS))
+        if self.original_fps <= 0:
+            logger.warning(
+                f"Invalid FPS ({self.original_fps}) detected at port {self.port}; defaulting to 30 FPS"
+            )
+            self.original_fps = 30
         if fps_target is None:
             fps_target = self.original_fps
 
@@ -63,17 +70,51 @@ class RecordedStream:
 
         ############ PROCESS WITH TRUE TIME STAMPS IF AVAILABLE #########################
         synched_frames_history_path = Path(self.directory, "frame_time_history.csv")
+        frame_count = int(self.capture.get(cv2.CAP_PROP_FRAME_COUNT))
 
         if synched_frames_history_path.exists():
             synched_frames_history = pd.read_csv(synched_frames_history_path)
 
             self.port_history = synched_frames_history[synched_frames_history["port"] == self.port]
 
-            self.port_history["frame_index"] = self.port_history["frame_time"].rank(method="min").astype(int) - 1
+            if len(self.port_history) == 0:
+                logger.warning(
+                    "No matching rows in frame_time_history.csv for "
+                    f"port {self.port}; falling back to inferred frame timing"
+                )
+                mocked_port_history = {
+                    "frame_index": [i for i in range(0, frame_count)],
+                    "frame_time": [i / self.original_fps for i in range(0, frame_count)],
+                }
+                self.port_history = pd.DataFrame(mocked_port_history)
+            else:
+                self.port_history["frame_index"] = self.port_history["frame_time"].rank(method="min").astype(int) - 1
+
+                # Compare timing metadata against the video header FPS to surface
+                # potentially stale or mismatched frame_time_history files.
+                frame_times = self.port_history["frame_time"].to_numpy(dtype=float)
+                if frame_times.size > 3:
+                    frame_times = np.sort(frame_times)
+                    dt = np.diff(frame_times)
+                    positive_dt = dt[dt > 0]
+                    if positive_dt.size > 0:
+                        inferred_fps = 1.0 / float(np.median(positive_dt))
+                        fps_delta_fraction = abs(inferred_fps - self.original_fps) / max(self.original_fps, 1)
+                        if fps_delta_fraction > 0.10:
+                            logger.warning(
+                                "FPS mismatch for port "
+                                f"{self.port}: video header FPS={self.original_fps}, "
+                                f"frame_time_history inferred FPS={inferred_fps:.2f}. "
+                                "Playback timing may be unstable."
+                            )
+                    else:
+                        logger.warning(
+                            "frame_time_history has no positive time deltas for "
+                            f"port {self.port}; using fallback timing where needed."
+                        )
 
         ########### INFER TIME STAMP IF NOT AVAILABLE ####################################
         else:
-            frame_count = int(self.capture.get(cv2.CAP_PROP_FRAME_COUNT))
             mocked_port_history = {
                 "frame_index": [i for i in range(0, frame_count)],
                 "frame_time": [i / self.original_fps for i in range(0, frame_count)],
@@ -147,7 +188,17 @@ class RecordedStream:
 
     def jump_to(self, frame_index: int):
         logger.info(f"Placing {frame_index} on jump q to reset capture position")
-        self._jump_q.put(frame_index)
+        # Use put_nowait to avoid blocking the UI thread
+        # If the queue is full, discard the old value and put the new one
+        try:
+            self._jump_q.put_nowait(frame_index)
+        except Exception:
+            # Queue is full, drain the old value first then put the new one
+            try:
+                self._jump_q.get_nowait()
+            except Exception:
+                pass  # Queue was empty, that's fine
+            self._jump_q.put_nowait(frame_index)
 
     def pause(self):
         logger.info(f"Pausing recorded stream at port {self.port}")
@@ -159,7 +210,7 @@ class RecordedStream:
 
     def play_video(self):
         logger.info(f"Initiating _play_worker for Camera {self.port}")
-        self.thread = Thread(target=self._play_worker, args=[], daemon=True)
+        self.thread = Thread(target=self._play_worker, args=[], daemon=False)
         self.thread.start()
 
     def _play_worker(self):
@@ -171,115 +222,145 @@ class RecordedStream:
         logger.info(f"Beginning playback of video for port {self.port}")
 
         while not self.stop_event.is_set():
-            current_frame = self.port_history["frame_index"] == self.frame_index
-            self.frame_time = self.port_history[current_frame]["frame_time"]
-            self.frame_time = float(self.frame_time)
+            try:
+                current_frame = self.port_history["frame_index"] == self.frame_index
+                frame_time_series = self.port_history.loc[current_frame, "frame_time"]
 
-            ########## BEGIN NO SUBSCRIBERS SPINLOCK ##################
-            spinlock_looped = False
-            while len(self.subscribers) == 0 and not self.stop_event.is_set():
-                if not spinlock_looped:
-                    logger.info(f"Spinlock initiated at port {self.port}")
-                    spinlock_looped = True
-                sleep(0.5)
-            if spinlock_looped:
-                logger.info(f"Spinlock released at port {self.port}")
-            ########## END NO SUBSCRIBERS SPINLOCK ##################
-
-            # --- ANNOTATIONS-ONLY MODE OPTIMIZATION: Skip fps throttling ---
-            # In annotations-only mode, process as fast as possible (no sleep)
-            # In normal mode, sleep to match target fps
-            annotations_only = (self.tracker is not None and 
-                              hasattr(self.tracker, 'annotations_only_mode') and 
-                              self.tracker.annotations_only_mode)
-            
-            if self.milestones is not None and not annotations_only:
-                sleep(self.wait_to_next_frame())
-            
-            # --- ANNOTATIONS-ONLY MODE OPTIMIZATION ---
-            # If tracker is in annotations-only mode (has pre-made annotations), skip video reading
-            if annotations_only:
-                logger.debug(f"RecordedStream (Port {self.port}): Using annotations-only mode for frame {self.frame_index} (no video reading)")
-                # Create a dummy frame with correct dimensions but no pixel data
-                # This allows the tracker to get frame shape for calculations without decoding video
-                self.frame = np.zeros((self.size[1], self.size[0], 3), dtype=np.uint8)
-                success = True
-            else:
-                # --- NORMAL MODE: Read video frame ---
-                # logger.info(f"about to read frame {self.frame_index} from capture at port {self.port}")
-                success, self.frame = self.capture.read()
-
-            if not success:
-                break
-
-            if self.tracker is not None:
-                if self.tracker.name == "FLY":
-                    self.point_data = self.tracker.get_points(self.frame, self.port, self.rotation_count, self.frame_index)
+                # frame_time_history can be incomplete or out-of-sync with video indices.
+                # Fall back to inferred timing so playback never hard-fails.
+                if len(frame_time_series) == 0:
+                    self.frame_time = self.frame_index / self.original_fps
+                    logger.warning(
+                        f"No frame_time match for frame_index={self.frame_index} at port {self.port}; "
+                        "using inferred timing"
+                    )
                 else:
-                    self.point_data = self.tracker.get_points(self.frame, self.port, self.rotation_count)
-                
-                draw_instructions = self.tracker.scatter_draw_instructions
-            else:
-                self.point_data = None
-                draw_instructions = None
+                    self.frame_time = float(frame_time_series.iloc[0])
 
-            frame_packet = FramePacket(
-                port=self.port,
-                frame_index=self.frame_index,
-                frame_time=self.frame_time,
-                frame=self.frame,
-                points=self.point_data,
-                draw_instructions=draw_instructions,
-            )
+                ########## BEGIN NO SUBSCRIBERS SPINLOCK ##################
+                spinlock_looped = False
+                while len(self.subscribers) == 0 and not self.stop_event.is_set():
+                    if not spinlock_looped:
+                        logger.info(f"Spinlock initiated at port {self.port}")
+                        spinlock_looped = True
+                    sleep(0.5)
+                if spinlock_looped:
+                    logger.info(f"Spinlock released at port {self.port}")
+                ########## END NO SUBSCRIBERS SPINLOCK ##################
 
-            logger.debug(
-                f"Placing frame on q {self.port} for frame time: {self.frame_time} and frame index: {self.frame_index}"
-            )
+                # --- ANNOTATIONS-ONLY MODE OPTIMIZATION: Skip fps throttling ---
+                # In annotations-only mode, process as fast as possible (no sleep)
+                # In normal mode, sleep to match target fps
+                annotations_only = (
+                    self.tracker is not None
+                    and hasattr(self.tracker, "annotations_only_mode")
+                    and self.tracker.annotations_only_mode
+                )
 
-            for q in self.subscribers:
-                q.put(frame_packet)
+                if self.milestones is not None and not annotations_only:
+                    sleep(self.wait_to_next_frame())
 
-            logger.debug(f"Incrementing frame index from {self.frame_index} to {self.frame_index+1}")
-            self.frame_index += 1
+                # --- ANNOTATIONS-ONLY MODE OPTIMIZATION ---
+                # If tracker is in annotations-only mode (has pre-made annotations), skip video reading
+                if annotations_only:
+                    logger.debug(
+                        f"RecordedStream (Port {self.port}): Using annotations-only mode "
+                        f"for frame {self.frame_index} (no video reading)"
+                    )
+                    # Create a dummy frame with correct dimensions but no pixel data
+                    # This allows the tracker to get frame shape for calculations without decoding video
+                    self.frame = np.zeros((self.size[1], self.size[0], 3), dtype=np.uint8)
+                    success = True
+                else:
+                    # --- NORMAL MODE: Read video frame ---
+                    # logger.info(f"about to read frame {self.frame_index} from capture at port {self.port}")
+                    success, self.frame = self.capture.read()
 
-            if self.frame_index > self.last_frame_index and self.break_on_last:
-                logger.info(f"Ending recorded playback at port {self.port}")
-                # time of -1 indicates end of stream
+                if not success:
+                    break
+
+                if self.tracker is not None:
+                    try:
+                        if self.tracker.name == "FLY":
+                            self.point_data = self.tracker.get_points(
+                                self.frame, self.port, self.rotation_count, self.frame_index
+                            )
+                        else:
+                            self.point_data = self.tracker.get_points(self.frame, self.port, self.rotation_count)
+
+                        if self.point_data is None:
+                            self.point_data = PointPacket(np.array([]), np.array([]), np.array([]))
+
+                        draw_instructions = self.tracker.scatter_draw_instructions
+                    except Exception:
+                        logger.exception(
+                            f"Tracker failed on port {self.port} frame {self.frame_index}; "
+                            "publishing empty points to keep playback alive"
+                        )
+                        self.point_data = PointPacket(np.array([]), np.array([]), np.array([]))
+                        draw_instructions = None
+                else:
+                    self.point_data = None
+                    draw_instructions = None
+
                 frame_packet = FramePacket(
                     port=self.port,
-                    frame_index=-1,
-                    frame_time=-1,
-                    frame=None,
-                    points=None,
+                    frame_index=self.frame_index,
+                    frame_time=self.frame_time,
+                    frame=self.frame,
+                    points=self.point_data,
+                    draw_instructions=draw_instructions,
+                )
+
+                logger.debug(
+                    f"Placing frame on q {self.port} for frame time: "
+                    f"{self.frame_time} and frame index: {self.frame_index}"
                 )
 
                 for q in self.subscribers:
                     q.put(frame_packet)
-                break
 
-            ############ Autopause if last frame and in playback mode (i.e. break_on_last == False)
-            if not self.break_on_last and self.frame_index > self.last_frame_index:
-                self.frame_index = self.last_frame_index
-                self._pause_event.set()
+                logger.debug(f"Incrementing frame index from {self.frame_index} to {self.frame_index + 1}")
+                self.frame_index += 1
 
-            ############ SPIN LOCK FOR PAUSE ##################
-            pause_logged = False
-            while self._pause_event.is_set():
-                # logger.info("I'm paused")
-                if not pause_logged:
-                    logger.info("Initiating Pause")
-                    pause_logged = True
+                if self.frame_index > self.last_frame_index and self.break_on_last:
+                    logger.info(f"Ending recorded playback at port {self.port}")
+                    # time of -1 indicates end of stream
+                    frame_packet = FramePacket(
+                        port=self.port,
+                        frame_index=-1,
+                        frame_time=-1,
+                        frame=None,
+                        points=None,
+                    )
 
-                if not self._jump_q.empty():
-                    logger.info("New Value on jump queue, exiting pause spin lock")
+                    for q in self.subscribers:
+                        q.put(frame_packet)
                     break
 
-                sleep(0.1)
-            #######################################################
-            if not self._jump_q.empty():
-                self.frame_index = self._jump_q.get()
-                logger.info(f"Setting port {self.port} capture object to frame index {self.frame_index}")
-                self.capture.set(cv2.CAP_PROP_POS_FRAMES, self.frame_index)
+                ############ Autopause if last frame and in playback mode (i.e. break_on_last == False)
+                if not self.break_on_last and self.frame_index > self.last_frame_index:
+                    self.frame_index = self.last_frame_index
+                    self._pause_event.set()
 
+                ############ SPIN LOCK FOR PAUSE ##################
+                pause_logged = False
+                while self._pause_event.is_set():
+                    # logger.info("I'm paused")
+                    if not pause_logged:
+                        logger.info("Initiating Pause")
+                        pause_logged = True
 
+                    if not self._jump_q.empty():
+                        logger.info("New Value on jump queue, exiting pause spin lock")
+                        break
 
+                    sleep(0.1)
+                #######################################################
+                if not self._jump_q.empty():
+                    self.frame_index = self._jump_q.get()
+                    logger.info(f"Setting port {self.port} capture object to frame index {self.frame_index}")
+                    self.capture.set(cv2.CAP_PROP_POS_FRAMES, self.frame_index)
+            except Exception:
+                logger.exception(f"RecordedStream worker loop crashed at port {self.port}")
+                break

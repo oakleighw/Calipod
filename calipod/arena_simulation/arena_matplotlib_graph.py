@@ -6,24 +6,25 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
-    QRadioButton,
-    QButtonGroup,
-    QCheckBox,
 )
-from scipy.spatial import ConvexHull, QhullError
 from scipy.optimize import linprog
+from scipy.spatial import ConvexHull, QhullError
 
-from calipod.core import logger as calipod_logger
 from calipod.arena_simulation.arena_overlap import (
     get_camera_world_frustum_geometry,
     halfspaces_from_convex_mesh,
     intersection_vertices_from_halfspaces,
 )
+from calipod.core import logger as calipod_logger
+from calipod.core.camera_colours import camera_rgba
 
 logger = calipod_logger.get(__name__)
 
@@ -50,8 +51,8 @@ class ArenaMatplotlibGraphWindow(QWidget):
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
             from matplotlib.figure import Figure
             from matplotlib.lines import Line2D
-            from mpl_toolkits.mplot3d.art3d import Poly3DCollection
             from matplotlib.patches import Patch
+            from mpl_toolkits.mplot3d.art3d import Poly3DCollection
         except ImportError:
             logger.error("Matplotlib not available; cannot create arena graph popup.")
             return
@@ -207,12 +208,18 @@ class ArenaMatplotlibGraphWindow(QWidget):
     def _cube_triangle_indices() -> list[tuple[int, int, int]]:
         """Return 12 triangles for cube faces."""
         return [
-            (0, 1, 2), (0, 2, 3),  # bottom
-            (4, 5, 6), (4, 6, 7),  # top
-            (0, 1, 5), (0, 5, 4),  # front
-            (1, 2, 6), (1, 6, 5),  # right
-            (2, 3, 7), (2, 7, 6),  # back
-            (3, 0, 4), (3, 4, 7),  # left
+            (0, 1, 2),
+            (0, 2, 3),  # bottom
+            (4, 5, 6),
+            (4, 6, 7),  # top
+            (0, 1, 5),
+            (0, 5, 4),  # front
+            (1, 2, 6),
+            (1, 6, 5),  # right
+            (2, 3, 7),
+            (2, 7, 6),  # back
+            (3, 0, 4),
+            (3, 4, 7),  # left
         ]
 
     def _largest_axis_aligned_cube_from_hull(self, hull: ConvexHull) -> dict | None:
@@ -251,9 +258,18 @@ class ArenaMatplotlibGraphWindow(QWidget):
     def _cube_measurements(self, cube_vertices: np.ndarray) -> tuple[list[dict], list[dict]]:
         """Build edge and vertex measurements for the axis-aligned cube."""
         edges = [
-            (0, 1), (1, 2), (2, 3), (3, 0),
-            (4, 5), (5, 6), (6, 7), (7, 4),
-            (0, 4), (1, 5), (2, 6), (3, 7),
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4),
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7),
         ]
 
         edge_measurements = []
@@ -271,8 +287,7 @@ class ArenaMatplotlibGraphWindow(QWidget):
             )
 
         vertex_measurements = [
-            {"id": vertex_id, "point": cube_vertices[vertex_id], "angle_deg": 90.0}
-            for vertex_id in range(8)
+            {"id": vertex_id, "point": cube_vertices[vertex_id], "angle_deg": 90.0} for vertex_id in range(8)
         ]
         return edge_measurements, vertex_measurements
 
@@ -329,7 +344,10 @@ class ArenaMatplotlibGraphWindow(QWidget):
         if view_mode == "all":
             camera_colors = self._state("camera_colors", {})
             for camera_index in range(int(self._state("camera_count", 0))):
-                color = camera_colors.get(camera_index, (0.3, 0.3, 0.3, 1.0))
+                color = camera_colors.get(
+                    camera_index,
+                    camera_rgba(camera_index, int(self._state("camera_count", 0))),
+                )
                 rgb = tuple(color[:3])
                 handles.append(
                     self.Patch(facecolor=rgb, edgecolor=rgb, alpha=0.35, label=f"Camera {camera_index + 1} Frustum")
@@ -346,12 +364,22 @@ class ArenaMatplotlibGraphWindow(QWidget):
                         label=f"Camera {camera_index + 1} Optical Centre",
                     )
                 )
-            handles.append(self.Patch(facecolor=(1.0, 1.0, 1.0), edgecolor=(0.0, 0.0, 0.0), alpha=0.35, label="Intersection"))
+            handles.append(
+                self.Patch(facecolor=(1.0, 1.0, 1.0), edgecolor=(0.0, 0.0, 0.0), alpha=0.35, label="Intersection")
+            )
         elif view_mode == "intersection_only":
-            handles.append(self.Patch(facecolor=(1.0, 1.0, 1.0), edgecolor=(0.0, 0.0, 0.0), alpha=0.35, label="Intersection Mesh"))
+            handles.append(
+                self.Patch(facecolor=(1.0, 1.0, 1.0), edgecolor=(0.0, 0.0, 0.0), alpha=0.35, label="Intersection Mesh")
+            )
         else:
-            handles.append(self.Patch(facecolor=(1.0, 1.0, 1.0), edgecolor=(0.0, 0.0, 0.0), alpha=0.30, label="Intersection Mesh"))
-            handles.append(self.Patch(facecolor=(0.65, 0.90, 1.0), edgecolor=(0.1, 0.4, 0.6), alpha=0.45, label="Largest Fitting Cube"))
+            handles.append(
+                self.Patch(facecolor=(1.0, 1.0, 1.0), edgecolor=(0.0, 0.0, 0.0), alpha=0.30, label="Intersection Mesh")
+            )
+            handles.append(
+                self.Patch(
+                    facecolor=(0.65, 0.90, 1.0), edgecolor=(0.1, 0.4, 0.6), alpha=0.45, label="Largest Fitting Cube"
+                )
+            )
         return handles
 
     @staticmethod
@@ -383,7 +411,7 @@ class ArenaMatplotlibGraphWindow(QWidget):
 
         all_points = []
         scaling_points = []  # Points used for scaling even if not rendered
-        
+
         # Compute camera frustum geometry (render only if "all" mode, always use for scaling)
         for camera_index in range(max(0, camera_count)):
             verts_scene, faces = get_camera_world_frustum_geometry(
@@ -396,11 +424,11 @@ class ArenaMatplotlibGraphWindow(QWidget):
             )
             verts_mm = verts_scene / max(mm_to_scene_scale, 1e-12)
             scaling_points.append(verts_mm)
-            
+
             if self.view_mode == "all":
                 all_points.append(verts_mm)
                 tris = [[verts_mm[face[0]], verts_mm[face[1]], verts_mm[face[2]]] for face in faces]
-                cam_color = camera_colors.get(camera_index, (0.4, 0.4, 0.4, 1.0))
+                cam_color = camera_colors.get(camera_index, camera_rgba(camera_index, camera_count))
                 poly = self.Poly3DCollection(
                     tris,
                     alpha=0.22,
@@ -464,9 +492,7 @@ class ArenaMatplotlibGraphWindow(QWidget):
                             fontsize=7,
                             color="#1f77b4",
                         )
-                        measurement_lines.append(
-                            f"  {edge_tag}: {edge['length_mm']:.2f} mm"
-                        )
+                        measurement_lines.append(f"  {edge_tag}: {edge['length_mm']:.2f} mm")
 
                     for vertex in vertex_measurements:
                         point = vertex["point"]
@@ -479,9 +505,7 @@ class ArenaMatplotlibGraphWindow(QWidget):
                             fontsize=7,
                             color="#d62728",
                         )
-                        measurement_lines.append(
-                            f"  {vertex_tag}: {vertex['angle_deg']:.1f} deg"
-                        )
+                        measurement_lines.append(f"  {vertex_tag}: {vertex['angle_deg']:.1f} deg")
 
         if self.view_mode == "largest_cube":
             best_cube = None
@@ -495,8 +519,7 @@ class ArenaMatplotlibGraphWindow(QWidget):
             if best_cube is not None:
                 cube_vertices = best_cube["vertices"]
                 cube_tris = [
-                    [cube_vertices[a], cube_vertices[b], cube_vertices[c]]
-                    for a, b, c in self._cube_triangle_indices()
+                    [cube_vertices[a], cube_vertices[b], cube_vertices[c]] for a, b, c in self._cube_triangle_indices()
                 ]
                 cube_poly = self.Poly3DCollection(
                     cube_tris,
@@ -525,9 +548,7 @@ class ArenaMatplotlibGraphWindow(QWidget):
                             fontsize=7,
                             color="#1f77b4",
                         )
-                        measurement_lines.append(
-                            f"  {edge_tag}: {edge['length_mm']:.2f} mm"
-                        )
+                        measurement_lines.append(f"  {edge_tag}: {edge['length_mm']:.2f} mm")
 
                     for vertex in vertex_measurements:
                         point = vertex["point"]
@@ -540,14 +561,12 @@ class ArenaMatplotlibGraphWindow(QWidget):
                             fontsize=7,
                             color="#d62728",
                         )
-                        measurement_lines.append(
-                            f"  {vertex_tag}: {vertex['angle_deg']:.1f} deg"
-                        )
+                        measurement_lines.append(f"  {vertex_tag}: {vertex['angle_deg']:.1f} deg")
 
         self.ax.set_xlabel("X (mm)")
         self.ax.set_ylabel("Y (mm)")
         self.ax.set_zlabel("Z (mm)")
-        
+
         if self.view_mode == "all":
             self.ax.set_title("Arena Simulation Frustum Layout")
         elif self.view_mode == "intersection_only":
@@ -613,5 +632,3 @@ class ArenaMatplotlibGraphWindow(QWidget):
             logger.info(f"Saved arena graph image to {file_path}")
         except Exception as e:
             logger.error(f"Failed to save arena graph image: {e}")
-
-

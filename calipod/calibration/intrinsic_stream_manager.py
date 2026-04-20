@@ -1,11 +1,11 @@
 from pathlib import Path
 from time import sleep
 
-from calipod.core import logger as calipod_logger
 from calipod.calibration.intrinsic_calibrator import IntrinsicCalibrator
 from calipod.cameras.camera_array import CameraData
-from calipod.gui.frame_emitters.playback_frame_emitter import PlaybackFrameEmitter
+from calipod.core import logger as calipod_logger
 from calipod.core.packets import Tracker
+from calipod.gui.frame_emitters.playback_frame_emitter import PlaybackFrameEmitter
 from calipod.recording.recorded_stream import RecordedStream
 from calipod.trackers.charuco_tracker import CharucoTracker
 

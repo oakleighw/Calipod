@@ -54,5 +54,3 @@ def cv2_to_qlabel(frame):
         QImage.Format.Format_RGB888,
     )
     return qt_frame
-
-

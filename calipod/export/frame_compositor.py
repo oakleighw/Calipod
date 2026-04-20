@@ -3,8 +3,8 @@
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
 import cv2
+import numpy as np
 from PySide6.QtWidgets import QApplication
 
 from calipod.core import logger as calipod_logger
@@ -14,17 +14,17 @@ logger = calipod_logger.get(__name__)
 
 class FrameCompositor:
     """Composes and resizes video frames for split-screen and comparison videos."""
-    
+
     @staticmethod
     def resize_and_center_crop(frame: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
         """
         Resize with aspect ratio preservation and center-crop/pad to target size.
-        
+
         Args:
             frame: Input BGR image
             target_w: Target width in pixels
             target_h: Target height in pixels
-            
+
         Returns:
             Resized and cropped frame
         """
@@ -39,24 +39,24 @@ class FrameCompositor:
             # Crop width
             new_w = int(h * target_aspect)
             x0 = max((w - new_w) // 2, 0)
-            frame = frame[:, x0:x0 + new_w]
+            frame = frame[:, x0 : x0 + new_w]
         elif src_aspect < target_aspect:
             # Crop height
             new_h = int(w / target_aspect)
             y0 = max((h - new_h) // 2, 0)
-            frame = frame[y0:y0 + new_h, :]
+            frame = frame[y0 : y0 + new_h, :]
 
         return cv2.resize(frame, (target_w, target_h))
-    
+
     @staticmethod
     def collect_port_videos(recording_dir: Path, expected_count: int = 3) -> list[Path]:
         """
         Discover port_*.mp4 video files in directory.
-        
+
         Args:
             recording_dir: Path to directory containing port_N.mp4 files
             expected_count: Expected number of video files
-            
+
         Returns:
             Sorted list of video paths
         """
@@ -80,17 +80,17 @@ class FrameCompositor:
             return []
 
         return port_videos[:expected_count]
-    
+
     @staticmethod
     def create_quad_split_video(video_paths: list[Path], output_path: Path, framerate: Optional[int] = None):
         """
         Compose 4 videos into 2x2 grid split-screen video.
-        
+
         Args:
             video_paths: List of exactly 4 video paths (real 3, sim 1)
             output_path: Path to save combined video
             framerate: Output framerate (auto-detected if None)
-            
+
         Raises:
             ValueError: If not exactly 4 video paths provided
             IOError: If video opening/writing fails
@@ -151,8 +151,9 @@ class FrameCompositor:
 
             # Resize first 3 (real) with simple resize, crop only the 4th (sim)
             resized_frames = [
-                cv2.resize(frames[i], (quad_width, quad_height)) if i < 3 
-                else FrameCompositor.resize_and_center_crop(frames[i], quad_width, quad_height) 
+                cv2.resize(frames[i], (quad_width, quad_height))
+                if i < 3
+                else FrameCompositor.resize_and_center_crop(frames[i], quad_width, quad_height)
                 for i in range(4)
             ]
             top_row = np.hstack((resized_frames[0], resized_frames[1]))
@@ -161,17 +162,17 @@ class FrameCompositor:
 
             out.write(combined_frame)
             frame_count += 1
-            
+
             if frame_count % 30 == 0:
                 QApplication.processEvents()
 
         logger.info(f"Finished processing {frame_count} frames, finalizing video file...")
         QApplication.processEvents()
-        
+
         for cap in caps:
             cap.release()
         out.release()
-        
+
         QApplication.processEvents()
 
         if frame_count == 0:
@@ -183,22 +184,20 @@ class FrameCompositor:
                     pass
             return
 
-        logger.info(
-            f"Combined video saved to: {output_path} ({frame_count} frames at {target_fps} fps)"
-        )
-    
+        logger.info(f"Combined video saved to: {output_path} ({frame_count} frames at {target_fps} fps)")
+
     @staticmethod
     def create_quad_split_video_streaming(
-        port_video_paths: list[Path], 
-        render_callback, 
-        start_frame: int, 
-        end_frame: int, 
+        port_video_paths: list[Path],
+        render_callback,
+        start_frame: int,
+        end_frame: int,
         output_path: Path,
         framerate: int = 100,
     ):
         """
         Compose port videos with on-demand sim frame rendering (streaming/low-memory).
-        
+
         Args:
             port_video_paths: List of exactly 3 port video paths
             render_callback: Callable(frame_index) -> np.ndarray for sim frame rendering
@@ -206,7 +205,7 @@ class FrameCompositor:
             end_frame: End frame index
             output_path: Path to save combined video
             framerate: Output framerate
-            
+
         Raises:
             ValueError: If not exactly 3 video paths provided
             IOError: If video opening fails
@@ -245,23 +244,33 @@ class FrameCompositor:
         # Use FFmpeg for compressed output via pipe
         ffmpeg_cmd = [
             "ffmpeg",
-            "-f", "rawvideo",
-            "-pix_fmt", "bgr24",
-            "-s", f"{output_resolution[0]}x{output_resolution[1]}",
-            "-r", str(framerate),
-            "-i", "-",
-            "-c:v", "libx264",
-            "-b:v", "8000k",
-            "-preset", "medium",
-            "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            f"{output_resolution[0]}x{output_resolution[1]}",
+            "-r",
+            str(framerate),
+            "-i",
+            "-",
+            "-c:v",
+            "libx264",
+            "-b:v",
+            "8000k",
+            "-preset",
+            "medium",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
             "-y",
-            str(output_path)
+            str(output_path),
         ]
 
         try:
             proc = FrameCompositor._start_ffmpeg_encoder(ffmpeg_cmd)
-        except Exception as e:
+        except Exception:
             for cap in caps:
                 cap.release()
             raise
@@ -277,61 +286,52 @@ class FrameCompositor:
                         port_frames = []
                         break
                     port_frames.append(frame)
-                
+
                 if len(port_frames) < 3:
                     break
-                
+
                 # Get sim frame via callback
                 try:
                     sim_frame = render_callback(frame_idx)
                 except Exception as e:
                     logger.error(f"Failed to render frame {frame_idx}: {e}")
                     break
-                
+
                 # Compose 2x2 grid
-                resized_port = [
-                    cv2.resize(port_frames[i], (quad_width, quad_height)) 
-                    for i in range(3)
-                ]
+                resized_port = [cv2.resize(port_frames[i], (quad_width, quad_height)) for i in range(3)]
                 resized_sim = FrameCompositor.resize_and_center_crop(sim_frame, quad_width, quad_height)
-                
+
                 # Create 2x2 grid (3 real + 1 sim, sim in bottom-right)
                 top_row = np.hstack((resized_port[0], resized_port[1]))
                 bottom_row = np.hstack((resized_port[2], resized_sim))
                 combined = np.vstack((top_row, bottom_row))
-                
+
                 proc.stdin.write(combined.tobytes())
                 frame_count += 1
-                
+
                 if frame_count % 30 == 0:
                     QApplication.processEvents()
-            
+
             proc.stdin.close()
             proc.wait(timeout=300)
             logger.info(f"Streaming video composition complete: {frame_count} frames written")
-            
+
         finally:
             for cap in caps:
                 cap.release()
             try:
                 proc.terminate()
-            except:
+            except Exception:
                 pass
-    
+
     @staticmethod
     def _start_ffmpeg_encoder(ffmpeg_cmd: list[str]):
         """Start FFmpeg encoding subprocess."""
         import subprocess
+
         try:
-            proc = subprocess.Popen(
-                ffmpeg_cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             return proc
         except FileNotFoundError:
             logger.error("FFmpeg not found. Install FFmpeg or add it to PATH.")
             raise IOError("FFmpeg is required for video encoding but was not found.")
-
-

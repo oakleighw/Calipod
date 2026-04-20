@@ -5,7 +5,6 @@ from time import sleep, time
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
-from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.calibration.capture_volume.helper_functions.get_point_estimates import (
     get_point_estimates,
@@ -13,11 +12,12 @@ from calipod.calibration.capture_volume.helper_functions.get_point_estimates imp
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.capture_volume.quality_controller import QualityController
 from calipod.calibration.charuco import Charuco
+from calipod.calibration.intrinsic_stream_manager import IntrinsicStreamManager
 from calipod.calibration.stereocalibrator import StereoCalibrator
 from calipod.cameras.camera_array import CameraArray, CameraData
 from calipod.cameras.camera_array_initializer import CameraArrayInitializer
+from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
-from calipod.calibration.intrinsic_stream_manager import IntrinsicStreamManager
 from calipod.post_processing.post_processor import PostProcessor
 from calipod.synchronized_stream_manager import (
     SynchronizedStreamManager,
@@ -73,6 +73,9 @@ class Controller(QObject):
         self.workspace_guide.intrinsic_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.extrinsic_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.recording_dir.mkdir(exist_ok=True, parents=True)
+        self.workspace_guide.annotations_dir.mkdir(exist_ok=True, parents=True)
+        self.workspace_guide.ground_truth_dir.mkdir(exist_ok=True, parents=True)
+        self.workspace_guide.predictions_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.arena_sim_dir.mkdir(exist_ok=True, parents=True)
 
         self.capture_volume = None
@@ -141,6 +144,12 @@ class Controller(QObject):
 
     def recordings_available(self) -> bool:
         return len(self.workspace_guide.valid_recording_dirs()) > 0
+
+    def annotations_available(self) -> bool:
+        return len(self.workspace_guide.valid_annotation_dirs()) > 0
+
+    def get_annotation_summary(self) -> str:
+        return self.workspace_guide.valid_annotation_dir_text()
 
     def get_charuco_params(self) -> dict:
         return self.config.dict["charuco"]
@@ -374,7 +383,7 @@ class Controller(QObject):
 
             self.quality_controller = QualityController(self.capture_volume, self.charuco)
 
-            logger.info(f"Removing the worst fitting {FILTERED_FRACTION*100} percent of points from the model")
+            logger.info(f"Removing the worst fitting {FILTERED_FRACTION * 100} percent of points from the model")
             self.quality_controller.filter_point_estimates(FILTERED_FRACTION)
             self.capture_volume.optimize()
 
@@ -386,7 +395,7 @@ class Controller(QObject):
         self.calibrate_capture_volume_thread.finished.connect(self.capture_volume_calibrated.emit)
         self.calibrate_capture_volume_thread.start()
 
-    def process_recordings(self, recording_path: Path,  tracker_enum: TrackerEnum):
+    def process_recordings(self, recording_path: Path, tracker_enum: TrackerEnum):
         """
         Initiates worker thread to begin post processing.
         TrackerEnum passed in so that access is given to both the tracker and the name
@@ -396,8 +405,11 @@ class Controller(QObject):
         def worker():
             logger.info(f"Beginning to process video files at {recording_path}")
             logger.info(f"Creating post processor for {recording_path}")
-            annotations_path = self.workspace_guide.annotations_dir
-            self.post_processor = PostProcessor(self.camera_array, recording_path, annotations_path, tracker_enum)
+            ground_truth_path = self.workspace_guide.ground_truth_dir
+            predictions_path = self.workspace_guide.predictions_dir
+            self.post_processor = PostProcessor(
+                self.camera_array, recording_path, ground_truth_path, predictions_path, tracker_enum
+            )
 
             # config settings that help to throttle processing rate to manage resource demands
             include_video = self.config.get_save_tracked_points()
@@ -464,5 +476,3 @@ class Controller(QObject):
         self.autocalibrate_threads[port] = QThread()
         self.autocalibrate_threads[port].run = worker
         self.autocalibrate_threads[port].start()
-
-

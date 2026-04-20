@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDoubleSpinBox, QHBoxLayout, QLabel, QAbstractSpinBox
+from PySide6.QtWidgets import QAbstractSpinBox, QDoubleSpinBox, QHBoxLayout, QLabel
 
 
 def calculate_spinbox_width(spin_box, min_width=None, padding=None):
@@ -28,8 +28,7 @@ def calculate_spinbox_width(spin_box, min_width=None, padding=None):
         min_str = str(spin_box.maximum())
 
     # Get width of the longest possible string
-    max_width = max(fm.horizontalAdvance(max_str),
-                   fm.horizontalAdvance(min_str))
+    max_width = max(fm.horizontalAdvance(max_str), fm.horizontalAdvance(min_str))
 
     # Add space for spin arrows and frame
     if padding is None:
@@ -42,6 +41,7 @@ def calculate_spinbox_width(spin_box, min_width=None, padding=None):
         width = max(width, min_width)
 
     return width
+
 
 def setup_spinbox_sizing(spin_box, centered=True, min_value=None, max_value=None, min_width=None, padding=None):
     """
@@ -66,11 +66,12 @@ def setup_spinbox_sizing(spin_box, centered=True, min_value=None, max_value=None
 
     return width
 
+
 # Helper function to create a labeled spinbox row
 def create_labeled_spinbox_row(parent_layout, label_text, min_value, max_value, decimals=2, max_width=130):
     """
     Create and add a labeled spinbox row to a layout.
-    
+
     Args:
         parent_layout: QLayout to add the row to (typically QVBoxLayout)
         label_text: Text for the label
@@ -78,7 +79,7 @@ def create_labeled_spinbox_row(parent_layout, label_text, min_value, max_value, 
         max_value: Maximum value for spinbox
         decimals: Number of decimal places (default 2)
         max_width: Maximum width in pixels (default 130)
-    
+
     Returns:
         The configured QDoubleSpinBox
     """
@@ -94,4 +95,3 @@ def create_labeled_spinbox_row(parent_layout, label_text, min_value, max_value, 
     h_box.addStretch()
     parent_layout.addLayout(h_box)
     return spinbox
-

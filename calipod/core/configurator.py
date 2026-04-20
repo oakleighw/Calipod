@@ -10,12 +10,12 @@ import cv2
 import numpy as np
 import rtoml
 
-from calipod.core import logger as calipod_logger
 from calipod.calibration.capture_volume.capture_volume import CaptureVolume
 from calipod.calibration.capture_volume.point_estimates import PointEstimates
 from calipod.calibration.charuco import Charuco
 from calipod.cameras.camera import Camera
 from calipod.cameras.camera_array import CameraArray, CameraData
+from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
 
@@ -204,7 +204,7 @@ class Configurator:
         # if you come across this in mid 2025 or later, these may be safe to delete
         logger.info(f"charuco param are: {params}:")
         if "legacy_pattern" not in params.keys():
-            params["legacy_pattern"]=False
+            params["legacy_pattern"] = False
 
         charuco = Charuco(
             columns=params["columns"],
@@ -216,7 +216,7 @@ class Configurator:
             aruco_scale=params["aruco_scale"],
             square_size_overide_cm=params["square_size_overide_cm"],
             inverted=params["inverted"],
-            legacy_pattern=params["legacy_pattern"]
+            legacy_pattern=params["legacy_pattern"],
         )
 
         return charuco
@@ -341,5 +341,3 @@ if __name__ == "__main__":
     config = Configurator(session_path)
 
 # %%
-
-

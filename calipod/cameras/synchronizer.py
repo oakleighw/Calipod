@@ -274,5 +274,3 @@ class Synchronizer:
             self.fps_mean = self.average_fps()
 
         logger.info("Frame synch worker successfully ended")
-
-

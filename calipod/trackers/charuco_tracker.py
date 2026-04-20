@@ -5,7 +5,6 @@
 import cv2
 import numpy as np
 
-import calipod.calibration.draw_charuco
 from calipod.core import logger as calipod_logger
 from calipod.core.packets import PointPacket
 from calipod.tracker import Tracker
@@ -24,6 +23,20 @@ class CharucoTracker(Tracker):
         # for subpixel corner correction
         self.criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.0001)
         self.conv_size = (11, 11)  # Don't make this too large.
+
+        # OpenCV ArUco APIs differ across versions.
+        # Newer versions (e.g., 4.11) use detector classes rather than module functions.
+        self._has_legacy_aruco_api = hasattr(cv2.aruco, "detectMarkers") and hasattr(
+            cv2.aruco, "interpolateCornersCharuco"
+        )
+        self._has_detector_api = hasattr(cv2.aruco, "ArucoDetector") and hasattr(cv2.aruco, "CharucoDetector")
+
+        self.aruco_detector = None
+        self.charuco_detector = None
+        if self._has_detector_api:
+            detector_params = cv2.aruco.DetectorParameters()
+            self.aruco_detector = cv2.aruco.ArucoDetector(self.dictionary_object, detector_params)
+            self.charuco_detector = cv2.aruco.CharucoDetector(self.board)
 
     @property
     def name(self):
@@ -62,39 +75,65 @@ class CharucoTracker(Tracker):
         ids = np.array([])
         img_loc = np.array([])
 
-        # detect if aruco markers are present
-        aruco_corners, aruco_ids, rejected = cv2.aruco.detectMarkers(gray_frame, self.dictionary_object)
+        if self._has_legacy_aruco_api:
+            # detect if aruco markers are present
+            aruco_corners, aruco_ids, _rejected = cv2.aruco.detectMarkers(gray_frame, self.dictionary_object)
 
-        # if so, then interpolate to the Charuco Corners and return what you found
-        if len(aruco_corners) > 3:
-            (
-                success,
-                _img_loc,
-                _ids,
-            ) = cv2.aruco.interpolateCornersCharuco(aruco_corners, aruco_ids, gray_frame, self.board)
-
-            # This occasionally errors out...
-            # only offers possible refinement so if it fails, just move along
-            try:
-                _img_loc = cv2.cornerSubPix(
-                    gray_frame,
+            # if so, then interpolate to the Charuco Corners and return what you found
+            if len(aruco_corners) > 3:
+                (
+                    success,
                     _img_loc,
-                    self.conv_size,
-                    (-1, -1),
-                    self.criteria,
-                )
-            except Exception as e:
-                logger.debug(f"Sub pixel detection failed: {e}")
+                    _ids,
+                ) = cv2.aruco.interpolateCornersCharuco(aruco_corners, aruco_ids, gray_frame, self.board)
 
-            if success:
-                # assign to tracker
+                # This occasionally errors out...
+                # only offers possible refinement so if it fails, just move along
+                try:
+                    _img_loc = cv2.cornerSubPix(
+                        gray_frame,
+                        _img_loc,
+                        self.conv_size,
+                        (-1, -1),
+                        self.criteria,
+                    )
+                except Exception as e:
+                    logger.debug(f"Sub pixel detection failed: {e}")
+
+                if success:
+                    # assign to tracker
+                    ids = _ids[:, 0]
+                    img_loc = _img_loc[:, 0]
+
+        elif self._has_detector_api:
+            # OpenCV >= 4.10 detector-class API
+            _img_loc, _ids, _marker_corners, _marker_ids = self.charuco_detector.detectBoard(gray_frame)
+
+            if _img_loc is not None and _ids is not None and len(_ids) > 0:
+                # This occasionally errors out...
+                # only offers possible refinement so if it fails, just move along
+                try:
+                    _img_loc = cv2.cornerSubPix(
+                        gray_frame,
+                        _img_loc,
+                        self.conv_size,
+                        (-1, -1),
+                        self.criteria,
+                    )
+                except Exception as e:
+                    logger.debug(f"Sub pixel detection failed: {e}")
+
                 ids = _ids[:, 0]
                 img_loc = _img_loc[:, 0]
 
-                # flip coordinates if mirrored image fed in
-                frame_width = gray_frame.shape[1]  # used for flipping mirrored corners back
-                if mirror:
-                    img_loc[:, 0] = frame_width - img_loc[:, 0]
+        else:
+            logger.error("No compatible OpenCV ArUco API found for Charuco detection")
+
+        # flip coordinates if mirrored image fed in
+        if len(ids) > 0:
+            frame_width = gray_frame.shape[1]  # used for flipping mirrored corners back
+            if mirror:
+                img_loc[:, 0] = frame_width - img_loc[:, 0]
 
         return ids, img_loc
 
@@ -111,6 +150,3 @@ class CharucoTracker(Tracker):
     def scatter_draw_instructions(self, point_id: int) -> dict:
         rules = {"radius": 5, "color": (0, 0, 220), "thickness": 3}
         return rules
-
-
-
