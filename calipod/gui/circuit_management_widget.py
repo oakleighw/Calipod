@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QComboBox, QGridLayout, QHBoxLayout, QLabel, QSize
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.styles import create_styled_groupbox, resolve_camera_title_color
-from circuit_management.connector_preview_renderer import render_connector_preview_frame
 from circuit_management.config_manager import CircuitManagementConfigManager
+from circuit_management.connector_preview_renderer import render_connector_preview_frame
 
 logger = calipod_logger.get(__name__)
 
@@ -87,7 +87,10 @@ class CircuitManagementWidget(QWidget):
         self.setLayout(QVBoxLayout())
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.top_vbox = QVBoxLayout()
-        self.bottom_vbox = QVBoxLayout()
+
+        self.bottom_vbox = QHBoxLayout()
+        self.bottom_left_vbox = QVBoxLayout()
+        self.bottom_right_vbox = QVBoxLayout()
 
         self.bottom_container = QWidget()
         self.bottom_container.setLayout(self.bottom_vbox)
@@ -95,9 +98,13 @@ class CircuitManagementWidget(QWidget):
 
         self.wire_labeling_widget()
         self.triggerbox_test_widget()
+        self.timing_test_widget()
+
+        self.bottom_vbox.addLayout(self.bottom_left_vbox)
+        self.bottom_vbox.addLayout(self.bottom_right_vbox)
 
         self.layout().addLayout(self.top_vbox, stretch=1)
-        self.layout().addLayout(self.bottom_vbox, stretch=1)
+        self.layout().addWidget(self.bottom_container, stretch=1)
 
     def wire_labeling_widget(self):
         wire_label_group, wire_label_layout = create_styled_groupbox("Wire Labeling")
@@ -290,8 +297,17 @@ class CircuitManagementWidget(QWidget):
 
     def triggerbox_test_widget(self):
         triggerbox_test_group, triggerbox_test_layout = create_styled_groupbox("Trigger Box Testing")
-        triggerbox_test_layout.addWidget(QLabel("Coming Soon!"))
-        self.top_vbox.addWidget(triggerbox_test_group)
+        triggerbox_test_layout.addWidget(QLabel("Coming Soon -" \
+        " This widget will ping the PI or other triggering device for a connection."))
+        self.bottom_left_vbox.addWidget(triggerbox_test_group)
+
+
+    def timing_test_widget(self):
+        timing_test_group, timing_test_layout = create_styled_groupbox("Timing Testing")
+        timing_test_layout.addWidget(QLabel("Coming Soon - " \
+        "This widget will allow users to test for syncronised" \
+        " frame aquisition of the camera setup for temporal alignment."))
+        self.bottom_right_vbox.addWidget(timing_test_group)
 
     def _camera_selection_entries(self) -> list[tuple[int, str]]:
         camera_array = getattr(self.controller, "camera_array", None)
