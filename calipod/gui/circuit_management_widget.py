@@ -2,13 +2,15 @@
 
 from pathlib import Path
 
+import cv2
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import QComboBox, QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.styles import create_styled_groupbox, resolve_camera_title_color
+from circuit_management.connector_preview_renderer import render_connector_preview_frame
 from circuit_management.config_manager import CircuitManagementConfigManager
 
 logger = calipod_logger.get(__name__)
@@ -77,6 +79,7 @@ class CircuitManagementWidget(QWidget):
         self.controller = controller
         self.config_manager = CircuitManagementConfigManager(controller.workspace)
         self.current_camera_port: int | None = None
+        self._is_loading_camera_data = False
         self.place_widgets()
         self._load_initial_camera_data()
 
@@ -151,15 +154,30 @@ class CircuitManagementWidget(QWidget):
             self.connector_preview.setPixmap(QPixmap())
             return
 
-        pixmap = QPixmap(str(image_path))
-        if pixmap.isNull():
+        row_count = CONNECTOR_PIN_COUNTS.get(connector_name, 0)
+        wire_colours = {
+            row_index: self.connector_row_widgets[row_index - 1][2].currentData()
+            for row_index in range(1, row_count + 1)
+        }
+        try:
+            rendered_frame = render_connector_preview_frame(image_path, connector_name, wire_colours)
+        except FileNotFoundError:
             self.connector_preview.setText("Connector image not found")
             self.connector_preview.setPixmap(QPixmap())
             return
 
+        rendered_frame = cv2.cvtColor(rendered_frame, cv2.COLOR_BGRA2RGBA)
+        qimage = QImage(
+            rendered_frame.data,
+            rendered_frame.shape[1],
+            rendered_frame.shape[0],
+            rendered_frame.strides[0],
+            QImage.Format.Format_RGBA8888,
+        ).copy()
+
         self.connector_preview.setText("")
         self.connector_preview.setPixmap(
-            pixmap.scaled(
+            QPixmap.fromImage(qimage).scaled(
                 320,
                 220,
                 Qt.AspectRatioMode.KeepAspectRatio,
@@ -319,6 +337,7 @@ class CircuitManagementWidget(QWidget):
         if self.current_camera_port is None:
             return
 
+        self._is_loading_camera_data = True
         # Block signals to prevent triggering save operations during load
         self.connector_selector.blockSignals(True)
 
@@ -339,7 +358,6 @@ class CircuitManagementWidget(QWidget):
             connector_name = self.connector_selector.currentData()
             row_count = CONNECTOR_PIN_COUNTS.get(connector_name, 0)
             self._set_connector_table_visible_rows(row_count)
-            self._update_preview_image()
 
             # Load wire row data
             wire_rows = self.config_manager.get_all_wire_rows(self.current_camera_port)
@@ -378,11 +396,18 @@ class CircuitManagementWidget(QWidget):
                 colour_combo.blockSignals(False)
                 # Apply styling to show the selected color
                 self._update_colour_combo_style(colour_combo)
+
+            # Re-render preview after table values for this camera are loaded.
+            self._update_preview_image()
         finally:
             self.connector_selector.blockSignals(False)
+            self._is_loading_camera_data = False
 
     def _on_connector_changed(self, index: int) -> None:
         """Save connector type when changed and preserve applicable wire row values."""
+        if self._is_loading_camera_data:
+            return
+
         if self.current_camera_port is None:
             return
 
@@ -411,6 +436,9 @@ class CircuitManagementWidget(QWidget):
 
     def _on_table_data_changed(self, row_index: int) -> None:
         """Save wire row data when changed."""
+        if self._is_loading_camera_data:
+            return
+
         if self.current_camera_port is None:
             return
 
@@ -427,3 +455,4 @@ class CircuitManagementWidget(QWidget):
             wire_type or "",
             colour_hex or "",
         )
+        self._update_preview_image()
