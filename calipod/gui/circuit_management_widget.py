@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QComboBox, QGridLayout, QHBoxLayout, QLabel, QSize
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.styles import create_styled_groupbox, resolve_camera_title_color
+from circuit_management.config_manager import CircuitManagementConfigManager
 
 logger = calipod_logger.get(__name__)
 
@@ -74,7 +75,10 @@ class CircuitManagementWidget(QWidget):
     def __init__(self, controller: Controller):
         super(CircuitManagementWidget, self).__init__()
         self.controller = controller
+        self.config_manager = CircuitManagementConfigManager(controller.workspace)
+        self.current_camera_port: int | None = None
         self.place_widgets()
+        self._load_initial_camera_data()
 
     def place_widgets(self):
         self.setLayout(QVBoxLayout())
@@ -100,10 +104,13 @@ class CircuitManagementWidget(QWidget):
             combo_index = self.wire_camera_selector.count() - 1
             self.wire_camera_selector.setItemData(combo_index, QColor(color), Qt.ItemDataRole.ForegroundRole)
 
+        self.wire_camera_selector.currentIndexChanged.connect(self._on_camera_selection_changed)
+
         self.connector_selector = QComboBox()
         for connector_name in CONNECTOR_IMAGE_PATHS:
             self.connector_selector.addItem(connector_name, userData=connector_name)
         self.connector_selector.currentIndexChanged.connect(self._update_connector_preview)
+        self.connector_selector.currentIndexChanged.connect(self._on_connector_changed)
 
         self.connector_preview = QLabel()
         self.connector_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -132,8 +139,12 @@ class CircuitManagementWidget(QWidget):
         connector_name = self.connector_selector.currentData()
         row_count = CONNECTOR_PIN_COUNTS.get(connector_name, 0)
         self._set_connector_table_visible_rows(row_count)
+        self._update_preview_image()
         self._refresh_wire_type_dropdowns()
 
+    def _update_preview_image(self) -> None:
+        """Update the preview image for the current connector."""
+        connector_name = self.connector_selector.currentData()
         image_path = CONNECTOR_IMAGE_PATHS.get(connector_name)
         if image_path is None or not image_path.exists():
             self.connector_preview.setText("Connector image not found")
@@ -168,8 +179,14 @@ class CircuitManagementWidget(QWidget):
             wire_type_combo = QComboBox()
             colour_combo = QComboBox()
             wire_type_combo.currentIndexChanged.connect(self._on_wire_type_changed)
+            wire_type_combo.currentIndexChanged.connect(
+                lambda _index, row_idx=row: self._on_table_data_changed(row_idx)
+            )
             colour_combo.currentIndexChanged.connect(
                 lambda _index, combo=colour_combo: self._on_colour_selection_changed(combo)
+            )
+            colour_combo.currentIndexChanged.connect(
+                lambda _index, row_idx=row: self._on_table_data_changed(row_idx)
             )
 
             self._populate_colour_dropdown(colour_combo)
@@ -279,3 +296,134 @@ class CircuitManagementWidget(QWidget):
                 )
             )
         return entries
+
+    def _load_initial_camera_data(self) -> None:
+        """Load data for the first camera when widget initializes."""
+        if self.wire_camera_selector.count() > 0:
+            self.wire_camera_selector.setCurrentIndex(0)
+            self._on_camera_selection_changed(0)
+
+    def _on_camera_selection_changed(self, index: int) -> None:
+        """Handle camera selection change by loading saved data."""
+        if index < 0:
+            return
+
+        self.current_camera_port = self.wire_camera_selector.itemData(index)
+        if self.current_camera_port is None:
+            return
+
+        self._load_camera_data()
+
+    def _load_camera_data(self) -> None:
+        """Load all saved data for the current camera."""
+        if self.current_camera_port is None:
+            return
+
+        # Block signals to prevent triggering save operations during load
+        self.connector_selector.blockSignals(True)
+
+        try:
+            # Load connector type - use current selection if none is saved
+            connector_type = self.config_manager.get_connector_type(self.current_camera_port)
+            if connector_type:
+                index = self.connector_selector.findData(connector_type)
+                if index >= 0:
+                    self.connector_selector.setCurrentIndex(index)
+            else:
+                # No saved connector type - save the currently selected one as default
+                current_connector = self.connector_selector.currentData()
+                if current_connector:
+                    self.config_manager.set_connector_type(self.current_camera_port, current_connector)
+
+            # Update visible rows and preview based on current connector
+            connector_name = self.connector_selector.currentData()
+            row_count = CONNECTOR_PIN_COUNTS.get(connector_name, 0)
+            self._set_connector_table_visible_rows(row_count)
+            self._update_preview_image()
+
+            # Load wire row data
+            wire_rows = self.config_manager.get_all_wire_rows(self.current_camera_port)
+            for row_index, row_widgets in enumerate(self.connector_row_widgets, start=1):
+                row_key = str(row_index)
+                row_data = wire_rows.get(row_key, {})
+                wire_type = row_data.get("wire_type", "")
+                colour = row_data.get("colour", "")
+
+                port_label, wire_type_combo, colour_combo = row_widgets
+
+                # Set wire type
+                wire_type_combo.blockSignals(True)
+                wire_type_combo.clear()
+                # Add all available options for this connector
+                connector_name = self.connector_selector.currentData()
+                options = WIRE_TYPE_OPTIONS.get(connector_name, [])
+                wire_type_combo.addItem("")
+                for option in options:
+                    wire_type_combo.addItem(option)
+                # Set to saved value or empty
+                if wire_type and wire_type_combo.findText(wire_type) >= 0:
+                    wire_type_combo.setCurrentText(wire_type)
+                else:
+                    wire_type_combo.setCurrentIndex(0)
+                wire_type_combo.blockSignals(False)
+
+                # Set colour
+                colour_combo.blockSignals(True)
+                if colour:
+                    idx = colour_combo.findData(colour)
+                    if idx >= 0:
+                        colour_combo.setCurrentIndex(idx)
+                else:
+                    colour_combo.setCurrentIndex(0)
+                colour_combo.blockSignals(False)
+                # Apply styling to show the selected color
+                self._update_colour_combo_style(colour_combo)
+        finally:
+            self.connector_selector.blockSignals(False)
+
+    def _on_connector_changed(self, index: int) -> None:
+        """Save connector type when changed and preserve applicable wire row values."""
+        if self.current_camera_port is None:
+            return
+
+        connector_type = self.connector_selector.itemData(index)
+        if connector_type:
+            pin_count = CONNECTOR_PIN_COUNTS.get(connector_type, 0)
+
+            # First, clear all existing wire rows
+            self.config_manager.clear_all_wire_rows(self.current_camera_port)
+
+            # Then save only the rows that apply to the new connector
+            for row_index in range(1, pin_count + 1):
+                if row_index <= len(self.connector_row_widgets):
+                    port_label, wire_type_combo, colour_combo = self.connector_row_widgets[row_index - 1]
+                    wire_type = wire_type_combo.currentText()
+                    colour_hex = colour_combo.currentData()
+                    self.config_manager.set_wire_row(
+                        self.current_camera_port,
+                        row_index,
+                        wire_type or "",
+                        colour_hex or "",
+                    )
+
+            # Now update the connector type
+            self.config_manager.set_connector_type(self.current_camera_port, connector_type)
+
+    def _on_table_data_changed(self, row_index: int) -> None:
+        """Save wire row data when changed."""
+        if self.current_camera_port is None:
+            return
+
+        if row_index < 1 or row_index > len(self.connector_row_widgets):
+            return
+
+        port_label, wire_type_combo, colour_combo = self.connector_row_widgets[row_index - 1]
+        wire_type = wire_type_combo.currentText()
+        colour_hex = colour_combo.currentData()
+
+        self.config_manager.set_wire_row(
+            self.current_camera_port,
+            row_index,
+            wire_type or "",
+            colour_hex or "",
+        )
