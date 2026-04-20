@@ -40,7 +40,10 @@ class CircuitManagementConfigManager:
             self._config[camera_key] = {
                 "connector_type": None,
                 "wire_rows": {},
+                "delay_ms": None,
             }
+        elif "delay_ms" not in self._config[camera_key]:
+            self._config[camera_key]["delay_ms"] = None
         return self._config[camera_key]
 
     def set_connector_type(self, camera_port: int, connector_type: str) -> None:
@@ -102,6 +105,20 @@ class CircuitManagementConfigManager:
         camera_config = self.get_camera_config(camera_port)
         camera_config["wire_rows"] = {}
         self._save_config()
+
+    def set_delay_ms(self, camera_port: int, delay_ms: int | None) -> None:
+        """Set optional delay (in milliseconds) for a camera."""
+        camera_config = self.get_camera_config(camera_port)
+        camera_config["delay_ms"] = delay_ms
+        self._save_config()
+
+    def get_delay_ms(self, camera_port: int) -> int | None:
+        """Get optional delay (in milliseconds) for a camera."""
+        camera_config = self.get_camera_config(camera_port)
+        delay_ms = camera_config.get("delay_ms")
+        if isinstance(delay_ms, int):
+            return delay_ms
+        return None
 
     def clear_camera_config(self, camera_port: int) -> None:
         """Clear all configuration for a camera."""

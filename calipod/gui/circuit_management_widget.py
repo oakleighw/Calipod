@@ -111,6 +111,33 @@ class CircuitManagementWidget(QWidget):
         content_row.addWidget(self.connector_table_widget, stretch=3)
         content_row.addWidget(self.connector_preview, stretch=2)
         wire_label_layout.addLayout(content_row)
+
+        delay_row = QHBoxLayout()
+        delay_row.addWidget(QLabel("Delay"))
+
+        self.delay_none_radio = QRadioButton("None")
+        self.delay_custom_radio = QRadioButton()
+        self.delay_none_radio.setChecked(True)
+
+        self.delay_mode_group = QButtonGroup(self)
+        self.delay_mode_group.addButton(self.delay_none_radio)
+        self.delay_mode_group.addButton(self.delay_custom_radio)
+
+        self.delay_ms_spin = QSpinBox()
+        self.delay_ms_spin.setRange(0, 10_000_000)
+        self.delay_ms_spin.setEnabled(False)
+
+        self.delay_none_radio.toggled.connect(self._on_delay_mode_changed)
+        self.delay_custom_radio.toggled.connect(self._on_delay_mode_changed)
+        self.delay_ms_spin.valueChanged.connect(self._on_delay_value_changed)
+
+        delay_row.addWidget(self.delay_none_radio)
+        delay_row.addWidget(self.delay_custom_radio)
+        delay_row.addWidget(self.delay_ms_spin)
+        delay_row.addWidget(QLabel("ms"))
+        delay_row.addStretch(1)
+        wire_label_layout.addLayout(delay_row)
+
         self._update_connector_preview(self.connector_selector.currentIndex())
         self.top_vbox.addWidget(wire_label_group)
 
@@ -228,6 +255,23 @@ class CircuitManagementWidget(QWidget):
     def _on_wire_type_changed(self, _index: int):
         self._refresh_wire_type_dropdowns()
 
+    def _on_delay_mode_changed(self, _checked: bool) -> None:
+        self.delay_ms_spin.setEnabled(self.delay_custom_radio.isChecked())
+
+        if self._is_loading_camera_data or self.current_camera_port is None:
+            return
+
+        if self.delay_none_radio.isChecked():
+            self.config_manager.set_delay_ms(self.current_camera_port, None)
+        else:
+            self.config_manager.set_delay_ms(self.current_camera_port, self.delay_ms_spin.value())
+
+    def _on_delay_value_changed(self, _value: int) -> None:
+        if self._is_loading_camera_data or self.current_camera_port is None:
+            return
+        if self.delay_custom_radio.isChecked():
+            self.config_manager.set_delay_ms(self.current_camera_port, self.delay_ms_spin.value())
+
     def _refresh_wire_type_dropdowns(self):
         connector_name = self.connector_selector.currentData()
         row_count = CONNECTOR_PIN_COUNTS.get(connector_name, 0)
@@ -253,7 +297,7 @@ class CircuitManagementWidget(QWidget):
     def triggerbox_test_widget(self):
         triggerbox_test_group, triggerbox_test_layout = create_styled_groupbox("Trigger Box Testing")
         triggerbox_test_layout.addWidget(QLabel("Coming Soon -" \
-        " This widget will ping the PI or other triggering device for a connection."))
+        " This widget will ping the Pi or other triggering device for a connection."))
         self.bottom_left_vbox.addWidget(triggerbox_test_group)
 
 
@@ -512,6 +556,23 @@ class CircuitManagementWidget(QWidget):
 
             # Re-render preview after table values for this camera are loaded.
             self._update_preview_image()
+
+            delay_ms = self.config_manager.get_delay_ms(self.current_camera_port)
+            self.delay_none_radio.blockSignals(True)
+            self.delay_custom_radio.blockSignals(True)
+            self.delay_ms_spin.blockSignals(True)
+
+            if delay_ms is None:
+                self.delay_none_radio.setChecked(True)
+            else:
+                self.delay_custom_radio.setChecked(True)
+                self.delay_ms_spin.setValue(delay_ms)
+
+            self.delay_ms_spin.setEnabled(self.delay_custom_radio.isChecked())
+
+            self.delay_ms_spin.blockSignals(False)
+            self.delay_custom_radio.blockSignals(False)
+            self.delay_none_radio.blockSignals(False)
         finally:
             self.connector_selector.blockSignals(False)
             self._is_loading_camera_data = False
