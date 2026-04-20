@@ -1,4 +1,6 @@
 *.png
+!calipod/gui/icons/connectors/
+!calipod/gui/icons/connectors/*.png
 *.log
 *.json
 *.pyc
