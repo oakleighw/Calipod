@@ -4,14 +4,36 @@ from pathlib import Path
 
 import cv2
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QImage, QPixmap
-from PySide6.QtWidgets import QComboBox, QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QFontDatabase, QImage, QPixmap
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+    QRadioButton,
+    QSizePolicy,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.styles import create_styled_groupbox, resolve_camera_title_color
 from circuit_management.config_manager import CircuitManagementConfigManager
 from circuit_management.connector_preview_renderer import render_connector_preview_frame
+from circuit_management.timing_sync_planner import build_timing_sync_plan, render_timing_sync_table
+from circuit_management.wire_labeling_rules import (
+    CONNECTOR_PIN_COUNTS,
+    WIRE_COLOUR_OPTIONS,
+    WIRE_TYPE_OPTIONS,
+    available_wire_type_options,
+    normalize_wire_type_selections,
+)
 
 logger = calipod_logger.get(__name__)
 
@@ -19,59 +41,6 @@ CONNECTOR_IMAGE_PATHS = {
     "Hirose 6 Pin": Path(__file__).parent / "icons" / "connectors" / "6_pin_hirose_female.png",
     "Hirose 4 Pin": Path(__file__).parent / "icons" / "connectors" / "4_pin_hirose_female.png",
 }
-
-CONNECTOR_PIN_COUNTS = {
-    "Hirose 6 Pin": 6,
-    "Hirose 4 Pin": 4,
-}
-
-WIRE_TYPE_OPTIONS = {
-    "Hirose 4 Pin": [
-        "External Ground",
-        "Octo-coupled Output",
-        "Octo-coupled Ground",
-        "Octo-coupled Input",
-    ],
-    "Hirose 6 Pin": [
-        "General purpose I/O (GPIO) line",
-        "Octo-coupled Output",
-        "Octo-coupled Input",
-        "GPIO Ground",
-        "Octo-coupled Ground",
-    ],
-}
-
-WIRE_TYPE_MAX_COUNTS = {
-    "Hirose 4 Pin": {
-        "External Ground": 1,
-        "Octo-coupled Output": 1,
-        "Octo-coupled Ground": 1,
-        "Octo-coupled Input": 1,
-    },
-    "Hirose 6 Pin": {
-        "General purpose I/O (GPIO) line": 2,
-        "Octo-coupled Output": 1,
-        "Octo-coupled Input": 1,
-        "GPIO Ground": 1,
-        "Octo-coupled Ground": 1,
-    },
-}
-
-WIRE_COLOUR_OPTIONS = [
-    ("black", "#000000"),
-    ("white", "#6E6E6E"),
-    ("red", "#D32F2F"),
-    ("green", "#2E7D32"),
-    ("brown", "#795548"),
-    ("blue", "#1976D2"),
-    ("orange", "#EF6C00"),
-    ("yellow", "#C9A200"),
-    ("violet", "#7B1FA2"),
-    ("grey", "#616161"),
-    ("pink", "#C2185B"),
-    ("light blue", "#2A9DDF"),
-]
-
 
 class CircuitManagementWidget(QWidget):
     def __init__(self, controller: Controller):
@@ -262,32 +231,18 @@ class CircuitManagementWidget(QWidget):
     def _refresh_wire_type_dropdowns(self):
         connector_name = self.connector_selector.currentData()
         row_count = CONNECTOR_PIN_COUNTS.get(connector_name, 0)
-        options = WIRE_TYPE_OPTIONS.get(connector_name, [])
-        max_counts = WIRE_TYPE_MAX_COUNTS.get(connector_name, {})
 
         wire_combos = [row_widgets[1] for row_widgets in self.connector_row_widgets[:row_count]]
-        canonical_values: list[str] = []
-        used_counts: dict[str, int] = {}
-
-        for combo in wire_combos:
-            value = combo.currentText().strip()
-            max_allowed = max_counts.get(value, 1)
-            if value in options and used_counts.get(value, 0) < max_allowed:
-                canonical_values.append(value)
-                used_counts[value] = used_counts.get(value, 0) + 1
-            else:
-                canonical_values.append("")
+        selected_values = [combo.currentText() for combo in wire_combos]
+        canonical_values, used_counts = normalize_wire_type_selections(connector_name, selected_values)
 
         for combo, current_value in zip(wire_combos, canonical_values):
             combo.blockSignals(True)
             combo.clear()
             combo.addItem("")
 
-            for option in options:
-                used_elsewhere = used_counts.get(option, 0) - (1 if current_value == option else 0)
-                max_allowed = max_counts.get(option, 1)
-                if used_elsewhere < max_allowed:
-                    combo.addItem(option)
+            for option in available_wire_type_options(connector_name, current_value, used_counts):
+                combo.addItem(option)
 
             if current_value and combo.findText(current_value) >= 0:
                 combo.setCurrentText(current_value)
@@ -304,10 +259,153 @@ class CircuitManagementWidget(QWidget):
 
     def timing_test_widget(self):
         timing_test_group, timing_test_layout = create_styled_groupbox("Timing Testing")
-        timing_test_layout.addWidget(QLabel("Coming Soon - " \
-        "This widget will allow users to test for syncronised" \
-        " frame aquisition of the camera setup for temporal alignment."))
+
+        intro_label = QLabel(
+            "Enter camera FPS and phone refresh Hz to generate clear timestamp checkpoints."
+        )
+        intro_label.setWordWrap(True)
+
+        input_grid = QGridLayout()
+
+        self.video_fps_spin = QDoubleSpinBox()
+        self.video_fps_spin.setRange(0.1, 1000.0)
+        self.video_fps_spin.setDecimals(3)
+        self.video_fps_spin.setValue(100.0)
+        self.video_fps_spin.setSingleStep(1.0)
+
+        self.phone_hz_spin = QDoubleSpinBox()
+        self.phone_hz_spin.setRange(0.1, 1000.0)
+        self.phone_hz_spin.setDecimals(3)
+        self.phone_hz_spin.setValue(120.0)
+        self.phone_hz_spin.setSingleStep(1.0)
+
+        self.checkpoint_count_spin = QSpinBox()
+        self.checkpoint_count_spin.setRange(1, 5000)
+        self.checkpoint_count_spin.setValue(20)
+
+        self.start_frame_spin = QSpinBox()
+        self.start_frame_spin.setRange(0, 10_000_000)
+        self.start_frame_spin.setValue(0)
+
+        self.first_frame_time_minutes_spin = QSpinBox()
+        self.first_frame_time_minutes_spin.setRange(0, 999)
+        self.first_frame_time_minutes_spin.setValue(0)
+
+        self.first_frame_time_seconds_spin = QSpinBox()
+        self.first_frame_time_seconds_spin.setRange(0, 59)
+        self.first_frame_time_seconds_spin.setValue(0)
+
+        self.first_frame_time_milliseconds_spin = QSpinBox()
+        self.first_frame_time_milliseconds_spin.setRange(0, 999)
+        self.first_frame_time_milliseconds_spin.setValue(0)
+
+        first_frame_time_layout = QHBoxLayout()
+        first_frame_time_layout.addWidget(self.first_frame_time_minutes_spin)
+        first_frame_time_layout.addWidget(QLabel(":"))
+        first_frame_time_layout.addWidget(self.first_frame_time_seconds_spin)
+        first_frame_time_layout.addWidget(QLabel(":"))
+        first_frame_time_layout.addWidget(self.first_frame_time_milliseconds_spin)
+        first_frame_time_layout.addStretch(1)
+
+        timer_video_placeholder_label = QLabel(
+            "Timer-frame video slice display is planned for an upcoming release."
+        )
+        timer_video_placeholder_label.setWordWrap(True)
+
+        input_grid.addWidget(QLabel("Video FPS"), 0, 0)
+        input_grid.addWidget(self.video_fps_spin, 0, 1)
+        input_grid.addWidget(QLabel("Phone Screen Hz"), 1, 0)
+        input_grid.addWidget(self.phone_hz_spin, 1, 1)
+        input_grid.addWidget(QLabel("Checkpoints"), 2, 0)
+        input_grid.addWidget(self.checkpoint_count_spin, 2, 1)
+        input_grid.addWidget(QLabel("Start Frame"), 3, 0)
+        input_grid.addWidget(self.start_frame_spin, 3, 1)
+        input_grid.addWidget(QLabel("Time at Frame 0 (mm:ss:ms)"), 4, 0)
+        input_grid.addLayout(first_frame_time_layout, 4, 1)
+        input_grid.addWidget(QLabel("Timer video path:"), 5, 0)
+        input_grid.addWidget(timer_video_placeholder_label, 5, 1)
+
+        self.generate_timing_plan_btn = QPushButton("Generate Timing Checkpoints")
+        self.generate_timing_plan_btn.clicked.connect(self._generate_timing_plan)
+
+        display_mode_row = QHBoxLayout()
+        display_mode_row.addWidget(QLabel("Display Format"))
+
+        self.display_ms_radio = QRadioButton("ms")
+        self.display_ms_radio.setChecked(True)
+        self.display_clock_radio = QRadioButton("mm:ss:ms")
+
+        self.display_mode_group = QButtonGroup(self)
+        self.display_mode_group.addButton(self.display_ms_radio)
+        self.display_mode_group.addButton(self.display_clock_radio)
+
+        self.display_ms_radio.toggled.connect(self._generate_timing_plan)
+        self.display_clock_radio.toggled.connect(self._generate_timing_plan)
+
+        display_mode_row.addWidget(self.display_ms_radio)
+        display_mode_row.addWidget(self.display_clock_radio)
+        display_mode_row.addStretch(1)
+
+        self.timing_plan_summary_label = QLabel("")
+        self.timing_plan_summary_label.setWordWrap(True)
+
+        self.timing_plan_output = QPlainTextEdit()
+        self.timing_plan_output.setReadOnly(True)
+        self.timing_plan_output.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.timing_plan_output.setPlaceholderText(
+            "Frame checkpoints and expected phone timer values will appear here."
+        )
+        self.timing_plan_output.setMinimumHeight(180)
+
+        timing_test_layout.addWidget(intro_label)
+        timing_test_layout.addLayout(input_grid)
+        timing_test_layout.addWidget(self.generate_timing_plan_btn)
+        timing_test_layout.addLayout(display_mode_row)
+        timing_test_layout.addWidget(self.timing_plan_summary_label)
+        timing_test_layout.addWidget(self.timing_plan_output)
+
+        self._generate_timing_plan()
         self.bottom_right_vbox.addWidget(timing_test_group)
+
+    def _generate_timing_plan(self) -> None:
+        """Generate frame checkpoints and expected phone timer readings."""
+        fps = self.video_fps_spin.value()
+        phone_hz = self.phone_hz_spin.value()
+        checkpoint_count = self.checkpoint_count_spin.value()
+        start_frame = self.start_frame_spin.value()
+        first_frame_time_ms = self._get_first_frame_time_ms()
+
+        try:
+            plan = build_timing_sync_plan(
+                video_fps=fps,
+                phone_refresh_hz=phone_hz,
+                checkpoint_count=checkpoint_count,
+                start_frame=start_frame,
+            )
+        except ValueError as exc:
+            self.timing_plan_summary_label.setText(f"Invalid input: {exc}")
+            self.timing_plan_output.setPlainText("")
+            return
+
+        self.timing_plan_summary_label.setText(
+            f"Clear-read interval: every {plan.frame_interval} frame(s), "
+            f"approximately every {plan.interval_ms:.3f} ms."
+        )
+
+        use_clock_format = self.display_clock_radio.isChecked()
+        table_text = render_timing_sync_table(
+            plan,
+            first_frame_time_ms=first_frame_time_ms,
+            use_clock_format=use_clock_format,
+        )
+        self.timing_plan_output.setPlainText(table_text)
+
+    def _get_first_frame_time_ms(self) -> int:
+        """Convert mm:ss:ms input fields into a total millisecond offset."""
+        minutes = self.first_frame_time_minutes_spin.value()
+        seconds = self.first_frame_time_seconds_spin.value()
+        milliseconds = self.first_frame_time_milliseconds_spin.value()
+        return (minutes * 60_000) + (seconds * 1_000) + milliseconds
 
     def _camera_selection_entries(self) -> list[tuple[int, str]]:
         camera_array = getattr(self.controller, "camera_array", None)
@@ -359,7 +457,7 @@ class CircuitManagementWidget(QWidget):
 
         try:
             # Load connector type - use current selection if none is saved
-            connector_type = self.config_manager.get_connector_type(self.current_camera_port)
+            connector_type, wire_rows = self.config_manager.get_connector_configuration(self.current_camera_port)
             if connector_type:
                 index = self.connector_selector.findData(connector_type)
                 if index >= 0:
@@ -376,7 +474,6 @@ class CircuitManagementWidget(QWidget):
             self._set_connector_table_visible_rows(row_count)
 
             # Load wire row data
-            wire_rows = self.config_manager.get_all_wire_rows(self.current_camera_port)
             for row_index, row_widgets in enumerate(self.connector_row_widgets, start=1):
                 row_key = str(row_index)
                 row_data = wire_rows.get(row_key, {})
@@ -431,24 +528,22 @@ class CircuitManagementWidget(QWidget):
         if connector_type:
             pin_count = CONNECTOR_PIN_COUNTS.get(connector_type, 0)
 
-            # First, clear all existing wire rows
-            self.config_manager.clear_all_wire_rows(self.current_camera_port)
-
-            # Then save only the rows that apply to the new connector
+            applicable_rows: dict[str, dict[str, str]] = {}
             for row_index in range(1, pin_count + 1):
                 if row_index <= len(self.connector_row_widgets):
                     port_label, wire_type_combo, colour_combo = self.connector_row_widgets[row_index - 1]
                     wire_type = wire_type_combo.currentText()
                     colour_hex = colour_combo.currentData()
-                    self.config_manager.set_wire_row(
-                        self.current_camera_port,
-                        row_index,
-                        wire_type or "",
-                        colour_hex or "",
-                    )
+                    applicable_rows[str(row_index)] = {
+                        "wire_type": wire_type or "",
+                        "colour": colour_hex or "",
+                    }
 
-            # Now update the connector type
-            self.config_manager.set_connector_type(self.current_camera_port, connector_type)
+            self.config_manager.save_connector_configuration(
+                self.current_camera_port,
+                connector_type,
+                applicable_rows,
+            )
 
     def _on_table_data_changed(self, row_index: int) -> None:
         """Save wire row data when changed."""

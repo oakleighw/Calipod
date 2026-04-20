@@ -54,6 +54,25 @@ class CircuitManagementConfigManager:
         camera_config = self.get_camera_config(camera_port)
         return camera_config.get("connector_type")
 
+    def get_connector_configuration(self, camera_port: int) -> tuple[str | None, dict[str, dict[str, str]]]:
+        """Get connector type and all wire rows for a camera."""
+        camera_config = self.get_camera_config(camera_port)
+        connector_type = camera_config.get("connector_type")
+        wire_rows = camera_config.get("wire_rows", {})
+        return connector_type, wire_rows
+
+    def save_connector_configuration(
+        self,
+        camera_port: int,
+        connector_type: str,
+        wire_rows: dict[str, dict[str, str]],
+    ) -> None:
+        """Save connector type and all applicable wire rows in one write."""
+        camera_config = self.get_camera_config(camera_port)
+        camera_config["connector_type"] = connector_type
+        camera_config["wire_rows"] = wire_rows
+        self._save_config()
+
     def set_wire_row(self, camera_port: int, row_index: int, wire_type: str, colour: str) -> None:
         """Set wire configuration for a specific row of a camera."""
         camera_config = self.get_camera_config(camera_port)
