@@ -63,13 +63,31 @@ def resolve_camera_title_color(
     return rgba_to_css(camera_rgba(palette_index, max(1, int(camera_count or 0))))
 
 
-def create_styled_groupbox(title: str) -> tuple[QGroupBox, QVBoxLayout]:
-    """Create a QGroupBox with styled section title (returns group and layout)."""
+def create_styled_groupbox(
+    title: str, title_level: str = "section", color: str | None = None
+) -> tuple[QGroupBox, QVBoxLayout]:
+    """
+    Create a QGroupBox with styled title (returns group and layout).
+
+    Args:
+        title: The title text for the group box
+        title_level: Type of title styling - "section" (default), "subsection", or "subsubsection"
+        color: Optional color for the title (used for subsection and subsubsection)
+
+    Returns:
+        Tuple of (QGroupBox, QVBoxLayout)
+    """
     group = QGroupBox()
     layout = QVBoxLayout()
 
     # Add styled title as a label, not as QGroupBox title
-    title_label = create_section_title(title)
+    if title_level == "subsection":
+        title_label = create_subsection_title(title, color)
+    elif title_level == "subsubsection":
+        title_label = create_subsubsection_title(title, color)
+    else:  # Default to "section"
+        title_label = create_section_title(title)
+
     layout.addWidget(title_label)
 
     group.setLayout(layout)

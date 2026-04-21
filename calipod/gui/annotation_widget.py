@@ -3,6 +3,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
+from calipod.annotation_management import LabelEditorWidget
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.styles import create_styled_groupbox
@@ -34,6 +35,11 @@ class AnnotationWidget(QWidget):
     def anno_labelling_widget(self):
         """This widget allows the user to log string labels for annotation class index labels."""
         anno_label_group, anno_label_layout = create_styled_groupbox("Labels")
+
+        # Create label editor widget
+        label_editor = LabelEditorWidget(str(self.controller.workspace))
+        anno_label_layout.addWidget(label_editor)
+
         self.top_vbox.addWidget(anno_label_group)
 
     def annotation_checker_widget(self):
