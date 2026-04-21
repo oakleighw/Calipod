@@ -157,9 +157,21 @@ class MainWindow(QMainWindow):
         self.annotation_widget = AnnotationWidget(self.controller)
         self.central_tab.addTab(self.annotation_widget, "Annotation")
 
-        logger.info("Building detection widget")
+        logger.info("About to load BGS detection tab")
+        if self.controller.capture_volume_loaded and self.controller.recordings_available():
+            logger.info("Creating BGS detection widget")
+            self.bgs_processing_widget = BGSProcessingWidget(self.controller)
+            bgs_processing_enabled = True
+        else:
+            logger.info("Creating dummy widget")
+            self.bgs_processing_widget = QWidget()
+            bgs_processing_enabled = False
+        self.central_tab.addTab(self.bgs_processing_widget, "BGS Detection")
+        self.central_tab.setTabEnabled(self.find_tab_index_by_title("BGS Detection"), bgs_processing_enabled)
+
+        logger.info("Building DL Detection widget")
         self.detection_widget = DetectionWidget(self.controller)
-        self.central_tab.addTab(self.detection_widget, "Detection")
+        self.central_tab.addTab(self.detection_widget, "DL Detection")
 
         logger.info("About to load post-processing tab")
         if self.controller.capture_volume_loaded and self.controller.recordings_available():
@@ -174,17 +186,6 @@ class MainWindow(QMainWindow):
         self.central_tab.addTab(self.post_processing_widget, "Post Processing")
         self.central_tab.setTabEnabled(self.find_tab_index_by_title("Post Processing"), post_processing_enabled)
 
-        logger.info("About to load BGS processing tab")
-        if self.controller.capture_volume_loaded and self.controller.recordings_available():
-            logger.info("Creating BGS processing widget")
-            self.bgs_processing_widget = BGSProcessingWidget(self.controller)
-            bgs_processing_enabled = True
-        else:
-            logger.info("Creating dummy widget")
-            self.bgs_processing_widget = QWidget()
-            bgs_processing_enabled = False
-        self.central_tab.addTab(self.bgs_processing_widget, "BGS Processing")
-        self.central_tab.setTabEnabled(self.find_tab_index_by_title("BGS Processing"), bgs_processing_enabled)
 
     def build_docked_logger(self):
         # create log window which is fixed below main window
