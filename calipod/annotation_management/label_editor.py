@@ -1,6 +1,7 @@
 """Label editor widget for managing annotation class labels."""
 
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -30,6 +31,8 @@ class LabelEditorWidget(QWidget):
         self.workspace_dir = workspace_dir
         self.config_manager = AnnotationsConfigManager(workspace_dir)
         self.label_inputs = {}  # Track label input widgets: {(section, label_id): QLineEdit}
+        self.category_dropdowns = {}  # Track category dropdowns: {(section, label_id): QComboBox}
+        self.CATEGORY_OPTIONS = ["animal", "arena vertex", "frame roi"]
         self.setup_ui()
 
     def setup_ui(self):
@@ -62,7 +65,7 @@ class LabelEditorWidget(QWidget):
 
     def populate_label_section(self, section_layout: QVBoxLayout, section_name: str):
         """
-        Populate a label section with label ID and name input fields.
+        Populate a label section with label ID, name input fields, and category dropdowns.
 
         Args:
             section_layout: Layout to add labels to
@@ -91,7 +94,7 @@ class LabelEditorWidget(QWidget):
             id_label.setMinimumWidth(80)
             row_layout.addWidget(id_label)
 
-            # Text input on the right
+            # Text input for name
             name_input = QLineEdit()
             name_input.setText(label_name)
             name_input.setPlaceholderText(f"Name for class {label_id}")
@@ -113,8 +116,41 @@ class LabelEditorWidget(QWidget):
 
             row_layout.addWidget(name_input)
 
-            # Store reference to input for potential future use
+            # Category dropdown on the right
+            category_dropdown = QComboBox()
+            category_dropdown.addItems([""] + self.CATEGORY_OPTIONS)
+
+            # Load the current category from config
+            current_category = self.config_manager.get_label_category(
+                label_id, is_ground_truth=(section_name == "ground_truth")
+            )
+            if current_category:
+                index = category_dropdown.findText(current_category)
+                if index >= 0:
+                    category_dropdown.setCurrentIndex(index)
+
+            # Connect category change signal to save
+            def make_category_handler(section, lid, combo_widget):
+                def on_category_changed(index):
+                    new_category = combo_widget.currentText() or None
+                    self.config_manager.update_label_category(
+                        lid, new_category, is_ground_truth=(section == "ground_truth")
+                    )
+                    logger.debug(
+                        f"Updated {section} label {lid} category to '{new_category}'"
+                    )
+
+                return on_category_changed
+
+            category_dropdown.currentIndexChanged.connect(
+                make_category_handler(section_name, label_id, category_dropdown)
+            )
+
+            row_layout.addWidget(category_dropdown)
+
+            # Store references to input and dropdown
             self.label_inputs[(section_name, label_id)] = name_input
+            self.category_dropdowns[(section_name, label_id)] = category_dropdown
 
             section_layout.addLayout(row_layout)
 
@@ -130,6 +166,7 @@ class LabelEditorWidget(QWidget):
 
         # Clear input tracking
         self.label_inputs.clear()
+        self.category_dropdowns.clear()
 
         # Recreate UI
         self.setup_ui()
@@ -149,3 +186,20 @@ class LabelEditorWidget(QWidget):
         if key in self.label_inputs:
             return self.label_inputs[key].text()
         return ""
+
+    def get_label_category(self, section: str, label_id: int) -> str | None:
+        """
+        Get the current category for a label from the dropdown.
+
+        Args:
+            section: Either "ground_truth" or "predictions"
+            label_id: The label ID
+
+        Returns:
+            The category from the dropdown, or None if not set
+        """
+        key = (section, label_id)
+        if key in self.category_dropdowns:
+            category = self.category_dropdowns[key].currentText()
+            return category if category else None
+        return None
