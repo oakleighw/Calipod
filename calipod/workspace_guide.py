@@ -22,6 +22,9 @@ class WorkspaceGuide:
         self._annotation_text_cache = None
         self._annotation_scan_in_progress = False
         self._annotation_lock = Lock()
+        # Cache configurator to avoid repeated config reloads during periodic updates
+        self._configurator = Configurator(workspace_dir)
+        self._camera_array = None
 
     def get_ports_in_dir(self, directory: Path) -> list:
         """
@@ -58,9 +61,10 @@ class WorkspaceGuide:
 
     def uncalibrated_cameras(self):
         uncalibrated = []
-        for cam in self.camera_array.cameras.values():
-            if cam.distortions is None and cam.matrix is None and cam.error is None:
-                uncalibrated.append(str(cam.port))
+        if self._camera_array is not None:
+            for cam in self._camera_array.cameras.values():
+                if cam.distortions is None and cam.matrix is None and cam.error is None:
+                    uncalibrated.append(str(cam.port))
 
         uncalibrated = ",".join(uncalibrated)
         if len(uncalibrated) == 0:
@@ -68,13 +72,17 @@ class WorkspaceGuide:
         return uncalibrated
 
     def intrinsic_calibration_status(self):
-        if self.camera_array.all_intrinsics_calibrated() and self.all_instrinsic_mp4s_available():
+        if self._camera_array is not None \
+        and self._camera_array.all_intrinsics_calibrated() \
+        and self.all_instrinsic_mp4s_available():
             return "COMPLETE"
         else:
             return "INCOMPLETE"
 
     def extrinsic_calibration_status(self):
-        if self.camera_array.all_extrinsics_calibrated() and self.all_extrinsic_mp4s_available():
+        if self._camera_array is not None \
+        and self._camera_array.all_extrinsics_calibrated() \
+        and self.all_extrinsic_mp4s_available():
             return "COMPLETE"
         else:
             return "INCOMPLETE"
@@ -266,15 +274,20 @@ class WorkspaceGuide:
         with self._annotation_lock:
             return self._annotation_scan_in_progress
 
+    def invalidate_config_cache(self) -> None:
+        """Invalidate cached configurator when workspace files change."""
+        self._configurator = Configurator(self.workspace_dir)
+        self._camera_array = None
+
     def get_html_summary(self) -> str:
         """
-        Provide granular summary of where the workspace is in the calibration process
-        Note that the currently configured camera array is reloaded each time this
-        is called to determine the state of the data that is currently saved out.
+        Provide granular summary of where the workspace is in the calibration process.
+        Uses cached camera array to avoid repeated config reloads.
         """
-        config = Configurator(self.workspace_dir)
-        self.camera_array = config.get_camera_array()
-        self.camera_count = config.get_camera_count()
+        # Reload camera array only if not cached (config.toml changes are less frequent)
+        if self._camera_array is None:
+            self._camera_array = self._configurator.get_camera_array()
+        self.camera_count = self._configurator.get_camera_count()
 
         # Get annotation text and convert newlines to <br> for HTML display
         anno_text = self.get_cached_annotation_dir_text()
