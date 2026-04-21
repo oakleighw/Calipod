@@ -280,3 +280,34 @@ class AnnotationsConfigManager:
         logger.info(
             f"Updated label {label_id} in {section_key} category to '{category}'"
         )
+
+    def get_labels_by_category(
+        self, category: str, is_ground_truth: bool = True
+    ) -> Dict[int, str] | None:
+        """
+        Get all labels with a specific category.
+
+        Args:
+            category: The category to filter by (e.g., "frame roi", "animal", "arena vertex")
+            is_ground_truth: If True, get from ground truth labels; else prediction labels
+
+        Returns:
+            Dict mapping label ID to label name for all labels with the specified category,
+            or None if no labels found
+        """
+        config = self.load_annotations_config()
+        if config is None:
+            return None
+
+        section_key = "ground_truth" if is_ground_truth else "predictions"
+        if section_key not in config:
+            return None
+
+        labels = config[section_key].get("labels", {})
+        result = {}
+
+        for label_id, label_data in labels.items():
+            if label_data.get("category") == category:
+                result[int(label_id)] = label_data.get("name", "")
+
+        return result if result else None

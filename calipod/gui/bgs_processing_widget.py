@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from calipod.annotation_management.annotations_config_manager import AnnotationsConfigManager
 from calipod.background_subtraction import BGSProcessor
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
@@ -29,10 +30,10 @@ logger = calipod_logger.get(__name__)
 
 # Region class mapping for YOLO labels (from fly_tracker)
 # Labels 9 (fruit) and 10 (leaves) are used for 3D object visualization
-REGION_CLASS_MAP = {
-    "leaves": 10,
-    "fruit": 9,
-}
+# REGION_CLASS_MAP = {
+#     "leaves": 10,
+#     "fruit": 9,
+# }
 
 
 # BGS Processing Widget - generates background-subtraction detections in
@@ -44,6 +45,9 @@ class BGSProcessingWidget(QWidget):
         self.config = self.controller.config
         self.bgs_processor = None
         self.triangulation_worker = None  # For BGS triangulation
+
+        # Load frame roi class mapping from annotations config
+        self.frame_roi_classes = self._load_frame_roi_classes()
 
         # Create tree widget for recording and video selection
         self.recording_tree = QTreeWidget()
@@ -149,8 +153,12 @@ class BGSProcessingWidget(QWidget):
         region_layout.addWidget(QLabel("Region:"))
         self.region_combo = QComboBox()
         self.region_combo.addItem("Full", "full")
-        self.region_combo.addItem("Leaves", "leaves")
-        self.region_combo.addItem("Fruit", "fruit")
+
+        # Add frame roi classes dynamically
+        if self.frame_roi_classes:
+            for class_id, class_name in sorted(self.frame_roi_classes.items()):
+                self.region_combo.addItem(class_name, class_name)
+
         region_layout.addWidget(self.region_combo)
         layout.addLayout(region_layout)
 
@@ -264,6 +272,30 @@ class BGSProcessingWidget(QWidget):
 
         return layout
 
+    def _load_frame_roi_classes(self) -> dict:
+        """
+        Load frame roi classes from the annotations config.
+
+        Returns:
+            Dict mapping class_id to class_name for all frame roi categories,
+            or empty dict if none found or config unavailable
+        """
+        try:
+            # Try to get annotations config from workspace
+            workspace_dir = self.controller.workspace_guide.workspace_dir
+            config_manager = AnnotationsConfigManager(workspace_dir)
+
+            frame_roi_labels = config_manager.get_labels_by_category("frame roi", is_ground_truth=True)
+            if frame_roi_labels:
+                logger.info(f"Loaded frame roi classes: {frame_roi_labels}")
+                return frame_roi_labels
+            else:
+                logger.info("No frame roi classes found in annotations config")
+                return {}
+        except Exception as e:
+            logger.warning(f"Could not load frame roi classes from annotations config: {str(e)}")
+            return {}
+
     def connect_widgets(self):
         """Connect widget signals to slots"""
         self.recording_tree.itemSelectionChanged.connect(self.on_video_selected)
@@ -333,15 +365,28 @@ class BGSProcessingWidget(QWidget):
 
     def find_bounding_box_from_annotations(self, video_path: str, region: str):
         """
-        Find bounding box for a region (leaves/fruit) from YOLO annotations.
+        Find bounding box for a region from YOLO annotations.
         Annotations are stored in: {calibration_project}/annotations/ground_truth/port_{port}/labels/train/
         Returns (x1, y1, x2, y2) in pixel coordinates, or None if not found.
         """
         if region == "full":
             return None
 
-        region_class = REGION_CLASS_MAP.get(region)
+        # Look up the region class ID in dynamic frame roi classes
+        region_class = None
+
+        # Check if this is a frame roi class from the loaded config
+        for class_id, class_name in self.frame_roi_classes.items():
+            if class_name == region:
+                region_class = class_id
+                break
+
+        # # Fallback to hardcoded mapping for backward compatibility (DISABLED FOR TESTING)
+        # if region_class is None:
+        #     region_class = REGION_CLASS_MAP.get(region)
+
         if region_class is None:
+            logger.warning(f"Region '{region}' not found in frame roi classes")
             return None
 
         # Extract port number from video filename (e.g., "port_0.mp4" -> "0")
@@ -411,7 +456,7 @@ class BGSProcessingWidget(QWidget):
                         x2 = min(frame_w, int((center_x + width / 2) * frame_w))
                         y2 = min(frame_h, int((center_y + height / 2) * frame_h))
 
-                        logger.info(f"Found {region.upper()} bounding box: ({x1}, {y1}, {x2}, {y2})")
+                        logger.info(f"Found {region} bounding box: ({x1}, {y1}, {x2}, {y2})")
                         return (x1, y1, x2, y2)
         except Exception as e:
             logger.error(f"Error parsing label file: {str(e)}")
