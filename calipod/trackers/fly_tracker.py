@@ -5,6 +5,7 @@ from threading import Thread
 # caliscope/trackers/fly_tracker.py
 import numpy as np
 
+from calipod.annotation_management.yolo_utils import load_yolo_file
 from calipod.core import logger as calipod_logger
 from calipod.core.packets import PointPacket
 from calipod.tracker import Tracker
@@ -26,108 +27,6 @@ class FlyTracker(Tracker):
         self.yolo_model = None  # Placeholder for your loaded YOLO model
         self._annotations_only_mode = False  # Track if we're using pre-made annotations without video processing
         self.bbox_data = {}  # Store bounding box data by (port, frame_idx, point_id)
-
-    def yolo_to_idloc(self, text_file, frame_shape=None, highest_confidence_only=False):
-        """Parse YOLO label file to extract point IDs, locations, and bounding boxes.
-
-        If highest_confidence_only set to true, only the highest confidence
-        detection per class is kept per frame (for single-object scenarios).
-
-        For labels 9 (fruit) and 10 (leaves), also generates corner points for proper 3D triangulation.
-        Corner points use IDs: base_id * 1000 + corner_index (0=TL, 1=TR, 2=BR, 3=BL)
-
-        Args:
-            text_file: Path to YOLO label file
-            frame_shape: Optional tuple of (height, width, channels). If not provided,
-                        normalized coordinates from file won't be scaled.
-            highest_confidence_only: If True, only keep the highest confidence detection per class per frame.
-        Returns:
-            ids: array of class IDs (including corner point IDs for labels 9 and 10)
-            img_loc: array of (x, y) positions (including corners)
-            bboxes: array of (width, height) for each detection in pixel coordinates
-        """
-        ids = np.array([], dtype=int)
-        img_loc = np.array([], dtype=float)
-        bboxes = np.array([], dtype=float)
-
-        try:
-            with open(text_file, "r") as txt:
-                lines = txt.readlines()
-                # initialize variables so none will be created if no points detected
-                ids = []
-                img_loc = []
-                bboxes = []
-                if highest_confidence_only:
-                    class_detections = {}
-                    for line in lines:
-                        split_l = line.strip().split(" ")
-                        class_id = int(split_l[0])
-                        confidence = (
-                            float(split_l[5]) if len(split_l) > 5 else 1.0
-                        )  # set to 1.0 if no confidence provided
-
-                        # if confidence > CONF_THRESHOLD: not yet applied
-                        if class_id not in class_detections or confidence > class_detections[class_id][0]:
-                            class_detections[class_id] = (confidence, line)
-
-                    lines = [entry[1] for entry in class_detections.values()]
-
-                for i, line in enumerate(lines):
-                    split_l = line.strip().split(" ")
-                    # Extract class_id from the YOLO label (first value)
-                    class_id = int(split_l[0])
-                    x_centre = float(split_l[1])
-                    y_centre = float(split_l[2])
-                    width = float(split_l[3])
-                    height = float(split_l[4])
-
-                    # Scale to pixel coordinates if frame_shape is provided
-                    if frame_shape is not None:
-                        x_centre *= frame_shape[1]
-                        y_centre *= frame_shape[0]
-                        width *= frame_shape[1]
-                        height *= frame_shape[0]
-
-                    # Add center point
-                    ids.append(class_id)
-                    img_loc.append((x_centre, y_centre))
-                    bboxes.append((width, height))
-
-                    logger.debug(
-                        f"Parsed point: class={class_id}, pos=({x_centre}, {y_centre}), "
-                        f"bbox=({width}, {height}) from '{line.strip()}' in {text_file}"
-                    )
-
-                    # For fruit (9) and leaves (10), add 4 corner points for proper 3D triangulation
-                    if class_id in [9, 10]:
-                        half_w = width / 2.0
-                        half_h = height / 2.0
-
-                        # Corner positions: TL, TR, BR, BL
-                        corners = [
-                            (x_centre - half_w, y_centre - half_h),  # Top-left (0)
-                            (x_centre + half_w, y_centre - half_h),  # Top-right (1)
-                            (x_centre + half_w, y_centre + half_h),  # Bottom-right (2)
-                            (x_centre - half_w, y_centre + half_h),  # Bottom-left (3)
-                        ]
-
-                        for corner_idx, (cx, cy) in enumerate(corners):
-                            corner_id = class_id * 1000 + corner_idx  # e.g., 9000, 9001, 9002, 9003
-                            ids.append(corner_id)
-                            img_loc.append((cx, cy))
-                            bboxes.append((width, height))  # Store same bbox for reference
-
-                        logger.debug(
-                            f"Added 4 corner points for class_id={class_id} with IDs "
-                            f"{class_id * 1000} to {class_id * 1000 + 3}"
-                        )
-
-        except FileNotFoundError:
-            logger.warning(f"YOLO label file not found: {text_file}")
-        except (ValueError, IndexError) as e:
-            logger.error(f"Error parsing YOLO label file {text_file}: {e}")
-
-        return np.array(ids, dtype=int), np.array(img_loc, dtype=np.float32), np.array(bboxes, dtype=np.float32)
 
     @property
     def name(self):
@@ -263,7 +162,7 @@ class FlyTracker(Tracker):
                         # Always provide frame_shape for proper pixel coordinate scaling
                         # In annotations-only mode, frame may be a dummy zero array, but shape is still valid
                         frame_shape = frame.shape if frame is not None else None
-                        point_ids, landmark_xy, bboxes = self.yolo_to_idloc(label_file_path, frame_shape)
+                        point_ids, landmark_xy, bboxes = load_yolo_file(label_file_path, frame_shape)
                         logger.debug(
                             f"FlyTracker (Port {port}, Frame {frame_idx}): "
                             f"Found {len(point_ids)} points from {label_file_path}"
@@ -343,7 +242,7 @@ class FlyTracker(Tracker):
         """Load predictions from a YOLO predictions file.
 
         This method is useful for comparing predictions against ground truth.
-        Uses the same parsing logic as yolo_to_idloc for consistency.
+        Uses the same parsing logic as load_yolo_file for consistency.
 
         Args:
             predictions_file_path: Path to YOLO predictions label file
@@ -358,9 +257,9 @@ class FlyTracker(Tracker):
             logger.debug(f"Predictions file not found: {predictions_file_path}")
             return np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype=float)
 
-        # Reuse yolo_to_idloc parsing logic, set highest_confidence_only=True
+        # Use shared load_yolo_file with highest_confidence_only=True
         # for predictions until better track handling is implemented.
-        return self.yolo_to_idloc(predictions_file_path, frame_shape, highest_confidence_only=True)
+        return load_yolo_file(predictions_file_path, frame_shape, highest_confidence_only=True)
 
     def get_average_bbox_by_point_id(self):
         """Calculate average bounding box dimensions for each point_id across all frames.

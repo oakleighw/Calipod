@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 
 import cv2
@@ -22,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from calipod.annotation_management.annotations_config_manager import AnnotationsConfigManager
+from calipod.annotation_management.file_utils import extract_port_from_filename
+from calipod.annotation_management.yolo_utils import denormalize_bbox, parse_yolo_line
 from calipod.background_subtraction import BGSProcessor
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
@@ -389,14 +390,12 @@ class BGSProcessingWidget(QWidget):
             logger.warning(f"Region '{region}' not found in frame roi classes")
             return None
 
-        # Extract port number from video filename (e.g., "port_0.mp4" -> "0")
-        video_name = Path(video_path).stem
-        match = re.search(r"port_(\d+)", video_name)
-        if not match:
-            logger.warning(f"Could not extract port number from video name: {video_name}")
+        # Extract port number from video filename using shared utility
+        port = extract_port_from_filename(Path(video_path).stem)
+        if port is None:
+            logger.warning(f"Could not extract port number from video name: {video_path}")
             return None
 
-        port = match.group(1)
         logger.info(f"Extracted port {port} from video filename")
 
         # Get annotations directory from workspace guide (calibration project)
@@ -430,31 +429,28 @@ class BGSProcessingWidget(QWidget):
             logger.info(f"Found {len(label_files)} label files, checking first one: {label_files[0]}")
             with open(label_files[0], "r") as f:
                 for line in f:
-                    parts = line.strip().split()
-                    if not parts:
+                    parsed = parse_yolo_line(line)
+                    if parsed is None:
                         continue
 
-                    class_id = int(parts[0])
+                    class_id, center_x, center_y, width, height, _ = parsed
                     logger.info(f"Found label class {class_id}, looking for {region_class}")
 
                     if class_id == region_class:
-                        # YOLO format: class_id center_x center_y width height (normalized 0.0-1.0)
-                        center_x = float(parts[1])
-                        center_y = float(parts[2])
-                        width = float(parts[3])
-                        height = float(parts[4])
-
                         # Convert to pixel coordinates
                         cap = cv2.VideoCapture(str(video_path))
                         frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                         frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         cap.release()
 
-                        # Convert normalized to pixel coordinates
-                        x1 = max(0, int((center_x - width / 2) * frame_w))
-                        y1 = max(0, int((center_y - height / 2) * frame_h))
-                        x2 = min(frame_w, int((center_x + width / 2) * frame_w))
-                        y2 = min(frame_h, int((center_y + height / 2) * frame_h))
+                        frame_shape = (frame_h, frame_w, 3)
+                        cx_px, cy_px, w_px, h_px = denormalize_bbox(center_x, center_y, width, height, frame_shape)
+
+                        # Convert center + width/height to corner coordinates
+                        x1 = max(0, int(cx_px - w_px / 2))
+                        y1 = max(0, int(cy_px - h_px / 2))
+                        x2 = min(frame_w, int(cx_px + w_px / 2))
+                        y2 = min(frame_h, int(cy_px + h_px / 2))
 
                         logger.info(f"Found {region} bounding box: ({x1}, {y1}, {x2}, {y2})")
                         return (x1, y1, x2, y2)
@@ -847,10 +843,9 @@ class BGSProcessingWidget(QWidget):
                 video_files = sorted(recording_path.glob("port_*.mp4"))
 
                 for video_file in video_files:
-                    # Extract port number from filename (e.g., "port_0.mp4" -> "0")
-                    match = re.search(r"port_(\d+)\.mp4", video_file.name)
-                    if match:
-                        port_num = match.group(1)
+                    # Extract port number from filename using shared utility
+                    port_num = extract_port_from_filename(video_file.stem)
+                    if port_num is not None:
                         video_item = QTreeWidgetItem()
                         video_item.setText(0, f"Camera {port_num}")
                         video_item.setData(0, 32, str(video_file))  # Store full path in role 32 (user role)

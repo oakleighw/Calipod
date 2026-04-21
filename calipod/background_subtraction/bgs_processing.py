@@ -12,6 +12,8 @@ import numpy as np
 from PySide6.QtCore import QThread, Signal
 from tqdm import tqdm
 
+from calipod.annotation_management.file_utils import extract_port_from_filename
+from calipod.annotation_management.yolo_utils import parse_yolo_line
 from calipod.core import logger as calipod_logger
 
 logger = calipod_logger.get(__name__)
@@ -107,15 +109,10 @@ class BGSProcessor(QThread):
         if not self.annotations_dir:
             return None
 
-        # Extract port number from video filename
-        import re
-
-        video_name = Path(self.video_path).stem
-        match = re.search(r"port_(\d+)", video_name)
-        if not match:
+        # Extract port number from video filename using shared utility
+        port = extract_port_from_filename(Path(self.video_path).stem)
+        if port is None:
             return None
-
-        port = match.group(1)
 
         # Build label file path
         label_file = self.annotations_dir / f"port_{port}" / "labels" / "train" / f"frame_{frame_idx:06d}.txt"
@@ -131,23 +128,21 @@ class BGSProcessor(QThread):
             cap.release()
 
             with open(label_file, "r") as f:
-                lines = f.readlines()
+                for line in f:
+                    parsed = parse_yolo_line(line)
+                    if parsed is None:
+                        continue
 
-            for line in lines:
-                data = line.split()
-                if not data:
-                    continue
+                    class_id, gx_norm, gy_norm, width, height, _ = parsed
+                    if class_id == target_class:
+                        # Convert from normalized to pixel coordinates
+                        gx_px = gx_norm * frame_w
+                        gy_px = gy_norm * frame_h
 
-                class_id = int(data[0])
-                if class_id == target_class:
-                    # YOLO format: class_id center_x center_y width height (normalized 0-1)
-                    gx_px = float(data[1]) * frame_w
-                    gy_px = float(data[2]) * frame_h
-
-                    # Check if centroid is within bounding box
-                    if x1 <= gx_px <= x2 and y1 <= gy_px <= y2:
-                        # Return coordinates relative to ROI
-                        return (int(gx_px - x1), int(gy_px - y1))
+                        # Check if centroid is within bounding box
+                        if x1 <= gx_px <= x2 and y1 <= gy_px <= y2:
+                            # Return coordinates relative to ROI
+                            return (int(gx_px - x1), int(gy_px - y1))
         except Exception as e:
             logger.warning(f"Error extracting ground truth from {label_file}: {e}")
 
@@ -163,12 +158,10 @@ class BGSProcessor(QThread):
             frame_w, frame_h: Original video dimensions for normalization
         """
         try:
-            # Extract port number from video filename (e.g., "port_1.mp4" -> "1")
-            import re
-
-            video_name = Path(self.video_path).stem
-            match = re.search(r"port_(\d+)", video_name)
-            port_num = match.group(1) if match else "0"
+            # Extract port number from video filename using shared utility
+            port_num = extract_port_from_filename(Path(self.video_path).stem)
+            if port_num is None:
+                port_num = 0  # Fallback to 0 if can't parse
 
             # Create port-specific output directory structure
             # FLY/bgs/port_X/labels/train/

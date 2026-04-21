@@ -6,6 +6,8 @@ import cv2
 import numpy as np
 import pandas as pd
 
+from calipod.annotation_management.file_utils import extract_frame_index_from_filename
+from calipod.annotation_management.yolo_utils import load_yolo_file
 from calipod.cameras.camera_array import CameraArray
 from calipod.core import logger as calipod_logger
 from calipod.export import xyz_to_trc, xyz_to_wide_labelled
@@ -282,31 +284,17 @@ class PostProcessor:
             logger.info(f"(Predictions) Port {port}: found {len(txt_files)} prediction label files")
 
             for txt_path in txt_files:
-                # Parse sync index from file name - support multiple conventions
-                try:
-                    stem = txt_path.stem
-                    # Convention 1: frame_000123.txt
-                    if stem.startswith("frame_"):
-                        idx = int(stem.split("_")[1])
-                    # Convention 2: ..._{number}.txt (last underscore before extension)
-                    elif "_" in stem:
-                        last_part = stem.split("_")[-1]
-                        idx = int(last_part)
-                    # Convention 3: simple numeric like 123.txt
-                    elif stem.isdigit():
-                        idx = int(stem)
-                    else:
-                        logger.warning(
-                            f"(Predictions) Cannot parse frame index from filename: {txt_path.name}; skipping"
-                        )
-                        continue
-                except (ValueError, IndexError) as e:
-                    logger.warning(f"(Predictions) Failed to parse filename {txt_path.name}: {e}; skipping")
+                # Parse frame index from filename using shared utility
+                idx = extract_frame_index_from_filename(txt_path.name)
+                if idx is None:
+                    logger.warning(
+                        f"(Predictions) Cannot parse frame index from filename: {txt_path.name}; skipping"
+                    )
                     continue
 
-                # Reuse tracker YOLO parser for consistency (adds corners for classes 9/10)
+                # Reuse shared YOLO parser for consistency (adds corners for classes 9/10)
                 try:
-                    ids, img_loc, _ = self.tracker.yolo_to_idloc(txt_path, frame_shape=frame_shape)
+                    ids, img_loc, _ = load_yolo_file(txt_path, frame_shape=frame_shape)
                 except Exception as e:
                     logger.warning(f"(Predictions) Failed parsing {txt_path}: {e}")
                     continue
