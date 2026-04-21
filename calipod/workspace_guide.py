@@ -1,6 +1,7 @@
 from pathlib import Path
 from threading import Lock, Thread
 
+from calipod.annotation_management import AnnotationsConfigManager
 from calipod.core import logger as calipod_logger
 from calipod.core.annotation_checker import AnnotationFormatChecker
 from calipod.core.configurator import Configurator
@@ -207,13 +208,23 @@ class WorkspaceGuide:
                             if p.name not in anno_info["pred_subdirs"]:
                                 anno_info["pred_subdirs"].append(p.name)
 
+            # Save annotations config with ground truth and prediction labels before converting to lists
+            if anno_info["has_ground_truth"] or anno_info["has_predictions"]:
+                config_manager = AnnotationsConfigManager(self.workspace_dir)
+                config_manager.save_annotations_config(
+                    ground_truth_labels=anno_info["gt_classes"],
+                    ground_truth_format=anno_info["gt_format"],
+                    predictions_labels=anno_info["pred_classes"],
+                    predictions_format=anno_info["pred_format"],
+                )
+
             # Sort subdirectories and convert classes to sorted lists
             anno_info["gt_subdirs"] = sorted(anno_info["gt_subdirs"])
             anno_info["pred_subdirs"] = sorted(anno_info["pred_subdirs"])
             anno_info["gt_classes"] = sorted(list(anno_info["gt_classes"]))
             anno_info["pred_classes"] = sorted(list(anno_info["pred_classes"]))
         except Exception as e:
-            logger.debug(f"Error reading annotation directories: {e}")
+            logger.info(f"Error reading annotation directories: {e}")
 
         return anno_info
 
