@@ -137,8 +137,8 @@ class MainWindow(QMainWindow):
             self.intrinsic_cal_widget = QWidget()
 
         logger.info("finished loading camera tab")
-        self.central_tab.addTab(self.intrinsic_cal_widget, "Cameras")
-        self.central_tab.setTabEnabled(self.find_tab_index_by_title("Cameras"), self.controller.cameras_loaded)
+        self.central_tab.addTab(self.intrinsic_cal_widget, "Calibration")
+        self.central_tab.setTabEnabled(self.find_tab_index_by_title("Calibration"), self.controller.cameras_loaded)
         logger.info("Camera tab enabled")
 
         logger.info("About to load capture volume tab")
