@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from calipod import __root__
 from circuit_management.connector_preview_renderer import CONNECTOR_PIN_LAYOUTS, render_connector_preview_frame
 
 
@@ -12,7 +13,7 @@ def _bgra_from_hex(colour_hex: str) -> tuple[int, int, int, int]:
 
 
 def test_render_connector_preview_frame_places_colours_on_pin_centres():
-    image_path = Path("calipod/gui/icons/connectors/4_pin_hirose_female.png")
+    image_path = Path(__root__, "calipod", "gui", "icons", "connectors", "4_pin_hirose_female.png")
     colours = {
         1: "#D32F2F",
         2: "#2E7D32",
@@ -29,7 +30,7 @@ def test_render_connector_preview_frame_places_colours_on_pin_centres():
 
 
 def test_render_connector_preview_frame_handles_six_pin_layout():
-    image_path = Path("calipod/gui/icons/connectors/6_pin_hirose_female.png")
+    image_path = Path(__root__, "calipod", "gui", "icons", "connectors", "6_pin_hirose_female.png")
     colours = {pin_number: "#616161" for pin_number in range(1, 7)}
 
     frame = render_connector_preview_frame(image_path, "Hirose 6 Pin", colours)
