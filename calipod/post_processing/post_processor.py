@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
+from calipod.annotation_management import AnnotationsConfigManager
 from calipod.annotation_management.file_utils import extract_frame_index_from_filename
 from calipod.annotation_management.yolo_utils import load_yolo_file
 from calipod.cameras.camera_array import CameraArray
@@ -21,6 +22,10 @@ logger = calipod_logger.get(__name__)
 
 # gap filling and filtering is outside the current scope of the project so I'm toggling this off for now
 APPLY_EXPERIMENTAL_POST_PROCESSING = False
+
+
+def _is_insect_tracker_name(name: str) -> bool:
+    return str(name).upper() in {"FLY", "INSECT"}
 
 
 class PostProcessor:
@@ -54,6 +59,7 @@ class PostProcessor:
         self.tracker_enum = tracker_enum
         self.tracker_name = tracker_enum.name
         self.tracker = tracker_enum.value()
+        self.corner_label_ids = self._get_corner_label_ids()
 
         logger.info(f"!!!!!!!!!SET ANNOTATIONS name here {self.tracker_name} !!!!!!!!!")
         logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
@@ -61,7 +67,7 @@ class PostProcessor:
         logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
         logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
         logger.info("!!!!!!!!!SET ANNOTATIONS DIR!!!!!!!!!")
-        if self.tracker_name == "FLY" and self.ground_truth_path is not None:
+        if _is_insect_tracker_name(self.tracker_name) and self.ground_truth_path is not None:
             # Instantiate FlyTracker WITHOUT arguments
             # NOW SET THE PROPERTIES
 
@@ -87,7 +93,7 @@ class PostProcessor:
         For FlyTracker with annotations, automatically uses annotations-only mode for faster processing.
         """
         # Auto-detect if we should use annotations-only mode
-        if self.tracker_name == "FLY" and hasattr(self.tracker, "check_annotations_available"):
+        if _is_insect_tracker_name(self.tracker_name) and hasattr(self.tracker, "check_annotations_available"):
             if self.tracker.check_annotations_available(self.recording_path, self.camera_array.cameras):
                 logger.info("✓ Using annotations-only mode for faster post-processing")
                 include_video = False
@@ -203,8 +209,8 @@ class PostProcessor:
         Writes consolidated XY CSV to: {recording_path}/{tracker_name}/xy_predictions_{tracker_name}.csv
         """
         logger.info(f"(Predictions) create_xy_predictions() called; tracker_name={self.tracker_name}")
-        if self.tracker_name != "FLY":
-            logger.info("(Predictions) XY creation currently implemented for FLY tracker only; skipping.")
+        if not _is_insect_tracker_name(self.tracker_name):
+            logger.info("(Predictions) XY creation currently implemented for insect tracker only; skipping.")
             return
 
         tracker_output_path = Path(self.recording_path, self.tracker_name)
@@ -292,9 +298,13 @@ class PostProcessor:
                     )
                     continue
 
-                # Reuse shared YOLO parser for consistency (adds corners for classes 9/10)
+                # Reuse shared YOLO parser for consistency using configured frame-ROI corner labels.
                 try:
-                    ids, img_loc, _ = load_yolo_file(txt_path, frame_shape=frame_shape)
+                    ids, img_loc, _ = load_yolo_file(
+                        txt_path,
+                        frame_shape=frame_shape,
+                        corner_label_ids=self.corner_label_ids,
+                    )
                 except Exception as e:
                     logger.warning(f"(Predictions) Failed parsing {txt_path}: {e}")
                     continue
@@ -385,6 +395,19 @@ class PostProcessor:
                 logger.info(f"Predictions triangulated and saved to {xyz_pred_path}")
         else:
             logger.warning("No prediction points were successfully triangulated.")
+
+    def _get_corner_label_ids(self) -> set[int]:
+        """Get frame-ROI class IDs that should produce synthetic corners."""
+        if not _is_insect_tracker_name(self.tracker_name):
+            return set()
+
+        workspace_dir = self.recording_path.parent.parent
+        manager = AnnotationsConfigManager(workspace_dir)
+        frame_roi_labels = manager.get_frame_roi_structure_labels(is_ground_truth=True)
+        if frame_roi_labels:
+            return set(int(label_id) for label_id in frame_roi_labels.keys())
+
+        return set()
 
 
 if __name__ == "__main__":

@@ -75,6 +75,7 @@ def load_yolo_file(
     frame_shape: Optional[Tuple[int, int, int]] = None,
     highest_confidence_only: bool = False,
     add_corner_points: bool = True,
+    corner_label_ids: Optional[set[int]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load and parse a YOLO label file to extract point IDs, locations, and bounding boxes.
@@ -82,15 +83,17 @@ def load_yolo_file(
     If highest_confidence_only set to true, only the highest confidence
     detection per class is kept per frame (for single-object scenarios).
 
-    For labels 9 (fruit) and 10 (leaves), also generates corner points for proper 3D triangulation.
+    For configured corner labels, also generates corner points for proper 3D triangulation.
     Corner points use IDs: base_id * 1000 + corner_index (0=TL, 1=TR, 2=BR, 3=BL)
 
     Args:
         text_file: Path to YOLO label file
         frame_shape: Optional tuple of (height, width, channels). If provided, normalizes to pixel coords.
         highest_confidence_only: If True, only keep highest confidence detection per class.
-        add_corner_points: If True, for classes 9 (fruit) and 10 (leaves), generate 4 corner points
+        add_corner_points: If True, for configured corner classes, generate 4 corner points
                           for proper 3D triangulation. Corner IDs: class_id*1000 + corner_index (0=TL, 1=TR, 2=BR, 3=BL)
+        corner_label_ids: Optional set of class IDs that should receive synthetic corner points.
+                 Defaults to an empty set when not provided.
 
     Returns:
         Tuple of:
@@ -128,6 +131,9 @@ def load_yolo_file(
             lines = [entry[1] for entry in class_detections.values()]
 
         # Parse lines
+        if corner_label_ids is None:
+            corner_label_ids = set()
+
         ids_list = []
         img_loc_list = []
         bboxes_list = []
@@ -155,8 +161,8 @@ def load_yolo_file(
                 f"bbox=({width}, {height}) from {text_file.name}"
             )
 
-            # For fruit (9) and leaves (10), add 4 corner points for proper 3D triangulation
-            if add_corner_points and class_id in [9, 10]:
+            # Add synthetic corner points for configured classes.
+            if add_corner_points and class_id in corner_label_ids:
                 half_w = width / 2.0
                 half_h = height / 2.0
 

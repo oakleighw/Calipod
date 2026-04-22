@@ -6,6 +6,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -15,10 +16,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from calipod.annotation_management import AnnotationsConfigManager
+from calipod.annotation_management.annotations_config_manager import (
+    STRUCTURE_GEOMETRY_FLAT,
+    STRUCTURE_GEOMETRY_SEMI_SPHERE,
+)
 from calipod.core import logger as calipod_logger
 from calipod.core.configurator import Configurator
 from calipod.core.controller import Controller
 from calipod.gui.vizualize.playback_triangulation_widget import PlaybackTriangulationWidget
+from calipod.post_processing.environment_structures import load_environment_structure_settings
 from calipod.post_processing.metarig_config import generate_metarig_config
 from calipod.trackers.tracker_enum import TrackerEnum
 
@@ -55,11 +62,33 @@ class PostProcessingWidget(QWidget):
 
         self.tracker_combo = QComboBox()
         self.vizualizer_title = QLabel()
+        self.annotations_config_manager = AnnotationsConfigManager(self.controller.workspace_guide.workspace_dir)
+
+        self.environment_group = QGroupBox("Environment Structures")
+        self.environment_group_layout = QVBoxLayout()
+        self.environment_master_checkbox = QCheckBox("Show Environment Structures")
+        self.environment_master_checkbox.setChecked(True)
+        self.environment_group_layout.addWidget(self.environment_master_checkbox)
+        self.environment_group.setLayout(self.environment_group_layout)
+        self.environment_structure_widgets: dict[int, dict] = {}
+        self.arena_vertex_widgets: dict[int, dict] = {}
+        self.environment_structure_rows = []
+        self.current_arena_vertices: list[dict] = []
+
+        self.geometry_label_to_key = {
+            "Flat Plane": STRUCTURE_GEOMETRY_FLAT,
+            "Semi-sphere": STRUCTURE_GEOMETRY_SEMI_SPHERE,
+        }
+        self.geometry_key_to_label = {
+            STRUCTURE_GEOMETRY_FLAT: "Flat Plane",
+            STRUCTURE_GEOMETRY_SEMI_SPHERE: "Semi-sphere",
+        }
 
         # Add items to the combo box using the name attribute of the TrackerEnum
         for tracker in TrackerEnum:
             if tracker.name != "CHARUCO":
-                self.tracker_combo.addItem(tracker.name, tracker)
+                display_name = "INSECT" if tracker.name == "FLY" else tracker.name
+                self.tracker_combo.addItem(display_name, tracker)
 
         self.open_folder_btn = QPushButton("&Open Folder")
         self.process_current_btn = QPushButton("&Process")
@@ -178,7 +207,8 @@ class PostProcessingWidget(QWidget):
         else:
             suffix = "(no processed data)"
 
-        title = f"<div align='center'><b>{self.tracker_combo.currentData().name.title()} Tracker: {self.active_folder} {suffix} </b></div>"  # noqa E501
+        tracker_label = self.tracker_combo.currentText().title()
+        title = f"<div align='center'><b>{tracker_label} Tracker: {self.active_folder} {suffix} </b></div>"  # noqa E501
 
         return title
 
@@ -193,6 +223,7 @@ class PostProcessingWidget(QWidget):
         self.left_vbox.addWidget(self.recording_folders)
         self.left_vbox.addWidget(self.open_folder_btn)
         self.left_vbox.addWidget(self.tracker_combo)
+        self.left_vbox.addWidget(self.environment_group)
         self.button_hbox.addWidget(self.process_current_btn)
         self.button_hbox.addWidget(self.generate_metarig_config_btn)
         self.left_vbox.addLayout(self.button_hbox)
@@ -206,6 +237,7 @@ class PostProcessingWidget(QWidget):
         self.tracker_combo.currentIndexChanged.connect(self.refresh_visualizer)
         self.vis_widget.slider.valueChanged.connect(self.store_sync_index_cursor)
         self.use_hybrid_filtering_checkbox.stateChanged.connect(self.on_hybrid_filtering_toggled)
+        self.environment_master_checkbox.toggled.connect(self.on_environment_master_toggled)
         self.process_current_btn.clicked.connect(self.process_current)
         self.open_folder_btn.clicked.connect(self.open_folder)
         self.generate_metarig_config_btn.clicked.connect(self.create_metarig_config)
@@ -294,9 +326,194 @@ class PostProcessingWidget(QWidget):
             logger.info("No BGS predictions available for this recording")
 
         self.set_current_xyz()
+        self.refresh_environment_structures_panel()
         self.vizualizer_title.setText(self.viz_title_html)
         self.update_enabled_disabled()
         self.update_slider_position()
+
+    def clear_environment_structure_rows(self):
+        for row_layout in self.environment_structure_rows:
+            while row_layout.count():
+                item = row_layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+            self.environment_group_layout.removeItem(row_layout)
+        self.environment_structure_rows = []
+        self.environment_structure_widgets = {}
+        self.arena_vertex_widgets = {}
+
+    def refresh_environment_structures_panel(self):
+        self.clear_environment_structure_rows()
+
+        structure_settings = load_environment_structure_settings(self.controller.workspace_guide.workspace_dir)
+        self.current_arena_vertices = structure_settings.get("arena_vertices", [])
+        frame_roi_structures = structure_settings.get("frame_roi_structures", [])
+
+        if len(frame_roi_structures) == 0:
+            empty_label = QLabel("No frame ROI labels found")
+            empty_label.setStyleSheet("color: #999; font-style: italic;")
+            row = QHBoxLayout()
+            row.addWidget(empty_label)
+            row.addStretch()
+            self.environment_group_layout.addLayout(row)
+            self.environment_structure_rows.append(row)
+            self.push_environment_settings_to_visualizer()
+            return
+
+        for structure in frame_roi_structures:
+            label_id = int(structure["id"])
+            label_name = structure.get("name") or f"Class {label_id}"
+            enabled = bool(structure.get("enabled", True))
+            geometry = structure.get("geometry", STRUCTURE_GEOMETRY_FLAT)
+
+            row = QHBoxLayout()
+            enabled_checkbox = QCheckBox(f"{label_name} (Class {label_id})")
+            enabled_checkbox.setChecked(enabled)
+
+            geometry_combo = QComboBox()
+            geometry_combo.addItem("Flat Plane", STRUCTURE_GEOMETRY_FLAT)
+            geometry_combo.addItem("Semi-sphere", STRUCTURE_GEOMETRY_SEMI_SPHERE)
+            geometry_index = geometry_combo.findData(geometry)
+            if geometry_index >= 0:
+                geometry_combo.setCurrentIndex(geometry_index)
+
+            enabled_checkbox.toggled.connect(
+                lambda checked, lid=label_id: self.on_structure_enabled_changed(lid, checked)
+            )
+            geometry_combo.currentIndexChanged.connect(
+                lambda _idx, lid=label_id, combo=geometry_combo: self.on_structure_geometry_changed(
+                    lid, combo.currentData()
+                )
+            )
+
+            row.addWidget(enabled_checkbox)
+            row.addWidget(QLabel("Geometry"))
+            row.addWidget(geometry_combo)
+            row.addStretch()
+
+            self.environment_group_layout.addLayout(row)
+            self.environment_structure_rows.append(row)
+
+            self.environment_structure_widgets[label_id] = {
+                "label_name": label_name,
+                "enabled_checkbox": enabled_checkbox,
+                "geometry_combo": geometry_combo,
+            }
+
+        arena_vertices = structure_settings.get("arena_vertices", [])
+        if len(arena_vertices) > 0:
+            header_row = QHBoxLayout()
+            header_label = QLabel("Arena Vertices")
+            header_label.setStyleSheet("font-weight: bold;")
+            header_row.addWidget(header_label)
+            header_row.addStretch()
+            self.environment_group_layout.addLayout(header_row)
+            self.environment_structure_rows.append(header_row)
+
+            for vertex in arena_vertices:
+                label_id = int(vertex["id"])
+                label_name = vertex.get("name") or f"Class {label_id}"
+                enabled = bool(vertex.get("enabled", True))
+                add_to_floor = bool(vertex.get("add_to_floor", False))
+
+                row = QHBoxLayout()
+                enabled_checkbox = QCheckBox(f"{label_name} (Class {label_id})")
+                enabled_checkbox.setChecked(enabled)
+                floor_checkbox = QCheckBox("Add to Floor")
+                floor_checkbox.setChecked(add_to_floor)
+
+                enabled_checkbox.toggled.connect(
+                    lambda checked, lid=label_id: self.on_arena_vertex_enabled_changed(lid, checked)
+                )
+                floor_checkbox.toggled.connect(
+                    lambda checked, lid=label_id: self.on_arena_vertex_floor_changed(lid, checked)
+                )
+
+                row.addWidget(enabled_checkbox)
+                row.addWidget(floor_checkbox)
+                row.addStretch()
+
+                self.environment_group_layout.addLayout(row)
+                self.environment_structure_rows.append(row)
+                self.arena_vertex_widgets[label_id] = {
+                    "label_name": label_name,
+                    "enabled_checkbox": enabled_checkbox,
+                    "floor_checkbox": floor_checkbox,
+                }
+
+        self.push_environment_settings_to_visualizer()
+
+    def push_environment_settings_to_visualizer(self):
+        frame_roi_structures = []
+        for label_id, widgets in sorted(self.environment_structure_widgets.items()):
+            frame_roi_structures.append(
+                {
+                    "id": label_id,
+                    "name": widgets["label_name"],
+                    "enabled": widgets["enabled_checkbox"].isChecked(),
+                    "geometry": widgets["geometry_combo"].currentData(),
+                }
+            )
+
+        arena_vertices = []
+        for label_id, widgets in sorted(self.arena_vertex_widgets.items()):
+            arena_vertices.append(
+                {
+                    "id": label_id,
+                    "name": widgets["label_name"],
+                    "enabled": widgets["enabled_checkbox"].isChecked(),
+                    "add_to_floor": widgets["floor_checkbox"].isChecked(),
+                }
+            )
+
+        self.vis_widget.set_environment_structure_settings(
+            frame_roi_structures=frame_roi_structures,
+            arena_vertices=arena_vertices,
+            enabled=self.environment_master_checkbox.isChecked(),
+        )
+
+        # Refresh current frame so visibility/geometry changes are visible immediately.
+        self.vis_widget.visualizer.display_points(self.vis_widget.slider.value())
+
+    def on_environment_master_toggled(self, _checked: bool):
+        self.push_environment_settings_to_visualizer()
+
+    def on_structure_enabled_changed(self, label_id: int, checked: bool):
+        self.annotations_config_manager.update_label_structure_metadata(
+            label_id=label_id,
+            is_ground_truth=True,
+            enabled=checked,
+        )
+        self.push_environment_settings_to_visualizer()
+
+    def on_structure_geometry_changed(self, label_id: int, geometry: str):
+        if geometry not in {STRUCTURE_GEOMETRY_FLAT, STRUCTURE_GEOMETRY_SEMI_SPHERE}:
+            logger.warning(f"Ignoring unsupported structure geometry '{geometry}' for class {label_id}")
+            return
+
+        self.annotations_config_manager.update_label_structure_metadata(
+            label_id=label_id,
+            is_ground_truth=True,
+            geometry=geometry,
+        )
+        self.push_environment_settings_to_visualizer()
+
+    def on_arena_vertex_enabled_changed(self, label_id: int, checked: bool):
+        self.annotations_config_manager.update_label_structure_metadata(
+            label_id=label_id,
+            is_ground_truth=True,
+            enabled=checked,
+        )
+        self.push_environment_settings_to_visualizer()
+
+    def on_arena_vertex_floor_changed(self, label_id: int, checked: bool):
+        self.annotations_config_manager.update_label_structure_metadata(
+            label_id=label_id,
+            is_ground_truth=True,
+            add_to_floor=checked,
+        )
+        self.push_environment_settings_to_visualizer()
 
     def disable_all_inputs(self):
         """used to toggle off all inputs will processing is going on"""

@@ -26,6 +26,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from calipod.annotation_management.annotations_config_manager import (
+    STRUCTURE_GEOMETRY_FLAT,
+    STRUCTURE_GEOMETRY_SEMI_SPHERE,
+)
 from calipod.cameras.camera_array import CameraArray
 from calipod.core import logger as calipod_logger
 from calipod.export import (
@@ -355,6 +359,16 @@ class PlaybackTriangulationWidget(QWidget):
         self.compute_metrics_button.clicked.connect(self.compute_and_show_metrics)
         self.toggle_frustums_button.toggled.connect(self.visualizer.toggle_camera_frustums)
         self.toggle_filtered_button.toggled.connect(self.toggle_filtered_track)
+
+    def set_environment_structure_settings(
+            self, frame_roi_structures: list[dict], arena_vertices: list[dict], enabled: bool
+            ):
+        """Pass environment-structure settings from post-processing side panel into visualizers."""
+        self.visualizer.set_environment_structure_settings(
+            frame_roi_structures=frame_roi_structures,
+            arena_vertices=arena_vertices,
+            enabled=enabled,
+        )
 
     def toggle_export_mode(self, checked):
         """Toggles video export mode and launches export on main thread with progress dialog."""
@@ -1536,7 +1550,13 @@ class PlaybackTriangulationWidget(QWidget):
         # Create new interactive window
         is_filtered = self.toggle_filtered_button.isChecked() if hasattr(self, "toggle_filtered_button") else False
         self.interactive_graph_window = Interactive3DGraphWindow(
-            self.motion_trial, self.camera_array, self.xyz_history_path, is_filtered
+            self.motion_trial,
+            self.camera_array,
+            self.xyz_history_path,
+            is_filtered,
+            frame_roi_structures=self.visualizer.frame_roi_structures,
+            arena_vertices=self.visualizer.arena_vertices,
+            show_environment_structures=self.visualizer.environment_structures_enabled,
         )
         self.interactive_graph_window.show()
         logger.info("Interactive 3D graph window opened.")
@@ -1567,6 +1587,20 @@ class TriangulationVisualizer:
 
         # Storage for custom mesh items for special labels
         self.custom_mesh_items = []  # Store references to added mesh items
+        self.environment_structures_enabled = True
+        self.frame_roi_structures = []
+        self.arena_vertices = []
+
+    def set_environment_structure_settings(
+        self,
+        frame_roi_structures: list[dict],
+        arena_vertices: list[dict],
+        enabled: bool,
+    ):
+        """Update runtime environment rendering settings from UI."""
+        self.frame_roi_structures = frame_roi_structures or []
+        self.arena_vertices = arena_vertices or []
+        self.environment_structures_enabled = bool(enabled)
 
     def build_scene(self):
         if hasattr(self, "scene"):
@@ -1720,50 +1754,38 @@ class TriangulationVisualizer:
             xyz_coords = xyz_packet.point_xyz
             point_ids = xyz_packet.point_ids
 
-            # Check if we're using FlyTracker with special labels
-            has_fly_tracker = (
+            # Check if we're using the insect tracker path (FLY legacy + INSECT alias)
+            has_insect_tracker = (
                 hasattr(self.motion_trial, "tracker")
                 and hasattr(self.motion_trial.tracker, "name")
-                and self.motion_trial.tracker.name == "FLY"
+                and self.motion_trial.tracker.name in {"FLY", "INSECT"}
             )
+            has_environment_structure_labels = bool(self.frame_roi_structures or self.arena_vertices)
 
             logger.info(
-                f"has_fly_tracker: {has_fly_tracker}, tracker: "
+                f"has_insect_tracker: {has_insect_tracker}, tracker: "
                 f"{self.motion_trial.tracker if hasattr(self.motion_trial, 'tracker') else 'None'}, "
                 f"point_ids: {point_ids}, num_points: {len(xyz_coords)}"
             )
 
-            if has_fly_tracker and len(xyz_coords) > 0:
-                # Get average bbox dimensions for this tracker
-                try:
-                    avg_bbox_by_id = self.motion_trial.tracker.get_average_bbox_by_point_id()
-                    logger.info(f"Average bbox data retrieved: {avg_bbox_by_id}")
-                except Exception as e:
-                    logger.warning(f"Could not get bbox data from tracker: {e}")
-                    avg_bbox_by_id = {}
-
-                # If bbox_data is empty (tracking done before bbox capture was added),
-                # use default sizes for fruit and leaves
-                if not avg_bbox_by_id:
-                    logger.info("Using default bbox sizes for fruit and leaves (no captured bbox data)")
-                    # Default sizes in pixels - adjust these based on your typical object sizes
-                    # These are reasonable defaults for fruit/leaves at typical camera distances
-                    avg_bbox_by_id = {
-                        9: (100.0, 100.0),  # fruit: 100x100 pixels default
-                        10: (150.0, 150.0),  # leaves: 150x150 pixels default
-                    }
-
-                # Separate special labels (9=fruit, 10=leaves) from regular points
+            if (has_insect_tracker or has_environment_structure_labels) and len(xyz_coords) > 0:
+                # Separate environment structures from regular points.
                 regular_mask = np.ones(len(point_ids), dtype=bool)
+                structure_geometry_by_id = {
+                    int(item["id"]): item.get("geometry", STRUCTURE_GEOMETRY_FLAT)
+                    for item in self.frame_roi_structures
+                    if item.get("enabled", True)
+                }
 
                 for i, (point_id, xyz) in enumerate(zip(point_ids, xyz_coords)):
                     logger.info(f"Processing point {i}: point_id={point_id} (type: {type(point_id)}), xyz={xyz}")
                     # Convert point_id to int for dictionary lookup
                     point_id_int = int(point_id)
 
-                    # Check if this is a center point for fruit or leaves
-                    if point_id_int in [9, 10]:
+                    # Check if this is a center point for a configured frame-ROI structure
+                    if self.environment_structures_enabled and point_id_int in structure_geometry_by_id:
                         regular_mask[i] = False
+                        structure_geometry = structure_geometry_by_id.get(point_id_int, STRUCTURE_GEOMETRY_FLAT)
 
                         # Find the 4 corner points for this object
                         # Corner IDs are: point_id * 1000 + [0, 1, 2, 3]
@@ -1784,7 +1806,7 @@ class TriangulationVisualizer:
                         if len(corner_xyzs) == 4:
                             logger.info(f"Found all 4 triangulated corners for point_id={point_id_int}")
 
-                            if point_id_int == 10:  # leaves - flat green square using triangulated corners
+                            if structure_geometry == STRUCTURE_GEOMETRY_FLAT:
                                 ordered = self._order_corners_on_plane(np.array(corner_xyzs, dtype=np.float32))
 
                                 # Skip degenerate quads that could render as crosses
@@ -1815,9 +1837,12 @@ class TriangulationVisualizer:
                                     mesh_item.setGLOptions("translucent")  # Draw both faces to avoid backface culling
                                     self.scene.addItem(mesh_item)
                                     self.custom_mesh_items.append(mesh_item)
-                                    logger.info("Created flat square mesh for leaves from triangulated corners")
+                                    logger.info(
+                                        "Created flat square mesh from triangulated corners "
+                                        f"for structure class {point_id_int}"
+                                    )
 
-                            elif point_id_int == 9:  # fruit - red hemisphere using triangulated corners
+                            elif structure_geometry == STRUCTURE_GEOMETRY_SEMI_SPHERE:
                                 corners_array = self._order_corners_on_plane(np.array(corner_xyzs, dtype=np.float32))
 
                                 width_3d = np.linalg.norm(corners_array[1] - corners_array[0])
@@ -1853,7 +1878,9 @@ class TriangulationVisualizer:
                                 mesh_item.setGLOptions("translucent")  # brighter
                                 self.scene.addItem(mesh_item)
                                 self.custom_mesh_items.append(mesh_item)
-                                logger.info(f"Created hemisphere mesh for fruit with radius={radius_3d:.4f}")
+                                logger.info(
+                                    f"Created hemisphere mesh for class {point_id_int} with radius={radius_3d:.4f}"
+                                )
                         else:
                             logger.warning(
                                 f"Could not find all 4 corners for point_id={point_id_int}, "
@@ -1865,24 +1892,35 @@ class TriangulationVisualizer:
                     elif point_id_int >= 1000:
                         regular_mask[i] = False
 
-                # Create floor mesh from the 4 bottom corner points
-                # Points: 3=blic, 4=bric, 7=brfic, 8=blfic
-                floor_point_ids = [3, 4, 7, 8]
+                enabled_arena_vertex_ids = {
+                    int(item["id"])
+                    for item in self.arena_vertices
+                    if item.get("enabled", True)
+                }
+                all_arena_vertex_ids = {int(item["id"]) for item in self.arena_vertices}
+                floor_point_ids = [
+                    int(item["id"])
+                    for item in self.arena_vertices
+                    if item.get("enabled", True) and item.get("add_to_floor", False)
+                ]
+
+                # Arena vertices are controlled by the Environment Structures panel.
+                if self.environment_structures_enabled and len(all_arena_vertex_ids) > 0:
+                    for idx, point_id in enumerate(point_ids):
+                        if int(point_id) in all_arena_vertex_ids:
+                            regular_mask[idx] = False
+
                 floor_coords = []
 
                 for floor_id in floor_point_ids:
-                    floor_mask = point_ids == floor_id
-                    if np.any(floor_mask):
-                        floor_coords.append(xyz_coords[floor_mask][0])
-                        # Mark floor points as not regular scatter points
-                        floor_idx = np.where(point_ids == floor_id)[0]
-                        if len(floor_idx) > 0:
-                            regular_mask[floor_idx[0]] = False
+                    floor_coord = self._get_point_coord_for_id(point_ids, xyz_coords, floor_id)
+                    if floor_coord is not None:
+                        floor_coords.append(floor_coord)
 
-                # If we have all 4 floor corner points, create the floor mesh
-                if len(floor_coords) == 4:
-                    logger.info("Creating floor mesh from 4 bottom corner points")
-                    vertices = np.array(floor_coords, dtype=np.float32)
+                # If we have 4+ selected floor points, create the floor mesh.
+                if self.environment_structures_enabled and len(floor_coords) >= 4:
+                    ordered_floor = self._order_corners_on_plane(np.array(floor_coords, dtype=np.float32))
+                    vertices = ordered_floor
 
                     # Check for degenerate floor mesh
                     v0, v1, v2 = vertices[0], vertices[1], vertices[2]
@@ -1891,17 +1929,13 @@ class TriangulationVisualizer:
                     if tri_area < 1e-6:
                         logger.debug(f"Floor mesh degenerate (area={tri_area}); skipping to avoid artefacts")
                     else:
-                        # Order should be: blic(0), bric(1), brfic(2), blfic(3)
-                        # Form two triangles: [0,1,2] and [0,2,3]
-                        faces = np.array(
-                            [
-                                [0, 1, 2],  # blic, bric, brfic
-                                [0, 2, 3],  # blic, brfic, blfic
-                            ],
-                            dtype=np.uint32,
-                        )
+                        # Triangulate polygon with a simple fan from vertex 0.
+                        faces = []
+                        for tri_idx in range(1, len(vertices) - 1):
+                            faces.append([0, tri_idx, tri_idx + 1])
+                        faces = np.array(faces, dtype=np.uint32)
 
-                        colors = np.array([(1, 1, 1, 0.3), (1, 1, 1, 0.3)], dtype=np.float32)  # White, semi-transparent
+                        colors = np.array([(1, 1, 1, 0.3)] * len(faces), dtype=np.float32)
 
                         floor_mesh = gl.GLMeshItem(
                             vertexes=vertices,
@@ -1914,38 +1948,27 @@ class TriangulationVisualizer:
                         floor_mesh.setGLOptions("translucent")
                         self.scene.addItem(floor_mesh)
                         self.custom_mesh_items.append(floor_mesh)
-                        logger.info("Created white floor mesh from bottom corners")
+                        logger.info(f"Created floor mesh from {len(vertices)} selected arena vertices")
                 else:
-                    logger.debug(f"Could not find all 4 floor corner points, found {len(floor_coords)} points")
+                    logger.debug(f"Need >=4 floor vertices; found {len(floor_coords)} points")
 
-                # Create edge lines connecting the 8 corner points (forming a rectangular box)
-                # Point IDs: 1=tlic, 2=tric, 3=blic, 4=bric, 5=tlfic, 6=trfic, 7=brfic, 8=blfic
-                edge_pairs = [
-                    # Vertical edges
-                    (1, 3),  # tlic - blic
-                    (2, 4),  # tric - bric
-                    (5, 8),  # tlfic - blfic
-                    (6, 7),  # trfic - brfic
-                    # Top edges
-                    (1, 2),  # tlic - tric
-                    (1, 5),  # tlic - tlfic
-                    (2, 6),  # tric - trfic
-                    (5, 6),  # tlfic - trfic
-                    # Bottom edges
-                    (3, 4),  # blic - bric
-                    (3, 8),  # blic - blfic
-                    (4, 7),  # bric - brfic
-                    (8, 7),  # blfic - brfic
-                ]
+                # Draw perimeter edges for enabled arena vertices using planar ordering.
+                edge_pairs = []
+                if self.environment_structures_enabled and len(enabled_arena_vertex_ids) >= 3:
+                    arena_coords = []
+                    for arena_id in sorted(enabled_arena_vertex_ids):
+                        arena_coord = self._get_point_coord_for_id(point_ids, xyz_coords, arena_id)
+                        if arena_coord is not None:
+                            arena_coords.append((arena_id, arena_coord))
+                    if len(arena_coords) >= 3:
+                        edge_pairs = self._build_arena_edge_pairs(arena_coords)
 
                 edges_found = 0
                 for point_id_a, point_id_b in edge_pairs:
-                    mask_a = point_ids == point_id_a
-                    mask_b = point_ids == point_id_b
+                    coord_a = self._get_point_coord_for_id(point_ids, xyz_coords, point_id_a)
+                    coord_b = self._get_point_coord_for_id(point_ids, xyz_coords, point_id_b)
 
-                    if np.any(mask_a) and np.any(mask_b):
-                        coord_a = xyz_coords[mask_a][0]
-                        coord_b = xyz_coords[mask_b][0]
+                    if coord_a is not None and coord_b is not None:
 
                         # Skip edges with NaN or infinite values
                         if (
@@ -1976,10 +1999,6 @@ class TriangulationVisualizer:
                         self.scene.addItem(line)
                         self.custom_mesh_items.append(line)
                         edges_found += 1
-
-                        # Mark corner points as not regular scatter points
-                        regular_mask[np.where(mask_a)[0]] = False
-                        regular_mask[np.where(mask_b)[0]] = False
 
                 logger.info(f"Created {edges_found} edge lines for capture volume box")
 
@@ -2189,6 +2208,93 @@ class TriangulationVisualizer:
         order = np.argsort(angles)
         ordered = corners[order]
         return ordered
+
+    def _order_ids_on_plane(self, id_coord_pairs: list[tuple[int, np.ndarray]]) -> list[int]:
+        """Order point IDs around the best-fit plane of their coordinates."""
+        ids = [pair[0] for pair in id_coord_pairs]
+        coords = np.array([pair[1] for pair in id_coord_pairs], dtype=np.float32)
+        centroid = coords.mean(axis=0)
+        centered = coords - centroid
+        _, _, vh = np.linalg.svd(centered)
+        normal = vh[2]
+        axis_x = vh[0]
+        axis_y = np.cross(normal, axis_x)
+        proj_x = centered @ axis_x
+        proj_y = centered @ axis_y
+        angles = np.arctan2(proj_y, proj_x)
+        order = np.argsort(angles)
+        return [ids[idx] for idx in order]
+
+    def _build_arena_edge_pairs(self, id_coord_pairs: list[tuple[int, np.ndarray]]) -> list[tuple[int, int]]:
+        """Build robust arena edges from selected vertices.
+
+        - Coplanar selections: connect as a closed ordered loop.
+        - Non-coplanar selections: connect each point to its nearest neighbors.
+        """
+        if len(id_coord_pairs) < 2:
+            return []
+
+        ids = [pair[0] for pair in id_coord_pairs]
+        coords = np.array([pair[1] for pair in id_coord_pairs], dtype=np.float32)
+
+        centroid = coords.mean(axis=0)
+        centered = coords - centroid
+        _, _, vh = np.linalg.svd(centered)
+        normal = vh[2]
+        plane_distances = np.abs(centered @ normal)
+        max_plane_dist = float(np.max(plane_distances)) if len(plane_distances) else 0.0
+
+        # If points are close to one plane, use perimeter loop.
+        if max_plane_dist < 0.01 or len(ids) <= 4:
+            ordered_ids = self._order_ids_on_plane(id_coord_pairs)
+            return [
+                (ordered_ids[i], ordered_ids[(i + 1) % len(ordered_ids)])
+                for i in range(len(ordered_ids))
+            ]
+
+        # For non-coplanar sets (e.g., full 3D arena corners), use nearest-neighbor graph.
+        neighbor_count = min(3, len(ids) - 1)
+        edge_set = set()
+        for i, point_id in enumerate(ids):
+            dists = np.linalg.norm(coords - coords[i], axis=1)
+            nearest_indices = np.argsort(dists)[1 : neighbor_count + 1]
+            for j in nearest_indices:
+                edge_set.add(tuple(sorted((point_id, ids[j]))))
+
+        return list(edge_set)
+
+    def _get_point_coord_for_id(
+            self, point_ids: np.ndarray, xyz_coords: np.ndarray, point_id: int
+            ) -> Optional[np.ndarray]:
+        """Get point coordinates from current frame, with mean-position fallback from trial data."""
+        current_mask = point_ids == point_id
+        if np.any(current_mask):
+            coord = xyz_coords[current_mask][0]
+            if np.all(np.isfinite(coord)):
+                return coord
+
+        if self.motion_trial is None or not hasattr(self.motion_trial, "xyz_df"):
+            return None
+
+        df = self.motion_trial.xyz_df
+        if df is None or df.empty:
+            return None
+
+        pid_df = df[df["point_id"] == point_id]
+        if pid_df.empty:
+            return None
+
+        coord = np.array(
+            [
+                pid_df["x_coord"].mean(),
+                pid_df["y_coord"].mean(),
+                pid_df["z_coord"].mean(),
+            ],
+            dtype=np.float32,
+        )
+        if not np.all(np.isfinite(coord)):
+            return None
+        return coord
 
     def clear_grid_labels(self):  # <--- ADD THIS ENTIRE METHOD
         for label in self.grid_labels:

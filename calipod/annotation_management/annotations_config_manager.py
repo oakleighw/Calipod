@@ -16,6 +16,13 @@ logger = calipod_logger.get(__name__)
 # Default config filename
 ANNOTATIONS_CONFIG_FILENAME = "annotations_config.json"
 
+STRUCTURE_GEOMETRY_FLAT = "flat_plane"
+STRUCTURE_GEOMETRY_SEMI_SPHERE = "semi_sphere"
+STRUCTURE_GEOMETRY_OPTIONS = {
+    STRUCTURE_GEOMETRY_FLAT,
+    STRUCTURE_GEOMETRY_SEMI_SPHERE,
+}
+
 
 class AnnotationsConfigManager:
     """Manages saving and loading annotation configuration with label metadata."""
@@ -124,11 +131,17 @@ class AnnotationsConfigManager:
                 existing_data = existing_labels[label_key]
                 existing_name = existing_data.get("name", "")
                 existing_category = existing_data.get("category", None)
+                existing_structure = self._normalize_structure_metadata(
+                    existing_data.get("structure"),
+                    label_id=label_id,
+                    category=existing_category,
+                )
 
                 section["labels"][label_key] = {
                     "id": label_id,
                     "name": existing_name,
                     "category": existing_category,
+                    "structure": existing_structure,
                 }
             else:
                 # New label
@@ -136,9 +149,48 @@ class AnnotationsConfigManager:
                     "id": label_id,
                     "name": name,
                     "category": None,
+                    "structure": self._default_structure_metadata(label_id, category=None),
                 }
 
         return section
+
+    def _default_structure_metadata(self, label_id: int, category: str | None) -> Dict:
+        """Return default structure settings for backward compatibility."""
+        default_enabled = False
+        default_geometry = STRUCTURE_GEOMETRY_FLAT
+        default_role = None
+        default_add_to_floor = False
+
+        if category == "frame roi":
+            default_enabled = True
+        elif category == "arena vertex":
+            default_enabled = True
+
+        return {
+            "enabled": default_enabled,
+            "geometry": default_geometry,
+            "role": default_role,
+            "add_to_floor": default_add_to_floor,
+        }
+
+    def _normalize_structure_metadata(
+        self, structure_data: Dict | None, label_id: int, category: str | None
+    ) -> Dict:
+        """Normalize structure metadata and fill missing fields safely."""
+        defaults = self._default_structure_metadata(label_id, category)
+        if not isinstance(structure_data, dict):
+            return defaults
+
+        geometry = structure_data.get("geometry", defaults["geometry"])
+        if geometry not in STRUCTURE_GEOMETRY_OPTIONS:
+            geometry = defaults["geometry"]
+
+        return {
+            "enabled": bool(structure_data.get("enabled", defaults["enabled"])),
+            "geometry": geometry,
+            "role": structure_data.get("role", defaults["role"]),
+            "add_to_floor": bool(structure_data.get("add_to_floor", defaults["add_to_floor"])),
+        }
 
     def load_annotations_config(self) -> Dict | None:
         """
@@ -245,6 +297,29 @@ class AnnotationsConfigManager:
 
         return config[section_key]["labels"][label_key].get("category")
 
+    def get_label_structure_metadata(
+        self, label_id: int, is_ground_truth: bool = True
+    ) -> Dict | None:
+        """Get structure metadata for a specific label ID."""
+        config = self.load_annotations_config()
+        if config is None:
+            return None
+
+        section_key = "ground_truth" if is_ground_truth else "predictions"
+        if section_key not in config:
+            return None
+
+        label_key = str(label_id)
+        label_data = config[section_key].get("labels", {}).get(label_key)
+        if label_data is None:
+            return None
+
+        return self._normalize_structure_metadata(
+            label_data.get("structure"),
+            label_id=label_id,
+            category=label_data.get("category"),
+        )
+
     def update_label_category(
         self, label_id: int, category: str | None, is_ground_truth: bool = True
     ):
@@ -272,6 +347,12 @@ class AnnotationsConfigManager:
             return
 
         config[section_key]["labels"][label_key]["category"] = category
+        existing_structure = config[section_key]["labels"][label_key].get("structure")
+        config[section_key]["labels"][label_key]["structure"] = self._normalize_structure_metadata(
+            existing_structure,
+            label_id=label_id,
+            category=category,
+        )
 
         # Save updated config
         with open(self.config_path, "w") as f:
@@ -280,6 +361,55 @@ class AnnotationsConfigManager:
         logger.info(
             f"Updated label {label_id} in {section_key} category to '{category}'"
         )
+
+    def update_label_structure_metadata(
+        self,
+        label_id: int,
+        is_ground_truth: bool = True,
+        enabled: bool | None = None,
+        geometry: str | None = None,
+        role: str | None = None,
+        add_to_floor: bool | None = None,
+    ):
+        """Update structure metadata fields for a specific label."""
+        config = self.load_annotations_config()
+        if config is None:
+            logger.warning("No annotations config found to update")
+            return
+
+        section_key = "ground_truth" if is_ground_truth else "predictions"
+        if section_key not in config:
+            logger.warning(f"Section '{section_key}' not found in config")
+            return
+
+        label_key = str(label_id)
+        labels = config[section_key].get("labels", {})
+        if label_key not in labels:
+            logger.warning(f"Label ID {label_id} not found in {section_key}")
+            return
+
+        label_data = labels[label_key]
+        metadata = self._normalize_structure_metadata(
+            label_data.get("structure"),
+            label_id=label_id,
+            category=label_data.get("category"),
+        )
+
+        if enabled is not None:
+            metadata["enabled"] = bool(enabled)
+        if geometry is not None and geometry in STRUCTURE_GEOMETRY_OPTIONS:
+            metadata["geometry"] = geometry
+        if role is not None:
+            metadata["role"] = role
+        if add_to_floor is not None:
+            metadata["add_to_floor"] = bool(add_to_floor)
+
+        label_data["structure"] = metadata
+
+        with open(self.config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        logger.info(f"Updated label {label_id} structure metadata in {section_key}: {metadata}")
 
     def get_labels_by_category(
         self, category: str, is_ground_truth: bool = True
@@ -311,3 +441,63 @@ class AnnotationsConfigManager:
                 result[int(label_id)] = label_data.get("name", "")
 
         return result if result else None
+
+    def get_frame_roi_structure_labels(self, is_ground_truth: bool = True) -> Dict[int, Dict]:
+        """Return frame-ROI labels with normalized structure metadata."""
+        config = self.load_annotations_config()
+        if config is None:
+            return {}
+
+        section_key = "ground_truth" if is_ground_truth else "predictions"
+        section = config.get(section_key, {})
+        labels = section.get("labels", {})
+        result: Dict[int, Dict] = {}
+
+        for label_key, label_data in labels.items():
+            if label_data.get("category") != "frame roi":
+                continue
+
+            label_id = int(label_key)
+            structure = self._normalize_structure_metadata(
+                label_data.get("structure"),
+                label_id=label_id,
+                category=label_data.get("category"),
+            )
+            result[label_id] = {
+                "id": label_id,
+                "name": label_data.get("name", ""),
+                "category": label_data.get("category"),
+                "structure": structure,
+            }
+
+        return result
+
+    def get_arena_vertex_structure_labels(self, is_ground_truth: bool = True) -> Dict[int, Dict]:
+        """Return arena-vertex labels with normalized structure metadata."""
+        config = self.load_annotations_config()
+        if config is None:
+            return {}
+
+        section_key = "ground_truth" if is_ground_truth else "predictions"
+        section = config.get(section_key, {})
+        labels = section.get("labels", {})
+        result: Dict[int, Dict] = {}
+
+        for label_key, label_data in labels.items():
+            if label_data.get("category") != "arena vertex":
+                continue
+
+            label_id = int(label_key)
+            structure = self._normalize_structure_metadata(
+                label_data.get("structure"),
+                label_id=label_id,
+                category=label_data.get("category"),
+            )
+            result[label_id] = {
+                "id": label_id,
+                "name": label_data.get("name", ""),
+                "category": label_data.get("category"),
+                "structure": structure,
+            }
+
+        return result

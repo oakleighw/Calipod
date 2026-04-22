@@ -5,6 +5,7 @@ from threading import Thread
 # caliscope/trackers/fly_tracker.py
 import numpy as np
 
+from calipod.annotation_management import AnnotationsConfigManager
 from calipod.annotation_management.yolo_utils import load_yolo_file
 from calipod.core import logger as calipod_logger
 from calipod.core.packets import PointPacket
@@ -27,6 +28,7 @@ class FlyTracker(Tracker):
         self.yolo_model = None  # Placeholder for your loaded YOLO model
         self._annotations_only_mode = False  # Track if we're using pre-made annotations without video processing
         self.bbox_data = {}  # Store bounding box data by (port, frame_idx, point_id)
+        self._corner_label_ids_cache: set[int] | None = None
 
     @property
     def name(self):
@@ -73,6 +75,7 @@ class FlyTracker(Tracker):
     @annotations_dir.setter
     def annotations_dir(self, path: Path):
         self._annotations_dir = path
+        self._corner_label_ids_cache = None
         # TODO: IF NO ANNOTATIONS DIR, LOOK FOR MODEL WEIGHTS PATH & LOAD...
         try:
             # Placeholder: Load your YOLO model here or pass its path
@@ -90,6 +93,7 @@ class FlyTracker(Tracker):
 
     def run_frame_processor(self, port: int, rotation_count: int):
         logger.info(f"FlyTracker thread for port {port} started (annotations_only_mode={self._annotations_only_mode}).")
+        corner_label_ids = self.get_corner_label_ids()
 
         while True:
             # Always initialize an empty packet, in case an error prevents populating it
@@ -128,8 +132,8 @@ class FlyTracker(Tracker):
                             landmark_xy.append((x_center, y_center))
                             bboxes.append((box_width, box_height))
 
-                            # For fruit (9) and leaves (10), add corner points
-                            if class_id in [9, 10]:
+                            # Add corner points for configured frame-ROI labels.
+                            if class_id in corner_label_ids:
                                 # Corner positions: TL, TR, BR, BL
                                 corners = [
                                     (x1, y1),  # Top-left (0)
@@ -162,7 +166,11 @@ class FlyTracker(Tracker):
                         # Always provide frame_shape for proper pixel coordinate scaling
                         # In annotations-only mode, frame may be a dummy zero array, but shape is still valid
                         frame_shape = frame.shape if frame is not None else None
-                        point_ids, landmark_xy, bboxes = load_yolo_file(label_file_path, frame_shape)
+                        point_ids, landmark_xy, bboxes = load_yolo_file(
+                            label_file_path,
+                            frame_shape,
+                            corner_label_ids=corner_label_ids,
+                        )
                         logger.debug(
                             f"FlyTracker (Port {port}, Frame {frame_idx}): "
                             f"Found {len(point_ids)} points from {label_file_path}"
@@ -259,7 +267,32 @@ class FlyTracker(Tracker):
 
         # Use shared load_yolo_file with highest_confidence_only=True
         # for predictions until better track handling is implemented.
-        return load_yolo_file(predictions_file_path, frame_shape, highest_confidence_only=True)
+        return load_yolo_file(
+            predictions_file_path,
+            frame_shape,
+            highest_confidence_only=True,
+            corner_label_ids=self.get_corner_label_ids(),
+        )
+
+    def get_corner_label_ids(self) -> set[int]:
+        """Return frame-ROI class IDs that should receive synthetic corners."""
+        if self._corner_label_ids_cache is not None:
+            return self._corner_label_ids_cache
+
+        if self._annotations_dir is None:
+            self._corner_label_ids_cache = set()
+            return self._corner_label_ids_cache
+
+        workspace_dir = Path(self._annotations_dir).parent.parent
+        manager = AnnotationsConfigManager(workspace_dir)
+        frame_roi_labels = manager.get_frame_roi_structure_labels(is_ground_truth=True)
+
+        if frame_roi_labels:
+            self._corner_label_ids_cache = set(int(label_id) for label_id in frame_roi_labels.keys())
+        else:
+            self._corner_label_ids_cache = set()
+
+        return self._corner_label_ids_cache
 
     def get_average_bbox_by_point_id(self):
         """Calculate average bounding box dimensions for each point_id across all frames.

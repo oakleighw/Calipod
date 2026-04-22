@@ -11,6 +11,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from calipod.annotation_management.annotations_config_manager import (
+    STRUCTURE_GEOMETRY_FLAT,
+    STRUCTURE_GEOMETRY_SEMI_SPHERE,
+)
 from calipod.cameras.camera_array import CameraArray
 from calipod.core import logger as calipod_logger
 from calipod.motion_trial import MotionTrial
@@ -27,6 +31,9 @@ class Interactive3DGraphWindow(QWidget):
         camera_array: CameraArray,
         xyz_history_path: Path = None,
         is_filtered: bool = False,
+        frame_roi_structures: list[dict] | None = None,
+        arena_vertices: list[dict] | None = None,
+        show_environment_structures: bool = True,
         parent=None,
     ):
         super().__init__(parent)
@@ -34,6 +41,9 @@ class Interactive3DGraphWindow(QWidget):
         self.camera_array = camera_array
         self.xyz_history_path = xyz_history_path
         self.is_filtered = is_filtered
+        self.frame_roi_structures = frame_roi_structures or []
+        self.arena_vertices = arena_vertices or []
+        self.show_environment_structures = bool(show_environment_structures)
         self.setWindowTitle("3D Trajectory Graph (Interactive)" + (" - Filtered" if is_filtered else ""))
         self.setGeometry(100, 100, 1200, 900)
 
@@ -87,58 +97,80 @@ class Interactive3DGraphWindow(QWidget):
                 z = fly_data["z_coord"].values * MM_PER_M
                 all_xyz = list(zip(x, y, z))
 
-        # Plot arena (corner points: 1-8)
-        arena_points = {i: None for i in range(1, 9)}
-        if hasattr(self.motion_trial, "xyz_df") and not self.motion_trial.xyz_df.empty:
-            for pid in range(1, 9):
-                mask = self.motion_trial.xyz_df["point_id"] == pid
-                if mask.any():
-                    data = self.motion_trial.xyz_df[mask]
-                    x_mean = data["x_coord"].mean() * MM_PER_M
-                    y_mean = data["y_coord"].mean() * MM_PER_M
-                    z_mean = data["z_coord"].mean() * MM_PER_M
-                    arena_points[pid] = np.array([x_mean, y_mean, z_mean])
+        structure_geometry_by_id = {
+            int(item["id"]): item.get("geometry", STRUCTURE_GEOMETRY_FLAT)
+            for item in self.frame_roi_structures
+            if item.get("enabled", True)
+        }
 
-        # Draw arena wireframe edges
-        if all(arena_points[i] is not None for i in range(1, 9)):
-            edge_pairs = [
-                (1, 3),
-                (2, 4),
-                (5, 8),
-                (6, 7),  # Vertical
-                (1, 2),
-                (1, 5),
-                (2, 6),
-                (5, 6),  # Top
-                (3, 4),
-                (3, 8),
-                (4, 7),
-                (8, 7),  # Bottom
+        # Draw arena perimeter and floor from user-selected arena-vertex metadata.
+        if self.show_environment_structures and hasattr(self.motion_trial, "xyz_df") \
+        and not self.motion_trial.xyz_df.empty:
+            enabled_ids = [int(item["id"]) for item in self.arena_vertices if item.get("enabled", True)]
+            floor_ids = [
+                int(item["id"])
+                for item in self.arena_vertices
+                if item.get("enabled", True) and item.get("add_to_floor", False)
             ]
-            for i, j in edge_pairs:
-                if arena_points[i] is not None and arena_points[j] is not None:
-                    x = [arena_points[i][0], arena_points[j][0]]
-                    y = [arena_points[i][1], arena_points[j][1]]
-                    z = [arena_points[i][2], arena_points[j][2]]
-                    self.ax.plot(x, y, z, "k-", alpha=0.3, linewidth=1)
 
-            # Draw arena floor as filled polygon (bottom 4 corners)
-            if all(arena_points[i] is not None for i in [3, 4, 7, 8]):
-                floor_verts = [
-                    [arena_points[3], arena_points[4], arena_points[7]],
-                    [arena_points[3], arena_points[7], arena_points[8]],
-                ]
-                floor_collection = self.Poly3DCollection(floor_verts, alpha=0.2, facecolor="gray", edgecolor="black")
+            enabled_points = []
+            for pid in enabled_ids:
+                mask = self.motion_trial.xyz_df["point_id"] == pid
+                if not mask.any():
+                    continue
+                data = self.motion_trial.xyz_df[mask]
+                point = np.array(
+                    [
+                        data["x_coord"].mean() * MM_PER_M,
+                        data["y_coord"].mean() * MM_PER_M,
+                        data["z_coord"].mean() * MM_PER_M,
+                    ]
+                )
+                enabled_points.append((pid, point))
+                self.ax.scatter([point[0]], [point[1]], [point[2]], color="black", s=14)
+
+            if len(enabled_points) >= 3:
+                id_to_coord = {pid: coord for pid, coord in enabled_points}
+                edge_pairs = self._build_arena_edge_pairs(enabled_points)
+                for point_id_a, point_id_b in edge_pairs:
+                    a = id_to_coord[point_id_a]
+                    b = id_to_coord[point_id_b]
+                    self.ax.plot([a[0], b[0]], [a[1], b[1]], [a[2], b[2]], "k-", alpha=0.3, linewidth=1)
+
+            floor_points = []
+            for pid in floor_ids:
+                mask = self.motion_trial.xyz_df["point_id"] == pid
+                if not mask.any():
+                    continue
+                data = self.motion_trial.xyz_df[mask]
+                floor_points.append(
+                    np.array(
+                        [
+                            data["x_coord"].mean() * MM_PER_M,
+                            data["y_coord"].mean() * MM_PER_M,
+                            data["z_coord"].mean() * MM_PER_M,
+                        ]
+                    )
+                )
+
+            if len(floor_points) >= 4:
+                ordered_floor = self._order_corners_on_plane(np.array(floor_points, dtype=np.float32))
+                floor_tris = []
+                for tri_idx in range(1, len(ordered_floor) - 1):
+                    floor_tris.append([ordered_floor[0], ordered_floor[tri_idx], ordered_floor[tri_idx + 1]])
+                floor_collection = self.Poly3DCollection(floor_tris, alpha=0.2, facecolor="gray", edgecolor="black")
                 self.ax.add_collection3d(floor_collection)
 
-        # Plot leaves as filled square (point_id 10 center + corners 10000-10003)
-        leaves_center = None
-        leaves_corners = [None] * 4
-        if hasattr(self.motion_trial, "xyz_df") and not self.motion_trial.xyz_df.empty:
-            center_mask = self.motion_trial.xyz_df["point_id"] == 10
-            if center_mask.any():
+        # Plot configured frame-ROI structures from annotation labels.
+        if self.show_environment_structures and hasattr(self.motion_trial, "xyz_df") \
+        and not self.motion_trial.xyz_df.empty:
+            for point_id, geometry in structure_geometry_by_id.items():
+                center_mask = self.motion_trial.xyz_df["point_id"] == point_id
+                if not center_mask.any():
+                    continue
+
                 center_data = self.motion_trial.xyz_df[center_mask]
-                leaves_center = np.array(
+                center = np.array(
                     [
                         center_data["x_coord"].mean() * MM_PER_M,
                         center_data["y_coord"].mean() * MM_PER_M,
@@ -146,103 +178,80 @@ class Interactive3DGraphWindow(QWidget):
                     ]
                 )
 
-            for i, corner_id in enumerate([10000, 10001, 10002, 10003]):
-                corner_mask = self.motion_trial.xyz_df["point_id"] == corner_id
-                if corner_mask.any():
+                corner_ids = [point_id * 1000 + i for i in range(4)]
+                corners = []
+                for corner_id in corner_ids:
+                    corner_mask = self.motion_trial.xyz_df["point_id"] == corner_id
+                    if not corner_mask.any():
+                        continue
                     corner_data = self.motion_trial.xyz_df[corner_mask]
-                    leaves_corners[i] = np.array(
-                        [
-                            corner_data["x_coord"].mean() * MM_PER_M,
-                            corner_data["y_coord"].mean() * MM_PER_M,
-                            corner_data["z_coord"].mean() * MM_PER_M,
-                        ]
+                    corners.append(
+                        np.array(
+                            [
+                                corner_data["x_coord"].mean() * MM_PER_M,
+                                corner_data["y_coord"].mean() * MM_PER_M,
+                                corner_data["z_coord"].mean() * MM_PER_M,
+                            ]
+                        )
                     )
 
-        if leaves_center is not None and all(c is not None for c in leaves_corners):
-            leaves_verts = [
-                [leaves_corners[0], leaves_corners[1], leaves_corners[2]],
-                [leaves_corners[0], leaves_corners[2], leaves_corners[3]],
-            ]
-            leaves_collection = self.Poly3DCollection(
-                leaves_verts,
-                alpha=0.35,
-                facecolor="green",
-                edgecolor="darkgreen",
-                linewidth=1.5,
-                zorder=1,
-            )
-            self.ax.add_collection3d(leaves_collection)
+                if len(corners) != 4:
+                    continue
 
-        # Plot strawberry as hemisphere (point_id 9 center + corners)
-        fruit_center = None
-        fruit_corners = [None] * 4
-        if hasattr(self.motion_trial, "xyz_df") and not self.motion_trial.xyz_df.empty:
-            center_mask = self.motion_trial.xyz_df["point_id"] == 9
-            if center_mask.any():
-                center_data = self.motion_trial.xyz_df[center_mask]
-                fruit_center = np.array(
-                    [
-                        center_data["x_coord"].mean() * MM_PER_M,
-                        center_data["y_coord"].mean() * MM_PER_M,
-                        center_data["z_coord"].mean() * MM_PER_M,
+                ordered = self._order_corners_on_plane(np.array(corners, dtype=np.float32))
+
+                if geometry == STRUCTURE_GEOMETRY_FLAT:
+                    flat_verts = [
+                        [ordered[0], ordered[1], ordered[2]],
+                        [ordered[0], ordered[2], ordered[3]],
                     ]
-                )
-
-            for i, corner_id in enumerate([9000, 9001, 9002, 9003]):
-                corner_mask = self.motion_trial.xyz_df["point_id"] == corner_id
-                if corner_mask.any():
-                    corner_data = self.motion_trial.xyz_df[corner_mask]
-                    fruit_corners[i] = np.array(
-                        [
-                            corner_data["x_coord"].mean() * MM_PER_M,
-                            corner_data["y_coord"].mean() * MM_PER_M,
-                            corner_data["z_coord"].mean() * MM_PER_M,
-                        ]
+                    flat_collection = self.Poly3DCollection(
+                        flat_verts,
+                        alpha=0.35,
+                        facecolor="green",
+                        edgecolor="darkgreen",
+                        linewidth=1.5,
+                        zorder=1,
                     )
+                    self.ax.add_collection3d(flat_collection)
+                    continue
 
-        if fruit_center is not None and all(c is not None for c in fruit_corners):
-            # Create oriented hemisphere from corners using SVD plane
-            corners_array = np.array(fruit_corners)
+                if geometry == STRUCTURE_GEOMETRY_SEMI_SPHERE:
+                    corners_array = ordered
+                    centroid = corners_array.mean(axis=0)
+                    centered = corners_array - centroid
+                    _, _, vh = np.linalg.svd(centered)
+                    plane_normal = vh[2]
+                    axis_x = vh[0]
+                    axis_y = np.cross(plane_normal, axis_x)
 
-            # Order corners by angle on their plane
-            centroid = corners_array.mean(axis=0)
-            centered = corners_array - centroid
-            _, _, vh = np.linalg.svd(centered)
-            plane_normal = vh[2]
-            axis_x = vh[0]
-            axis_y = np.cross(plane_normal, axis_x)
+                    width_3d = np.linalg.norm(corners_array[1] - corners_array[0])
+                    height_3d = np.linalg.norm(corners_array[3] - corners_array[0])
+                    radius = min(width_3d, height_3d) * 0.5 * 1.05
 
-            # Calculate radius from bounding box
-            width_3d = np.linalg.norm(corners_array[1] - corners_array[0])
-            height_3d = np.linalg.norm(corners_array[3] - corners_array[0])
-            radius = min(width_3d, height_3d) * 0.5 * 1.05
+                    u = np.linspace(0, 2 * np.pi, 16)
+                    v = np.linspace(0, np.pi / 2, 8)
 
-            # Generate hemisphere vertices oriented along plane normal
-            u = np.linspace(0, 2 * np.pi, 16)
-            v = np.linspace(0, np.pi / 2, 8)
+                    dome_verts = []
+                    for i in range(len(u) - 1):
+                        for j in range(len(v) - 1):
+                            for ui, vi in [(u[i], v[j]), (u[i + 1], v[j]), (u[i], v[j + 1])]:
+                                height = radius * np.cos(vi)
+                                ring_r = radius * np.sin(vi)
+                                offset = axis_x * (ring_r * np.cos(ui)) + axis_y * (ring_r * np.sin(ui))
+                                vertex = center + plane_normal * height + offset
+                                dome_verts.append(vertex)
 
-            fruit_verts = []
-            for i in range(len(u) - 1):
-                for j in range(len(v) - 1):
-                    # Generate vertices for this quad
-                    for ui, vi in [(u[i], v[j]), (u[i + 1], v[j]), (u[i], v[j + 1])]:
-                        height = radius * np.cos(vi)
-                        ring_r = radius * np.sin(vi)
-                        offset = axis_x * (ring_r * np.cos(ui)) + axis_y * (ring_r * np.sin(ui))
-                        vertex = fruit_center + plane_normal * height + offset
-                        fruit_verts.append(vertex)
-
-            # Reshape verts for Poly3DCollection (triangles)
-            fruit_tris = [fruit_verts[i * 3 : (i + 1) * 3] for i in range(len(fruit_verts) // 3)]
-            fruit_collection = self.Poly3DCollection(
-                fruit_tris,
-                alpha=0.9,
-                facecolor="red",
-                edgecolor="darkred",
-                linewidth=0.5,
-                zorder=3,
-            )
-            self.ax.add_collection3d(fruit_collection)
+                    dome_tris = [dome_verts[i * 3 : (i + 1) * 3] for i in range(len(dome_verts) // 3)]
+                    dome_collection = self.Poly3DCollection(
+                        dome_tris,
+                        alpha=0.9,
+                        facecolor="red",
+                        edgecolor="darkred",
+                        linewidth=0.5,
+                        zorder=3,
+                    )
+                    self.ax.add_collection3d(dome_collection)
 
         # Plot camera origin points
         if self.camera_array and hasattr(self.camera_array, "cameras"):
@@ -307,10 +316,27 @@ class Interactive3DGraphWindow(QWidget):
         # Set equal aspect ratio for all axes to prevent distortion
         self.ax.set_box_aspect([1, 1, 1])
 
+        arena_points_for_bounds = []
+        if hasattr(self.motion_trial, "xyz_df") and not self.motion_trial.xyz_df.empty:
+            for item in self.arena_vertices:
+                pid = int(item["id"])
+                mask = self.motion_trial.xyz_df["point_id"] == pid
+                if mask.any():
+                    data = self.motion_trial.xyz_df[mask]
+                    arena_points_for_bounds.append(
+                        np.array(
+                            [
+                                data["x_coord"].mean() * MM_PER_M,
+                                data["y_coord"].mean() * MM_PER_M,
+                                data["z_coord"].mean() * MM_PER_M,
+                            ]
+                        )
+                    )
+
         if all_xyz:
-            all_points = np.array(all_xyz + [p for p in arena_points.values() if p is not None])
+            all_points = np.array(all_xyz + arena_points_for_bounds)
         else:
-            all_points = np.array([p for p in arena_points.values() if p is not None])
+            all_points = np.array(arena_points_for_bounds)
 
         if len(all_points) > 0:
             max_range = (
@@ -331,6 +357,71 @@ class Interactive3DGraphWindow(QWidget):
             self.ax.set_zlim(mid_z - max_range, mid_z + max_range)
 
         self.canvas.draw()
+
+    def _order_corners_on_plane(self, corners: np.ndarray) -> np.ndarray:
+        """Return corners ordered consistently around their best-fit plane."""
+        centroid = corners.mean(axis=0)
+        centered = corners - centroid
+        _, _, vh = np.linalg.svd(centered)
+        normal = vh[2]
+        axis_x = vh[0]
+        axis_y = np.cross(normal, axis_x)
+        proj_x = centered @ axis_x
+        proj_y = centered @ axis_y
+        angles = np.arctan2(proj_y, proj_x)
+        return corners[np.argsort(angles)]
+
+    def _order_ids_on_plane(self, id_coord_pairs: list[tuple[int, np.ndarray]]) -> list[int]:
+        """Order point IDs around the best-fit plane of their coordinates."""
+        ids = [pair[0] for pair in id_coord_pairs]
+        coords = np.array([pair[1] for pair in id_coord_pairs], dtype=np.float32)
+        centroid = coords.mean(axis=0)
+        centered = coords - centroid
+        _, _, vh = np.linalg.svd(centered)
+        normal = vh[2]
+        axis_x = vh[0]
+        axis_y = np.cross(normal, axis_x)
+        proj_x = centered @ axis_x
+        proj_y = centered @ axis_y
+        angles = np.arctan2(proj_y, proj_x)
+        order = np.argsort(angles)
+        return [ids[idx] for idx in order]
+
+    def _build_arena_edge_pairs(self, id_coord_pairs: list[tuple[int, np.ndarray]]) -> list[tuple[int, int]]:
+        """Build robust arena edges from selected vertices.
+
+        - Coplanar selections: connect as a closed ordered loop.
+        - Non-coplanar selections: connect each point to its nearest neighbors.
+        """
+        if len(id_coord_pairs) < 2:
+            return []
+
+        ids = [pair[0] for pair in id_coord_pairs]
+        coords = np.array([pair[1] for pair in id_coord_pairs], dtype=np.float32)
+
+        centroid = coords.mean(axis=0)
+        centered = coords - centroid
+        _, _, vh = np.linalg.svd(centered)
+        normal = vh[2]
+        plane_distances = np.abs(centered @ normal)
+        max_plane_dist = float(np.max(plane_distances)) if len(plane_distances) else 0.0
+
+        if max_plane_dist < 0.01 or len(ids) <= 4:
+            ordered_ids = self._order_ids_on_plane(id_coord_pairs)
+            return [
+                (ordered_ids[i], ordered_ids[(i + 1) % len(ordered_ids)])
+                for i in range(len(ordered_ids))
+            ]
+
+        neighbor_count = min(3, len(ids) - 1)
+        edge_set = set()
+        for i, point_id in enumerate(ids):
+            dists = np.linalg.norm(coords - coords[i], axis=1)
+            nearest_indices = np.argsort(dists)[1 : neighbor_count + 1]
+            for j in nearest_indices:
+                edge_set.add(tuple(sorted((point_id, ids[j]))))
+
+        return list(edge_set)
 
     def export_view_as_png(self):
         """Export the current view as PNG."""
