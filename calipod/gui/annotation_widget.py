@@ -1,7 +1,7 @@
 """This widget will supply a basic annotation tool and also point to CVAT for extended functionality."""
 
 import cv2
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -102,7 +102,8 @@ class AnnotationWidget(QWidget):
         for i in range(3):
             frame_label = QLabel()
             frame_label.setAlignment(Qt.AlignCenter)
-            frame_label.setMinimumSize(200, 200)
+            frame_label.setMinimumSize(160, 160)
+            frame_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             frame_label.setScaledContents(False)
             self.frames_layout.addWidget(frame_label, stretch=1)
             self.frame_labels.append(frame_label)
@@ -228,9 +229,13 @@ class AnnotationWidget(QWidget):
 
                             # Scale to fit label while maintaining aspect ratio
                             pixmap = QPixmap.fromImage(q_img)
-                            scaled_pixmap = pixmap.scaledToWidth(
-                                self.frame_labels[i].width() - 10,
-                                Qt.TransformationMode.SmoothTransformation
+                            target_size = self.frame_labels[i].size() - QSize(10, 10)
+                            if target_size.width() <= 0 or target_size.height() <= 0:
+                                target_size = QSize(180, 180)
+                            scaled_pixmap = pixmap.scaled(
+                                target_size,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation,
                             )
 
                             self.frame_labels[i].setPixmap(scaled_pixmap)
@@ -251,6 +256,9 @@ class AnnotationWidget(QWidget):
     def external_links_widget(self):
         """This widget points to external links for annotations e.g. CVAT."""
         ext_links_group, ext_links_layout = create_styled_groupbox("Links")
+        ext_links_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        ext_links_layout.setContentsMargins(0, 0, 0, 0)
+        ext_links_layout.setSpacing(0)
 
         # Create a clickable link to CVAT documentation
         cvat_link = QLabel()
@@ -260,6 +268,7 @@ class AnnotationWidget(QWidget):
         )
         cvat_link.setOpenExternalLinks(True)
         cvat_link.setAlignment(Qt.AlignCenter)
+        cvat_link.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
 
         ext_links_layout.addWidget(cvat_link)
 
