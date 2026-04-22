@@ -1,9 +1,7 @@
 from pathlib import Path
-from threading import Lock, Thread
 
-from calipod.annotation_management import AnnotationsConfigManager
+from calipod.annotation_management import AnnotationIndex
 from calipod.core import logger as calipod_logger
-from calipod.core.annotation_checker import AnnotationFormatChecker
 from calipod.core.configurator import Configurator
 
 logger = calipod_logger.get(__name__)
@@ -20,9 +18,7 @@ class WorkspaceGuide:
         self.ground_truth_dir = Path(workspace_dir, "annotations", "ground_truth")
         self.predictions_dir = Path(workspace_dir, "annotations", "predictions")
         self.arena_sim_dir = Path(workspace_dir, "arena_sim")
-        self._annotation_text_cache = None
-        self._annotation_scan_in_progress = False
-        self._annotation_lock = Lock()
+        self.annotation_index = AnnotationIndex(workspace_dir)
         # Cache configurator to avoid repeated config reloads during periodic updates
         self._configurator = Configurator(workspace_dir)
         self._camera_array = None
@@ -105,185 +101,25 @@ class WorkspaceGuide:
         return recording_dir_text
 
     def valid_annotation_dirs(self):
-        """
-        Check for valid annotation directories and return info about their contents.
-        Handles structure: annotations/port_n/labels/ (ground truth)
-                         annotations/predictions/port_n/labels/ (predictions)
-        Returns dict with:
-        - has_ground_truth: Whether ground truth exists
-        - has_predictions: Whether predictions exist
-        - gt_subdirs: List of port directories with ground truth
-        - gt_format: Annotation format of ground truth
-        - gt_has_bboxes: Whether ground truth has bounding boxes
-        - gt_classes: Aggregated list of unique classes across all GT files
-        - pred_subdirs: List of port directories with predictions
-        - pred_format: Annotation format of predictions
-        - pred_has_bboxes: Whether predictions have bounding boxes
-        - pred_classes: Aggregated list of unique classes across all pred files
-        """
-        anno_info = {
-            "has_ground_truth": False,
-            "has_predictions": False,
-            "gt_subdirs": [],
-            "gt_format": None,
-            "gt_has_bboxes": False,
-            "gt_classes": set(),
-            "pred_subdirs": [],
-            "pred_format": None,
-            "pred_has_bboxes": False,
-            "pred_classes": set(),
-        }
-
-        # Check if annotations directory exists
-        if not self.annotations_dir.exists():
-            logger.info(f"Annotations directory does not exist: {self.annotations_dir}")
-            return anno_info
-        else:
-            logger.info(f"Found annotations directory: {self.annotations_dir}")
-
-        try:
-            # Look for ground truth files in annotations/ground_truth/port_n/**/ recursively
-            if self.ground_truth_dir.exists():
-                for p in self.ground_truth_dir.iterdir():
-                    if p.is_dir() and p.name.startswith("port_"):
-                        # Find first valid annotation file to detect format
-                        format_info = None
-                        all_files = []
-
-                        for pattern in ["**/*.txt", "**/*.json", "**/*.xml", "**/*.csv"]:
-                            for file in p.rglob(pattern):
-                                if file.is_file():
-                                    all_files.append(file)
-                                    # Get format from first valid file only
-                                    if format_info is None:
-                                        gt_info = AnnotationFormatChecker.detect_format(file)
-                                        if gt_info["format"] != "Unknown":
-                                            format_info = gt_info
-
-                        # If we found a valid format, aggregate classes from all files
-                        if format_info is not None:
-                            anno_info["has_ground_truth"] = True
-                            anno_info["gt_format"] = format_info["format"]
-                            anno_info["gt_has_bboxes"] = format_info["has_bboxes"]
-                            anno_info["gt_classes"].update(format_info["classes"])
-
-                            # For remaining files, extract classes only (skip format detection)
-                            for file in all_files[1:]:  # Skip first file already processed
-                                classes = AnnotationFormatChecker._extract_classes_only(file, format_info["format"])
-                                anno_info["gt_classes"].update(classes)
-
-                            if p.name not in anno_info["gt_subdirs"]:
-                                anno_info["gt_subdirs"].append(p.name)
-
-            # Look for prediction files in annotations/predictions/port_n/**/ recursively
-            if self.predictions_dir.exists():
-                for p in self.predictions_dir.iterdir():
-                    if p.is_dir() and p.name.startswith("port_"):
-                        # Find first valid annotation file to detect format
-                        format_info = None
-                        all_files = []
-
-                        for pattern in ["**/*.txt", "**/*.json", "**/*.xml", "**/*.csv"]:
-                            for file in p.rglob(pattern):
-                                if file.is_file():
-                                    all_files.append(file)
-                                    # Get format from first valid file only
-                                    if format_info is None:
-                                        pred_info = AnnotationFormatChecker.detect_format(file)
-                                        if pred_info["format"] != "Unknown":
-                                            format_info = pred_info
-
-                        # If we found a valid format, aggregate classes from all files
-                        if format_info is not None:
-                            anno_info["has_predictions"] = True
-                            anno_info["pred_format"] = format_info["format"]
-                            anno_info["pred_has_bboxes"] = format_info["has_bboxes"]
-                            anno_info["pred_classes"].update(format_info["classes"])
-
-                            # For remaining files, extract classes only (skip format detection)
-                            for file in all_files[1:]:  # Skip first file already processed
-                                classes = AnnotationFormatChecker._extract_classes_only(file, format_info["format"])
-                                anno_info["pred_classes"].update(classes)
-
-                            if p.name not in anno_info["pred_subdirs"]:
-                                anno_info["pred_subdirs"].append(p.name)
-
-            # Save annotations config with ground truth and prediction labels before converting to lists
-            if anno_info["has_ground_truth"] or anno_info["has_predictions"]:
-                config_manager = AnnotationsConfigManager(self.workspace_dir)
-                config_manager.save_annotations_config(
-                    ground_truth_labels=anno_info["gt_classes"],
-                    ground_truth_format=anno_info["gt_format"],
-                    predictions_labels=anno_info["pred_classes"],
-                    predictions_format=anno_info["pred_format"],
-                )
-
-            # Sort subdirectories and convert classes to sorted lists
-            anno_info["gt_subdirs"] = sorted(anno_info["gt_subdirs"])
-            anno_info["pred_subdirs"] = sorted(anno_info["pred_subdirs"])
-            anno_info["gt_classes"] = sorted(list(anno_info["gt_classes"]))
-            anno_info["pred_classes"] = sorted(list(anno_info["pred_classes"]))
-        except Exception as e:
-            logger.info(f"Error reading annotation directories: {e}")
-
-        return anno_info
+        annotation_info = self.annotation_index.get_cached_annotation_info()
+        if annotation_info is None:
+            return self.annotation_index._empty_annotation_info()
+        return annotation_info
 
     def valid_annotation_dir_text(self) -> str:
-        annotation_info = self.valid_annotation_dirs()
-
-        if not annotation_info["has_ground_truth"] and not annotation_info["has_predictions"]:
-            return "NONE"
-
-        text_parts = ["annotation directories:"]
-
-        if annotation_info["has_ground_truth"]:
-            text_parts.append("  ground truth:")
-            text_parts.append(f"    subdirectories: {', '.join(annotation_info['gt_subdirs'])}")
-            text_parts.append(f"    format: {annotation_info['gt_format']}")
-            text_parts.append(f"    classes: {annotation_info['gt_classes']}")
-
-        if annotation_info["has_predictions"]:
-            text_parts.append("  predictions:")
-            text_parts.append(f"    subdirectories: {', '.join(annotation_info['pred_subdirs'])}")
-            text_parts.append(f"    format: {annotation_info['pred_format']}")
-            text_parts.append(f"    classes: {annotation_info['pred_classes']}")
-
-        return "\n".join(text_parts)
-
-    def _annotation_scan_worker(self):
-        try:
-            annotation_text = self.valid_annotation_dir_text()
-        except Exception as e:
-            logger.debug(f"Error while scanning annotations in background: {e}")
-            annotation_text = "NONE"
-
-        with self._annotation_lock:
-            self._annotation_text_cache = annotation_text
-            self._annotation_scan_in_progress = False
-
-    def _start_annotation_scan_if_needed(self):
-        with self._annotation_lock:
-            if self._annotation_scan_in_progress or self._annotation_text_cache is not None:
-                return
-            self._annotation_scan_in_progress = True
-
-        worker = Thread(target=self._annotation_scan_worker, daemon=True)
-        worker.start()
+        return self.annotation_index.get_cached_annotation_dir_text()
 
     def get_cached_annotation_dir_text(self) -> str:
-        """
-        Return cached annotation summary if available.
-        If no cached summary exists yet, start a background scan and return a loading message.
-        """
-        self._start_annotation_scan_if_needed()
-        with self._annotation_lock:
-            if self._annotation_text_cache is not None:
-                return self._annotation_text_cache
-        return "Checking for annotations..."
+        return self.annotation_index.get_cached_annotation_dir_text()
 
     def annotation_scan_in_progress(self) -> bool:
-        with self._annotation_lock:
-            return self._annotation_scan_in_progress
+        return self.annotation_index.annotation_scan_in_progress()
+
+    def get_cached_annotation_classes(self):
+        return self.annotation_index.get_cached_annotation_classes()
+
+    def get_cached_annotation_label_maps(self):
+        return self.annotation_index.get_cached_label_maps()
 
     def invalidate_config_cache(self) -> None:
         """Invalidate cached configurator when workspace files change."""

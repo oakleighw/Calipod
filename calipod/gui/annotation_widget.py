@@ -1,7 +1,7 @@
 """This widget will supply a basic annotation tool and also point to CVAT for extended functionality."""
 
 import cv2
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
 
 from calipod.annotation_management import LabelEditorWidget
 from calipod.annotation_management.annotation_checker import AnnotationChecker
-from calipod.annotation_management.annotations_config_manager import AnnotationsConfigManager
 from calipod.core import logger as calipod_logger
 from calipod.core.controller import Controller
 from calipod.gui.utils.styles import create_styled_groupbox
@@ -29,6 +28,7 @@ class AnnotationWidget(QWidget):
     def __init__(self, controller: Controller):
         super(AnnotationWidget, self).__init__()
         self.controller = controller
+        self.annotation_refresh_timer = None
         self.place_widgets()
 
     def place_widgets(self):
@@ -51,8 +51,9 @@ class AnnotationWidget(QWidget):
         anno_label_group, anno_label_layout = create_styled_groupbox("Labels")
 
         # Create label editor widget
-        label_editor = LabelEditorWidget(str(self.controller.workspace))
-        anno_label_layout.addWidget(label_editor)
+        self.label_editor = LabelEditorWidget(str(self.controller.workspace))
+        self.label_editor.labels_changed.connect(self._refresh_class_dropdown_from_cache)
+        anno_label_layout.addWidget(self.label_editor)
 
         self.top_vbox.addWidget(anno_label_group)
 
@@ -78,7 +79,6 @@ class AnnotationWidget(QWidget):
 
         # Class dropdown
         self.class_combo = QComboBox()
-        self._populate_class_dropdown()
         selector_layout.addWidget(self.class_combo, stretch=1)
 
         # Focus to bbox checkbox
@@ -110,47 +110,67 @@ class AnnotationWidget(QWidget):
         anno_check_layout.addLayout(self.frames_layout)
         self.centre_vbox.addWidget(anno_check_group)
 
-    def _populate_class_dropdown(self):
+        self._load_class_dropdown()
+        if self.class_combo.count() == 1 and self.class_combo.currentText() == "Loading annotations...":
+            self.annotation_refresh_timer = QTimer(self)
+            self.annotation_refresh_timer.setInterval(250)
+            self.annotation_refresh_timer.timeout.connect(self._load_class_dropdown)
+            self.annotation_refresh_timer.start()
+
+    def _refresh_class_dropdown_from_cache(self):
+        """Refresh displayed label names after the label editor saves changes."""
+        if self.class_combo.count() == 0:
+            return
+
+        self._load_class_dropdown()
+
+    def _load_class_dropdown(self):
         """Populate the class dropdown with available annotation classes and their names."""
         self.class_combo.clear()
 
-        try:
-            classes = self.annotation_checker.get_available_classes()
-            if not classes:
-                self.class_combo.addItem("No annotations available")
-            else:
-                # Load label config to get names
-                config_manager = AnnotationsConfigManager(self.controller.workspace_guide.workspace_dir)
-                gt_labels = config_manager.get_ground_truth_labels() or {}
-                pred_labels = config_manager.get_predictions_labels() or {}
+        classes = self.controller.workspace_guide.get_cached_annotation_classes()
+        if classes is None:
+            self.class_combo.addItem("Loading annotations...")
+            self.class_combo.setEnabled(False)
+            return
 
-                for class_name in classes:
-                    # Parse format: "groundtruth/ID" or "predictions/ID"
-                    parts = class_name.split("/")
-                    if len(parts) == 2:
-                        annotation_type, class_id = parts[0], parts[1]
-                        try:
-                            class_id_int = int(class_id)
-                            # Get label name from appropriate config
-                            if annotation_type == "groundtruth":
-                                label_name = gt_labels.get(class_id_int)
-                            else:  # predictions
-                                label_name = pred_labels.get(class_id_int)
+        if self.annotation_refresh_timer is not None and self.annotation_refresh_timer.isActive():
+            self.annotation_refresh_timer.stop()
 
-                            # Build display string with name if available
-                            if label_name:
-                                display_text = f"{annotation_type}/{class_id}/{label_name}"
-                            else:
-                                display_text = class_name
-                        except ValueError:
-                            display_text = class_name
+        label_maps = self.controller.workspace_guide.get_cached_annotation_label_maps() or ({}, {})
+        gt_labels, pred_labels = label_maps
+
+        if not classes:
+            self.class_combo.addItem("No annotations available")
+            self.class_combo.setEnabled(False)
+            return
+
+        for class_name in classes:
+            # Parse format: "groundtruth/ID" or "predictions/ID"
+            parts = class_name.split("/")
+            if len(parts) == 2:
+                annotation_type, class_id = parts[0], parts[1]
+                try:
+                    class_id_int = int(class_id)
+                    # Get label name from appropriate config
+                    if annotation_type == "groundtruth":
+                        label_name = gt_labels.get(class_id_int)
+                    else:  # predictions
+                        label_name = pred_labels.get(class_id_int)
+
+                    # Build display string with name if available
+                    if label_name:
+                        display_text = f"{annotation_type}/{class_id}/{label_name}"
                     else:
                         display_text = class_name
+                except ValueError:
+                    display_text = class_name
+            else:
+                display_text = class_name
 
-                    self.class_combo.addItem(display_text)
-        except Exception as e:
-            logger.error(f"Error populating class dropdown: {e}")
-            self.class_combo.addItem("Error loading classes")
+            self.class_combo.addItem(display_text)
+
+        self.class_combo.setEnabled(True)
 
     def _on_examine_clicked(self):
         """Handle examine button click to visualize annotations."""

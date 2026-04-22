@@ -1,5 +1,6 @@
 """Label editor widget for managing annotation class labels."""
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -19,6 +20,8 @@ logger = calipod_logger.get(__name__)
 
 class LabelEditorWidget(QWidget):
     """Widget for editing annotation class labels with ground truth and predictions sections."""
+
+    labels_changed = Signal()
 
     def __init__(self, workspace_dir: str):
         """
@@ -107,6 +110,7 @@ class LabelEditorWidget(QWidget):
                         lid, new_name, is_ground_truth=(section == "ground_truth")
                     )
                     logger.debug(f"Updated {section} label {lid} to '{new_name}'")
+                    self.labels_changed.emit()
 
                 return on_text_edited
 
@@ -139,6 +143,7 @@ class LabelEditorWidget(QWidget):
                     logger.debug(
                         f"Updated {section} label {lid} category to '{new_category}'"
                     )
+                    self.labels_changed.emit()
 
                 return on_category_changed
 

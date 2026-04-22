@@ -1,6 +1,7 @@
 """Annotation management utilities for handling annotation configurations and label management."""
 
 from calipod.annotation_management.annotation_checker import AnnotationChecker
+from calipod.annotation_management.annotation_index import AnnotationIndex
 from calipod.annotation_management.annotations_config_manager import (
     ANNOTATIONS_CONFIG_FILENAME,
     AnnotationsConfigManager,
@@ -18,6 +19,7 @@ from calipod.annotation_management.yolo_utils import (
 
 __all__ = [
     "AnnotationChecker",
+    "AnnotationIndex",
     "AnnotationsConfigManager",
     "ANNOTATIONS_CONFIG_FILENAME",
     "LabelEditorWidget",

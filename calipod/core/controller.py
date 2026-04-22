@@ -146,7 +146,8 @@ class Controller(QObject):
         return len(self.workspace_guide.valid_recording_dirs()) > 0
 
     def annotations_available(self) -> bool:
-        return len(self.workspace_guide.valid_annotation_dirs()) > 0
+        annotation_info = self.workspace_guide.valid_annotation_dirs()
+        return annotation_info["has_ground_truth"] or annotation_info["has_predictions"]
 
     def get_annotation_summary(self) -> str:
         return self.workspace_guide.valid_annotation_dir_text()
