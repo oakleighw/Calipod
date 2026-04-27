@@ -4,13 +4,16 @@ outside the project folder to support transparent project organization."""
 import html
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -25,13 +28,17 @@ from calipod.gui.utils.styles import (
     create_subsubsection_title,
     resolve_camera_title_color,
 )
+from calipod.gui.utils.video_metadata import MetadataWorker
 
 
 class OrganisationWidget(QWidget):
+
+
     def __init__(self, controller: Controller):
         super(OrganisationWidget, self).__init__()
         self.controller = controller
         self.place_widgets()
+        self.MetadataWorker = MetadataWorker
 
     def place_widgets(self):
         self.setLayout(QVBoxLayout())
@@ -292,10 +299,152 @@ class OrganisationWidget(QWidget):
         return None
 
     def check_video_info_widget(self):
-        "This widget uses a dropdown on the uploaded videos to check video information and codec."
-        "There is also an option to browse for another video, an option in the dropdown."
+        """
+        Video info widget: dropdown for video selection,
+        'External video' option, path/browse controls, and details popup.
+        """
+
         video_info_group, video_info_layout = create_styled_groupbox("Video Information")
+        # Reduce vertical space usage
+        video_info_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        video_info_group.setMaximumHeight(160)
+        video_info_group.setMinimumHeight(0)
+        video_info_group.setContentsMargins(8, 4, 8, 4)
+
+        # Gather all video info (path, label, exists) from calibration and action recordings
+        video_infos = []
+        calib_contexts = ["Intrinsic", "Extrinsic"]
+        if hasattr(self, 'calibration_path_rows'):
+            for idx, row in enumerate(self.calibration_path_rows):
+                path = row.line_edit.text().strip()
+                context = calib_contexts[idx % 2]
+                p = Path(path)
+                parent = p.parent.name if p.parent.name else str(p.parent)
+                label = f"{context} calibration / {parent} / {p.name}"
+                exists = Path(path).exists()
+                video_infos.append({"path": path, "label": label, "exists": exists})
+        for rec_rows in getattr(self, 'action_recordings_path_rows', {}).values():
+            for row in rec_rows:
+                path = row.line_edit.text().strip()
+                p = Path(path)
+                parent = p.parent.name if p.parent.name else str(p.parent)
+                label = f"Action recording / {parent} / {p.name}"
+                exists = Path(path).exists()
+                video_infos.append({"path": path, "label": label, "exists": exists})
+
+        # Dropdown: first item is 'External video', then all found video labels (only if exists)
+        dropdown = QComboBox(self)
+        dropdown.addItem("External video")
+        for info in video_infos:
+            if info["exists"]:
+                dropdown.addItem(info["label"])
+
+        # Path input and browse button (hidden unless 'External video' is selected)
+        external_path_row = create_path_url_entry(
+            initial_path="",
+            parent=self,
+            dialog_caption="Select Video File",
+            select_directory=False,
+            file_filter="Video Files (*.mp4 *.avi *.mov *.mkv *.mpg *.mpeg *.wmv *.flv *.webm);;All Files (*)",
+        )
+        external_path_row.container.setVisible(True)  # Show by default if 'External video' is selected
+
+        # Details button
+        details_btn = QPushButton("Details", self)
+
+        # Layout
+        video_info_layout.addWidget(dropdown)
+        video_info_layout.addWidget(external_path_row.container)
+        video_info_layout.addWidget(details_btn)
+
         self.middle_vbox.addWidget(video_info_group)
+
+        def update_external_path_visibility():
+            external_path_row.container.setVisible(dropdown.currentIndex() == 0)
+
+        dropdown.currentIndexChanged.connect(update_external_path_visibility)
+        update_external_path_visibility()
+
+        def get_selected_video_path():
+            if dropdown.currentIndex() == 0:
+                return external_path_row.line_edit.text().strip()
+            else:
+                idx = dropdown.currentIndex() - 1
+                # Only include videos that exist in the dropdown
+                existing_infos = [info for info in video_infos if info["exists"]]
+                if 0 <= idx < len(existing_infos):
+                    return existing_infos[idx]["path"]
+                return None
+
+
+
+        def show_video_details():
+            import logging
+
+            from PySide6.QtCore import QObject, Signal
+            path = get_selected_video_path()
+            if not path or not Path(path).exists():
+                dlg = QDialog(self)
+                dlg.setWindowTitle("Video Details")
+                layout = QVBoxLayout(dlg)
+                layout.addWidget(QLabel("Video file not found or not selected."))
+                dlg.exec()
+                return
+            dlg = QDialog(self)
+            dlg.setWindowTitle(f"Video Details: {Path(path).name}")
+            layout = QVBoxLayout(dlg)
+            text = QTextEdit(dlg)
+            text.setReadOnly(True)
+            text.setText("Loading video metadata...")
+            layout.addWidget(text)
+            dlg.resize(400, 250)
+
+            # Signal object to safely update GUI from worker thread
+            class MetadataSignalEmitter(QObject):
+                meta_ready = Signal(dict)
+
+            signal_emitter = MetadataSignalEmitter()
+
+            # Worker thread for metadata extraction
+            thread = QThread()
+            worker = self.MetadataWorker(path)
+            worker.moveToThread(thread)
+
+            def on_finished(meta):
+                signal_emitter.meta_ready.emit(meta)
+
+            def update_ui(meta):
+                if "error" in meta:
+                    err = meta["error"]
+                    if "ffprobe" in err or "No such file or directory" in err or "not found" in err:
+                        text.setText("Error: ffprobe (from ffmpeg) is not available on this system.\n" \
+                        "\nPlease install ffmpeg and ensure it is in your system PATH.")
+                        logging.error("ffprobe (from ffmpeg) is not available for video metadata extraction." \
+                        " Please install ffmpeg and ensure it is in your system PATH.")
+                    else:
+                        text.setText(f"Error: {err}")
+                        logging.error(f"Video metadata extraction error: {err}")
+                else:
+                    lines = [
+                        f"Path: {path}",
+                        f"Codec: {meta.get('codec', '?')}",
+                        f"FPS: {meta.get('fps', '?')}",
+                        f"Keyframe count: {meta.get('keyframe_count', '?')}",
+                        f"Image format: {meta.get('pix_fmt', '?')}",
+                    ]
+                    text.setText("\n".join(lines))
+                thread.quit()
+                thread.wait()
+
+            signal_emitter.meta_ready.connect(update_ui)
+            worker.finished.connect(on_finished, Qt.QueuedConnection)
+            thread.started.connect(worker.run)
+            thread.start()
+            dlg.exec()
+            thread.quit()
+            thread.wait()
+
+        details_btn.clicked.connect(show_video_details)
 
     # This section will have a file tree of the project folder,
     # with the option to add files to the project folder by dragging and dropping.
