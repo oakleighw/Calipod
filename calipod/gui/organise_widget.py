@@ -37,6 +37,7 @@ class OrganisationWidget(QWidget):
         self.setLayout(QVBoxLayout())
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.top_vbox = QVBoxLayout()
+        self.middle_vbox = QVBoxLayout()
         self.bottom_vbox = QVBoxLayout()
 
         self.bottom_container = QWidget()
@@ -51,9 +52,11 @@ class OrganisationWidget(QWidget):
         self.file_tree_scroll.setMinimumHeight(0)
 
         self.url_widget()
+        self.check_video_info_widget()
         self.project_file_tree_widget()
 
         self.layout().addLayout(self.top_vbox, stretch=1)
+        self.layout().addLayout(self.middle_vbox, stretch=1)
         self.layout().addWidget(self.file_tree_scroll, stretch=1)
 
     # This section has sub-headings for each pipeline stage requiring data,
@@ -287,6 +290,12 @@ class OrganisationWidget(QWidget):
             if file_path.is_file():
                 return file_path
         return None
+
+    def check_video_info_widget(self):
+        "This widget uses a dropdown on the uploaded videos to check video information and codec."
+        "There is also an option to browse for another video, an option in the dropdown."
+        video_info_group, video_info_layout = create_styled_groupbox("Video Information")
+        self.middle_vbox.addWidget(video_info_group)
 
     # This section will have a file tree of the project folder,
     # with the option to add files to the project folder by dragging and dropping.
