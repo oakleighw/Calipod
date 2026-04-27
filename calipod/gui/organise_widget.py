@@ -349,13 +349,24 @@ class OrganisationWidget(QWidget):
         )
         external_path_row.container.setVisible(True)  # Show by default if 'External video' is selected
 
-        # Details button
+
+        # Details button and keyframe checkbox
         details_btn = QPushButton("Details", self)
+        keyframe_checkbox = QLabel("Count keyframes")
+        from PySide6.QtWidgets import QCheckBox
+        keyframe_check = QCheckBox(self)
+        keyframe_check.setChecked(False)
+
+        details_layout = QHBoxLayout()
+        details_layout.addWidget(details_btn)
+        details_layout.addWidget(keyframe_checkbox)
+        details_layout.addWidget(keyframe_check)
+        details_layout.addStretch(1)
 
         # Layout
         video_info_layout.addWidget(dropdown)
         video_info_layout.addWidget(external_path_row.container)
-        video_info_layout.addWidget(details_btn)
+        video_info_layout.addLayout(details_layout)
 
         self.middle_vbox.addWidget(video_info_group)
 
@@ -365,18 +376,16 @@ class OrganisationWidget(QWidget):
         dropdown.currentIndexChanged.connect(update_external_path_visibility)
         update_external_path_visibility()
 
+
         def get_selected_video_path():
             if dropdown.currentIndex() == 0:
                 return external_path_row.line_edit.text().strip()
             else:
                 idx = dropdown.currentIndex() - 1
-                # Only include videos that exist in the dropdown
                 existing_infos = [info for info in video_infos if info["exists"]]
                 if 0 <= idx < len(existing_infos):
                     return existing_infos[idx]["path"]
                 return None
-
-
 
         def show_video_details():
             import logging
@@ -399,15 +408,14 @@ class OrganisationWidget(QWidget):
             layout.addWidget(text)
             dlg.resize(400, 250)
 
-            # Signal object to safely update GUI from worker thread
             class MetadataSignalEmitter(QObject):
                 meta_ready = Signal(dict)
 
             signal_emitter = MetadataSignalEmitter()
 
-            # Worker thread for metadata extraction
             thread = QThread()
-            worker = self.MetadataWorker(path)
+            count_keyframes = keyframe_check.isChecked()
+            worker = self.MetadataWorker(path, count_keyframes)
             worker.moveToThread(thread)
 
             def on_finished(meta):
@@ -416,7 +424,9 @@ class OrganisationWidget(QWidget):
             def update_ui(meta):
                 if "error" in meta:
                     err = meta["error"]
-                    if "ffprobe" in err or "No such file or directory" in err or "not found" in err:
+                    if err == "Cancelled":
+                        text.setText("Cancelled.")
+                    elif "ffprobe" in err or "No such file or directory" in err or "not found" in err:
                         text.setText("Error: ffprobe (from ffmpeg) is not available on this system.\n" \
                         "\nPlease install ffmpeg and ensure it is in your system PATH.")
                         logging.error("ffprobe (from ffmpeg) is not available for video metadata extraction." \
@@ -429,9 +439,10 @@ class OrganisationWidget(QWidget):
                         f"Path: {path}",
                         f"Codec: {meta.get('codec', '?')}",
                         f"FPS: {meta.get('fps', '?')}",
-                        f"Keyframe count: {meta.get('keyframe_count', '?')}",
                         f"Image format: {meta.get('pix_fmt', '?')}",
                     ]
+                    if count_keyframes:
+                        lines.append(f"Keyframe count: {meta.get('keyframe_count', '?')}")
                     text.setText("\n".join(lines))
                 thread.quit()
                 thread.wait()
@@ -439,10 +450,17 @@ class OrganisationWidget(QWidget):
             signal_emitter.meta_ready.connect(update_ui)
             worker.finished.connect(on_finished, Qt.QueuedConnection)
             thread.started.connect(worker.run)
+
+            def on_dialog_close():
+                worker.cancel()
+                thread.quit()
+                thread.wait()
+
+            dlg.finished.connect(on_dialog_close)
+
             thread.start()
             dlg.exec()
-            thread.quit()
-            thread.wait()
+            on_dialog_close()
 
         details_btn.clicked.connect(show_video_details)
 
