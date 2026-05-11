@@ -43,6 +43,7 @@ class FocusVideoCanvas(QLabel):
         self._drag_start: QPoint | None = None
         self._drag_end: QPoint | None = None
         self._frame_pixmap = QPixmap()
+        self._is_dragging = False
 
     def set_frame(self, pixmap: QPixmap):
         self._frame_pixmap = pixmap
@@ -68,22 +69,26 @@ class FocusVideoCanvas(QLabel):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and not self.pixmap().isNull():
+            self._is_dragging = True
             self._drag_start = event.position().toPoint()
             self._drag_end = event.position().toPoint()
             self.update()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self._drag_start is not None:
+        if self._is_dragging:#if self._drag_start is not None:
             self._drag_end = event.position().toPoint()
             self.update()
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self._drag_start is not None:
+        if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
             self._drag_end = event.position().toPoint()
+
             self.update()
             self.roi_changed.emit()
+
+            self._is_dragging = False
         super().mouseReleaseEvent(event)
 
     def paintEvent(self, event):
@@ -353,7 +358,8 @@ class FocusWidget(QWidget):
         self.results_rows.append(result.as_dict())
         self.analyzer.write_results(self.results_rows)
         self.refresh_results_table()
-        self.video_status_label.setText(f"Analyzed {self.current_video_path.name} at frame {self.current_frame_index + 1}")
+        self.video_status_label.setText(f"Analyzed {self.current_video_path.name} \
+                                         at frame {self.current_frame_index + 1}")
 
     def refresh_results_table(self):
         self.results_table.setRowCount(0)
@@ -385,7 +391,8 @@ class FocusWidget(QWidget):
             return 0.0
 
     def clear_selected_rows(self):
-        selected_rows = sorted({index.row() for index in self.results_table.selectionModel().selectedRows()}, reverse=True)
+        selected_rows = sorted({index.row() for index in
+                                self.results_table.selectionModel().selectedRows()}, reverse=True)
         if not selected_rows:
             return
 

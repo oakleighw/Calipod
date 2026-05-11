@@ -11,7 +11,6 @@ import cv2
 import numpy as np
 import pandas as pd
 
-
 FOCUS_RESULT_COLUMNS = [
     "video_name",
     "video_path",
