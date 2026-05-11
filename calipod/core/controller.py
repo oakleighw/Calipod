@@ -76,6 +76,7 @@ class Controller(QObject):
         self.workspace_guide.annotations_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.ground_truth_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.predictions_dir.mkdir(exist_ok=True, parents=True)
+        self.workspace_guide.focus_dir.mkdir(exist_ok=True, parents=True)
         self.workspace_guide.arena_sim_dir.mkdir(exist_ok=True, parents=True)
 
         self.capture_volume = None

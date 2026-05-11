@@ -17,6 +17,7 @@ class WorkspaceGuide:
         self.annotations_dir = Path(workspace_dir, "annotations")
         self.ground_truth_dir = Path(workspace_dir, "annotations", "ground_truth")
         self.predictions_dir = Path(workspace_dir, "annotations", "predictions")
+        self.focus_dir = Path(workspace_dir, "calibration", "focus")
         self.arena_sim_dir = Path(workspace_dir, "arena_sim")
         self.annotation_index = AnnotationIndex(workspace_dir)
         # Cache configurator to avoid repeated config reloads during periodic updates
