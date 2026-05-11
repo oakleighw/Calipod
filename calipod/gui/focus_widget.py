@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -178,6 +179,19 @@ class FocusWidget(QWidget):
         self.frame_slider.setVisible(False)
         self.frame_slider.valueChanged.connect(self.on_frame_changed)
 
+        # New Lens Settings Row
+        lens_settings_row = QHBoxLayout()
+        self.focus_input = QLineEdit(self)
+        self.focus_input.setPlaceholderText("Focus (e.g. 1.5m)")
+        self.fstop_input = QLineEdit(self)
+        self.fstop_input.setPlaceholderText("F-Stop (e.g. f/2.8)")
+
+        lens_settings_row.addWidget(QLabel("Focus Setting:"))
+        lens_settings_row.addWidget(self.focus_input)
+        lens_settings_row.addWidget(QLabel("F-Stop Setting:"))
+        lens_settings_row.addWidget(self.fstop_input)
+
+
         controls_row = QHBoxLayout()
         self.prev_frame_btn = QPushButton("Prev", self)
         self.next_frame_btn = QPushButton("Next", self)
@@ -198,6 +212,7 @@ class FocusWidget(QWidget):
         video_layout.addWidget(self.video_frame_label)
         video_layout.addWidget(self.video_scroll)
         video_layout.addWidget(self.frame_slider)
+        video_layout.addLayout(lens_settings_row)
         video_layout.addLayout(controls_row)
 
         self.middle_vbox.addWidget(video_group)
@@ -212,6 +227,8 @@ class FocusWidget(QWidget):
             [
                 "Video",
                 "Frame",
+                "Focus",
+                "F-Stop",
                 "ROI",
                 "Width",
                 "Height",
@@ -355,7 +372,11 @@ class FocusWidget(QWidget):
             QMessageBox.warning(self, "Focus Analysis", str(exc))
             return
 
-        self.results_rows.append(result.as_dict())
+        result_data = result.as_dict()
+        result_data["manual_focus"] = self.focus_input.text().strip()
+        result_data["manual_fstop"] = self.fstop_input.text().strip()
+
+        self.results_rows.append(result_data)
         self.analyzer.write_results(self.results_rows)
         self.refresh_results_table()
         self.video_status_label.setText(f"Analyzed {self.current_video_path.name} \
@@ -368,6 +389,8 @@ class FocusWidget(QWidget):
             values = [
                 result.get("video_name", ""),
                 str(result.get("frame_index", "")),
+                result.get("manual_focus", ""),
+                result.get("manual_fstop", ""),
                 result.get("roi", ""),
                 str(result.get("width", "")),
                 str(result.get("height", "")),
