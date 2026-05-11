@@ -10,6 +10,7 @@ from PySide6.QtCore import QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -120,6 +121,7 @@ class FocusWidget(QWidget):
 
         self.place_widgets()
         self.connect_widgets()
+        self._load_initial_camera_data()
         self.refresh_results_table()
 
     def place_widgets(self):
@@ -151,11 +153,21 @@ class FocusWidget(QWidget):
             on_path_selected=self._load_selected_video,
         )
 
+        # Camera selector next to the browse controls
+        self.camera_selector = QComboBox()
+        for port, color in self._camera_selection_entries():
+            self.camera_selector.addItem(f"Camera {port}", userData=port)
+
         self.load_video_btn = QPushButton("Load Video", self)
         self.load_video_btn.clicked.connect(self.load_video_from_entry)
 
-        browse_layout.addWidget(self.video_path_row.container)
-        browse_layout.addWidget(self.load_video_btn)
+        # Layout: path entry, camera dropdown, load button
+        selector_row = QHBoxLayout()
+        selector_row.addWidget(self.video_path_row.container)
+        selector_row.addWidget(self.camera_selector)
+        selector_row.addWidget(self.load_video_btn)
+
+        browse_layout.addLayout(selector_row)
 
         self.top_vbox.addWidget(browse_group)
 
@@ -224,26 +236,26 @@ class FocusWidget(QWidget):
         results_group, results_layout = create_styled_groupbox("3. Results Table")
         results_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+        headers = [
+            "Camera",
+            "Video",
+            "Frame",
+            "Focus",
+            "F-Stop",
+            "ROI",
+            "Width",
+            "Height",
+            "Mean Bright",
+            "Variance",
+            "Entropy",
+            "Edges",
+            "Sobel",
+            "Laplacian",
+            "Timestamp",
+        ]
         self.results_table = QTableWidget(self)
-        self.results_table.setColumnCount(12)
-        self.results_table.setHorizontalHeaderLabels(
-            [
-                "Video",
-                "Frame",
-                "Focus",
-                "F-Stop",
-                "ROI",
-                "Width",
-                "Height",
-                "Mean Bright",
-                "Variance",
-                "Entropy",
-                "Edges",
-                "Sobel",
-                "Laplacian",
-                "Timestamp",
-            ]
-        )
+        self.results_table.setColumnCount(len(headers))
+        self.results_table.setHorizontalHeaderLabels(headers)
         self.results_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.results_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.results_table.verticalHeader().setVisible(False)
@@ -265,6 +277,24 @@ class FocusWidget(QWidget):
 
     def connect_widgets(self):
         self.video_path_row.line_edit.returnPressed.connect(self.load_video_from_entry)
+
+    def _camera_selection_entries(self) -> list[tuple[int, str]]:
+        camera_array = getattr(self.controller, "camera_array", None)
+        cameras = getattr(camera_array, "cameras", None)
+        # Fallback to a single camera entry if none available
+        if not cameras:
+            return [(1, "#000000")]
+
+        ports = sorted(cameras.keys())
+        len(ports)
+        entries: list[tuple[int, str]] = []
+        for position, port in enumerate(ports, start=1):
+            entries.append((port, port))
+        return entries
+
+    def _load_initial_camera_data(self) -> None:
+        if hasattr(self, "camera_selector") and self.camera_selector.count() > 0:
+            self.camera_selector.setCurrentIndex(0)
 
     def _load_selected_video(self, selected_path: str) -> str | None:
         self.load_video(selected_path)
@@ -376,6 +406,13 @@ class FocusWidget(QWidget):
             return
 
         result_data = result.as_dict()
+        # Attach selected camera to the result
+        # Store a human-friendly camera label (string) so the table shows it
+        try:
+            camera_port = self.camera_selector.currentData()
+        except Exception:
+            camera_port = None
+        result_data["camera"] = f"Camera {camera_port}" if camera_port is not None else ""
         result_data["manual_focus"] = self.focus_input.text().strip()
         result_data["manual_fstop"] = self.fstop_input.text().strip()
         result_data["manual_distance"] = self.distance_input.text().strip()
@@ -391,6 +428,7 @@ class FocusWidget(QWidget):
         for row_index, result in enumerate(self.results_rows):
             self.results_table.insertRow(row_index)
             values = [
+                str(result.get("camera", "")),
                 result.get("video_name", ""),
                 str(result.get("frame_index", "")),
                 result.get("manual_focus", ""),
