@@ -31,6 +31,7 @@ from calipod.gui.capture_widget import CameraCaptureWidget
 from calipod.gui.charuco_widget import CharucoWidget
 from calipod.gui.circuit_management_widget import CircuitManagementWidget
 from calipod.gui.detection_widget import DetectionWidget
+from calipod.gui.focus_widget import FocusWidget
 from calipod.gui.log_widget import LogWidget
 from calipod.gui.organise_widget import OrganisationWidget
 from calipod.gui.post_processing_widget import PostProcessingWidget
@@ -119,6 +120,10 @@ class MainWindow(QMainWindow):
         logger.info("Circuit Management widget")
         self.circuit_management_widget = CircuitManagementWidget(self.controller)
         self.central_tab.addTab(self.circuit_management_widget, "Circuit Management")
+
+        logger.info("Focus widget")
+        self.focus_widget = FocusWidget(self.controller)
+        self.central_tab.addTab(self.focus_widget, "Focus")
 
         logger.info("Building camera capture widget")
         self.camera_capture_widget = CameraCaptureWidget(self.controller)
