@@ -185,12 +185,15 @@ class FocusWidget(QWidget):
         self.focus_input.setPlaceholderText("Focus (e.g. 1.5m)")
         self.fstop_input = QLineEdit(self)
         self.fstop_input.setPlaceholderText("F-Stop (e.g. f/2.8)")
+        self.distance_input = QLineEdit(self)
+        self.distance_input.setPlaceholderText("Manual Distance (e.g. 1.0)")
 
         lens_settings_row.addWidget(QLabel("Focus Setting:"))
         lens_settings_row.addWidget(self.focus_input)
         lens_settings_row.addWidget(QLabel("F-Stop Setting:"))
         lens_settings_row.addWidget(self.fstop_input)
-
+        lens_settings_row.addWidget(QLabel("Manual Distance:"))
+        lens_settings_row.addWidget(self.distance_input)
 
         controls_row = QHBoxLayout()
         self.prev_frame_btn = QPushButton("Prev", self)
@@ -375,6 +378,7 @@ class FocusWidget(QWidget):
         result_data = result.as_dict()
         result_data["manual_focus"] = self.focus_input.text().strip()
         result_data["manual_fstop"] = self.fstop_input.text().strip()
+        result_data["manual_distance"] = self.distance_input.text().strip()
 
         self.results_rows.append(result_data)
         self.analyzer.write_results(self.results_rows)
@@ -391,6 +395,7 @@ class FocusWidget(QWidget):
                 str(result.get("frame_index", "")),
                 result.get("manual_focus", ""),
                 result.get("manual_fstop", ""),
+                result.get("manual_distance", ""),
                 result.get("roi", ""),
                 str(result.get("width", "")),
                 str(result.get("height", "")),
